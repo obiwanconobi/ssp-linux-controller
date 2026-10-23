@@ -137,9 +137,12 @@ and is safe for the UI to call periodically.
 
 Polling:
 
-- `read root` every 0.5 s while connected.
+- `read root` every 0.5 s while connected (live meters/status).
 - `browse root` on connect and after patch changes/refresh. A successful browse
   is treated as authoritative, so missing paths are not probed with timeouts.
+- **Network transport:** on TCP the device's `read root` only returns live
+  meters/status, not static parameter changes, so the poller additionally does
+  a `browse root` every ~2 s to pick up block/preset/parameter changes.
 - Polling pauses during uploads via `Device.pause_polling()`.
 
 ---
@@ -255,6 +258,9 @@ both UIs can run at the same time.
   volume/tempo writes, and uploads; GTK updates go through `GLib.idle_add`.
 - External changes (preset/chain) made on the device are detected via polling
   and trigger an automatic re-browse, so the UI stays in sync.
+- Selected-block parameters (floats, enums, model/IR choices, etc.) live-update
+  from the device on each poll; controls the user is actively editing are left
+  alone.
 - Dirty-state tracking prevents polling from resetting a volume/tempo change
   before its debounced write completes.
 - Errors and status are shown both in the status bar and activity log.

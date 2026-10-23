@@ -951,9 +951,11 @@ class Device:
 
     def __init__(self, transport: Transport,
                  log: Callable[[str], None] | None = None,
-                 poll_interval: float = DEFAULT_POLL_INTERVAL):
+                 poll_interval: float = DEFAULT_POLL_INTERVAL,
+                 full_refresh_interval: float = 2.0):
         self.transport = transport
         self.poll_interval = poll_interval
+        self.full_refresh_interval = full_refresh_interval
         self._log_cb = log
         self._io_lock = threading.RLock()
         self._cache_lock = threading.RLock()
@@ -1203,7 +1205,8 @@ class Device:
         return self._request("read root", timeout=timeout, idle=0.2,
                              accept_empty=True)
 
-    def browse_root(self, timeout: float = BROWSE_TIMEOUT) -> int:
+    def browse_root(self, timeout: float = BROWSE_TIMEOUT,
+                    quiet: bool = False) -> int:
         def match(lines: Sequence[ParsedLine]) -> bool:
             if not lines:
                 return False
@@ -1224,7 +1227,8 @@ class Device:
             self._handle_lines(lines)
             with self._cache_lock:
                 count = len(self.nodes)
-        self._log("browse root loaded %d nodes" % count)
+        if not quiet:
+            self._log("browse root loaded %d nodes" % count)
         return count
 
     def read_path(self, path: str,
@@ -1591,10 +1595,19 @@ class Device:
             self._poll_pause.clear()
 
     def _poll_loop(self) -> None:
+        last_browse = 0.0
         while not self._poll_stop.is_set():
             if not self._poll_pause.is_set() and self._connected:
                 try:
-                    self.read_root()
+                    # Some firmware only reports live meters via `read root`
+                    # on the network transport; periodically refresh the full
+                    # tree so parameter/preset/chain changes are picked up.
+                    if (self.full_refresh_interval > 0 and
+                            time.monotonic() - last_browse >= self.full_refresh_interval):
+                        self.browse_root(timeout=5.0, quiet=True)
+                        last_browse = time.monotonic()
+                    else:
+                        self.read_root()
                     self._poll_errors = 0
                 except AuthenticationRequired:
                     self._connected = False

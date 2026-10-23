@@ -199,6 +199,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._volume_dirty = False
         self._tempo_dirty = False
         self._param_timers: dict[str, int] = {}
+        self._param_controls: dict[str, dict[str, Any]] = {}
+        self._param_dirty: set[str] = set()
 
         self._css_provider = Gtk.CssProvider()
         self._reload_css([])
@@ -884,6 +886,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._render_master(state.volume, state.tempo)
         self._render_targets(state)
         self._update_details_switch(state)
+        self._update_param_values()
         self._update_sensitivity()
 
         chain_signature = self._chain_signature(state.blocks)
@@ -1167,6 +1170,8 @@ class MainWindow(Adw.ApplicationWindow):
             children.append(child)
             child = next_child
         self._param_timers.clear()
+        self._param_controls.clear()
+        self._param_dirty.clear()
         return children
 
     def _render_details(self) -> None:
@@ -1275,6 +1280,9 @@ class MainWindow(Adw.ApplicationWindow):
                           path, value_label)
             row.append(scale)
             row.append(value_label)
+            self._param_controls[path] = {
+                "kind": "scale", "widget": scale, "value_label": value_label,
+            }
             return row
 
         if kind in ("enum", "choice"):
@@ -1289,6 +1297,9 @@ class MainWindow(Adw.ApplicationWindow):
                     self._syncing = False
             dd.connect("notify::selected", self._on_param_enum_changed, path, options)
             row.append(dd)
+            self._param_controls[path] = {
+                "kind": "dropdown", "widget": dd, "options": options,
+            }
             return row
 
         if kind == "number":
@@ -1301,6 +1312,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self._syncing = False
             spin.connect("value-changed", self._on_param_spin_changed, path)
             row.append(spin)
+            self._param_controls[path] = {"kind": "spin", "widget": spin}
             return row
 
         if kind == "bool":
@@ -1314,6 +1326,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self._syncing = False
             switch.connect("state-set", self._on_param_bool, path)
             row.append(switch)
+            self._param_controls[path] = {"kind": "switch", "widget": switch}
             return row
 
         entry = Gtk.Entry()
@@ -1321,6 +1334,7 @@ class MainWindow(Adw.ApplicationWindow):
         entry.set_text("" if value is None else str(value))
         entry.connect("activate", self._on_param_entry_activate, path, entry)
         row.append(entry)
+        self._param_controls[path] = {"kind": "entry", "widget": entry}
         return row
 
     @staticmethod
@@ -1335,11 +1349,13 @@ class MainWindow(Adw.ApplicationWindow):
         label.set_text(self._fmt_param_value(scale.get_value()))
         if self._syncing or self.device is None:
             return
+        self._param_dirty.add(path)
         self._schedule_param(path, round(float(scale.get_value()), 6))
 
     def _on_param_spin_changed(self, spin: Gtk.SpinButton, path: str) -> None:
         if self._syncing or self.device is None:
             return
+        self._param_dirty.add(path)
         self._schedule_param(path, round(float(spin.get_value()), 6))
 
     def _on_param_enum_changed(self, dropdown: Gtk.DropDown, _pspec, path: str,
@@ -1349,11 +1365,13 @@ class MainWindow(Adw.ApplicationWindow):
         idx = dropdown.get_selected()
         if idx == Gtk.INVALID_LIST_POSITION or idx >= len(options):
             return
+        self._param_dirty.add(path)
         self._write_param(path, options[idx])
 
     def _on_param_bool(self, switch: Gtk.Switch, state: bool, path: str) -> bool:
         if self._syncing or self.device is None:
             return True
+        self._param_dirty.add(path)
         self._write_param(path, state)
         return False
 
@@ -1361,6 +1379,7 @@ class MainWindow(Adw.ApplicationWindow):
                                  _entry: Gtk.Entry) -> None:
         if self.device is None:
             return
+        self._param_dirty.add(path)
         self._write_param(path, entry.get_text())
 
     def _schedule_param(self, path: str, value: Any) -> None:
@@ -1384,8 +1403,79 @@ class MainWindow(Adw.ApplicationWindow):
             except Exception as exc:
                 self._post(self._log_threadsafe,
                            "parameter write failed: %s" % exc)
+            finally:
+                self._post(self._param_written, path)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _param_written(self, path: str) -> None:
+        self._param_dirty.discard(path)
+
+    def _update_param_values(self) -> None:
+        """Refresh the parameter controls from the device cache.
+
+        Called on each poll tick so changes made directly on the device are
+        reflected in the selected-block editor.  Controls the user is actively
+        editing are skipped.
+        """
+        path = self._details_block_path
+        device = self.device
+        if path is None or device is None:
+            return
+        try:
+            params = device.get_block_parameters(path)
+        except Exception:
+            return
+        by_path = {param["path"]: param for param in params}
+
+        for param_path, control in list(self._param_controls.items()):
+            if param_path in self._param_dirty:
+                continue
+            param = by_path.get(param_path)
+            if param is None:
+                continue
+            value = param.get("value")
+            kind = control["kind"]
+            widget = control["widget"]
+
+            if kind == "dropdown":
+                options = control["options"]
+                index = (options.index(value) if value in options
+                         else Gtk.INVALID_LIST_POSITION)
+                if widget.get_selected() != index:
+                    self._syncing = True
+                    try:
+                        widget.set_selected(index)
+                    finally:
+                        self._syncing = False
+            elif kind in ("scale", "spin"):
+                if widget.has_focus():
+                    continue
+                try:
+                    float_value = float(value)
+                except (TypeError, ValueError):
+                    continue
+                self._syncing = True
+                try:
+                    widget.set_value(float_value)
+                finally:
+                    self._syncing = False
+                if kind == "scale" and "value_label" in control:
+                    control["value_label"].set_text(self._fmt_param_value(value))
+            elif kind == "switch":
+                self._syncing = True
+                try:
+                    widget.set_active(bool(value))
+                finally:
+                    self._syncing = False
+            elif kind == "entry":
+                if widget.has_focus():
+                    continue
+                self._syncing = True
+                try:
+                    widget.set_text("" if value is None else str(value))
+                finally:
+                    self._syncing = False
 
     # ------------------------------------------------------------------
     # Master controls

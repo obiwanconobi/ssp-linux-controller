@@ -32,7 +32,8 @@ official SDK — so use it at your own risk.
 - Master volume and tempo controls.
 - NAM and IR upload with slot selection, overwrite confirmation, and progress.
 - Activity log.
-- Detects patch/chain changes made on the device itself and re-syncs.
+- Detects patch/chain changes made on the device itself and re-syncs; the
+  selected block's parameters, model, and IR also live-update from the device.
 
 Two interfaces are included:
 
