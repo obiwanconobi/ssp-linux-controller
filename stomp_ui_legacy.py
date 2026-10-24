@@ -102,6 +102,8 @@ class StompWindow(Gtk.ApplicationWindow):
         self._update_sensitivity()
         self.connect("close-request", self._on_close)
 
+        # Network discovery is the default transport; USB remains available.
+        self.mode_dd.set_selected(1)
         self._refresh_serial_ports()
         self._start_mdns_scan()
         GLib.timeout_add(250, self._tick)

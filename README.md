@@ -24,7 +24,8 @@ official SDK — so use it at your own risk.
 - Discovers the patch list, current patch, signal-chain router, block states,
   master volume, and tempo from the device.
 - **Signal chain as a horizontal row of colour-coded blocks** — bypassed
-  blocks are dimmed; click a block to select and edit it.
+  blocks are dimmed; click a block to select and edit it, or right-click it
+  to enable/disable it.
 - Selected-block editor: enable switch plus editable parameters (floats as
   sliders, enums and model/IR lists as dropdowns, numbers as spin buttons,
   text as entries).
@@ -85,7 +86,8 @@ python3 stomp.py --legacy        # launch the legacy/debug UI
 python3 stomp.py --diagnose      # print USB/kernel diagnosis without the UI
 ```
 
-The UI connects with the transport dropdown in the bottom-right corner. When
+The UI defaults to network (mDNS) discovery; use the transport dropdown in
+the bottom-right corner to switch to USB serial or a manual TCP address. If
 no `/dev/ttyACM*` device appears, run the diagnose command — it explains
 common causes such as a missing `cdc_acm` kernel module after a kernel update.
 

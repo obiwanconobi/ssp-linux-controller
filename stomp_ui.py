@@ -3,7 +3,8 @@
 stomp_ui.py -- modern GTK4 / libadwaita UI for the Sonulab StompStation PRO.
 
 The signal chain is shown as a horizontal row of coloured block cards
-(bypassed blocks are dimmed, click a block to select and edit it).  Layout is
+(bypassed blocks are dimmed, click a block to select and edit it, or
+right-click it to enable/disable it).  Layout is
 modelled on desktop amp/effect modelling software: device + presets on the
 left, the chain and the selected-block editor in the middle, and master
 controls + file upload + activity log on the right.
@@ -406,6 +407,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._build_ui()
         self.connect("close-request", self._on_close)
 
+        # Network discovery is the default transport; USB remains available.
+        self.mode_dd.set_selected(1)
         self._refresh_serial_ports()
         self._start_mdns_scan()
         GLib.timeout_add(250, self._tick)
@@ -737,7 +740,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_chain_box(self) -> Gtk.Widget:
         panel, box, header = self._section("Signal chain")
-        hint = Gtk.Label(label="Click a block to edit it")
+        hint = Gtk.Label(
+            label="Click a block to edit it; right-click to enable/disable")
         hint.add_css_class("section-caption")
         hint.set_visible(False)
         self.chain_hint = hint
@@ -1630,10 +1634,16 @@ class MainWindow(Adw.ApplicationWindow):
             btn.add_css_class("chain-block")
             btn.add_css_class(_css_class_for(key))
             btn.set_valign(Gtk.Align.CENTER)
-            btn.set_tooltip_text("Select %s block" % block.label)
+            btn.set_tooltip_text(
+                "Select %s block; right-click to enable/disable" % block.label)
             self._set_accessible_label(btn, "%s block" % block.label)
             btn.set_child(card["box"])
             btn.connect("toggled", self._on_chain_toggled, block.path)
+            right_click = Gtk.GestureClick()
+            right_click.set_button(Gdk.BUTTON_SECONDARY)
+            right_click.connect("pressed", self._on_chain_right_click,
+                                block.path)
+            btn.add_controller(right_click)
             self.chain_box.append(btn)
             self._chain_cards[block.path] = {"btn": btn, **card}
         self._reload_css(self._chain_keys)
@@ -1687,6 +1697,35 @@ class MainWindow(Adw.ApplicationWindow):
         elif self._selected_block_path == path:
             self._selected_block_path = None
             self._render_details()
+
+    def _on_chain_right_click(self, gesture: Gtk.GestureClick,
+                              _n_press: int, _x: float, _y: float,
+                              path: str) -> None:
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        device = self.device
+        if device is None or self._busy or self._state is None:
+            return
+        block = next((b for b in self._state.blocks if b.path == path), None)
+        if block is None:
+            return
+        if block.on is None:
+            self._log("cannot toggle %s: block state is unknown" % block.label)
+            return
+
+        state = not block.on
+        self._log("%s block -> %s" % (block.label, "ON" if state else "OFF"))
+        # Apply immediately; the next device poll confirms the new state.
+        block.on = state
+        self._render_state(self._state)
+
+        def worker() -> None:
+            try:
+                device.set_block(path, state)
+            except Exception as exc:
+                self._post(self._log_threadsafe,
+                           "block toggle failed: %s" % exc)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Selected-block editor
