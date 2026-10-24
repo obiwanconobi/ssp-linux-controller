@@ -232,7 +232,11 @@ modelling software:
     parameters — floats as sliders, enums as dropdowns, numbers as spin
     buttons, text as entries, and drive/amp **model** + cabinet **IR** shown as
     dropdowns populated from `nam_drive` / `nam_amp` / `ir_list`, via
-    `Device.get_block_parameters()`),
+    `Device.get_block_parameters()`). Blocks exposing a parallel second group
+    get separate two-card editors via `Device.get_dual_block()`: NAM 1/NAM 2
+    for firmware 2.0.8+ `nam2` groups, and IR 1/IR 2 for `ir2` groups. The
+    second card has its own enable switch, controls, stereo mix/pan, and
+    collapses while disabled.
   - right: master volume/tempo and a notebook with file upload
     (target/slot/file/progress) and the activity log.
 - **Bottom, right-aligned** — the device selector (USB serial / mDNS / manual

@@ -1276,6 +1276,9 @@ class Device:
         with self._cache_lock:
             return self.nodes.get(path, {}).get("value")
 
+    def get_value(self, path: str) -> Any:
+        return self._value(normalize_path(path))
+
     def get_list(self, path: str) -> list[str]:
         with self._cache_lock:
             value = self.nodes.get(path, {}).get("value")
@@ -1519,6 +1522,47 @@ class Device:
 
         params.sort(key=lambda param: param["name"])
         return params
+
+    def _get_dual_group(self, block_path: str, folder: str, child: str,
+                        kind: str) -> dict[str, Any] | None:
+        block_path = normalize_path(block_path)
+        folder_path = block_path + "\\" + folder
+        on_path = folder_path + r"\on_off"
+        with self._cache_lock:
+            nodes = dict(self.nodes)
+        if folder_path not in nodes or (folder_path + "\\" + child) not in nodes:
+            return None
+
+        value = nodes.get(on_path, {}).get("value")
+        if value == "ON":
+            enabled: bool | None = True
+        elif value == "OFF":
+            enabled = False
+        else:
+            enabled = None
+        return {
+            "kind": kind,
+            "path": folder_path,
+            "on_path": on_path,
+            "enabled": enabled,
+            "parameters": self.get_block_parameters(folder_path),
+        }
+
+    def get_dual_block(self, block_path: str) -> dict[str, Any] | None:
+        """Return the parallel second half of an Amp or IR block, if exposed.
+
+        Firmware with dual NAM puts a second model/gain/tone group under
+        ``<amp>\\nam2``; the IR loader has always used the equivalent
+        ``<ir>\\ir2`` group.  Older firmware exposes only the direct
+        parameters, so callers can use this to decide whether to show the
+        second section.
+        """
+        for folder, child, kind in (
+                ("nam2", "model", "nam"), ("ir2", "ir", "ir")):
+            dual = self._get_dual_group(block_path, folder, child, kind)
+            if dual is not None:
+                return dual
+        return None
 
     def get_upload_targets(self) -> list[UploadTarget]:
         with self._cache_lock:

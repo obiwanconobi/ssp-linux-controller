@@ -258,6 +258,80 @@ class DeviceStateTests(unittest.TestCase):
                          ["The Green Box", "The Orange Box"])
         self.assertEqual(params[2]["desc"], "Model")
 
+    def test_dual_nam_state(self):
+        nodes = {
+            r"root\app\amp": {"type": "item", "item_type": "block"},
+            r"root\app\amp\on_off": {"type": "enum", "value": "ON"},
+            r"root\app\amp\model": {"type": "plist", "value": "Amp A",
+                                     "ref": r"root\nam_amp",
+                                     "desc": "Model (1)"},
+            r"root\app\amp\gain": {"type": "float", "value": 4.0,
+                                    "min": -20.0, "max": 20.0},
+            r"root\app\amp\nam2": {"type": "item", "item_type": "vfolder",
+                                    "desc": "Dual Amp"},
+            r"root\app\amp\nam2\on_off": {"type": "enum", "value": "OFF"},
+            r"root\app\amp\nam2\model": {"type": "plist", "value": "Amp B",
+                                          "ref": r"root\nam_amp",
+                                          "desc": "Model (2)"},
+            r"root\app\amp\nam2\pan1": {"type": "float", "value": -100.0,
+                                         "min": -100.0, "max": 100.0,
+                                         "desc": "Pan Model 1"},
+            r"root\nam_amp": {"type": "list",
+                              "value": ["Amp A", "Amp B", ""]},
+        }
+        device = stomp.Device(FakeTransport(nodes),
+                              log=lambda _message: None)
+        device.nodes = dict(nodes)
+
+        dual = device.get_dual_block(r"root\app\amp")
+        self.assertIsNotNone(dual)
+        self.assertEqual(dual["kind"], "nam")
+        self.assertEqual(dual["path"], r"root\app\amp\nam2")
+        self.assertEqual(dual["on_path"], r"root\app\amp\nam2\on_off")
+        self.assertFalse(dual["enabled"])
+        self.assertEqual([param["name"] for param in dual["parameters"]],
+                         ["model", "pan1"])
+        self.assertEqual(dual["parameters"][0]["options"],
+                         ["Amp A", "Amp B"])
+        self.assertEqual(device.get_value(dual["on_path"]), "OFF")
+        self.assertIsNone(device.get_dual_block(r"root\app\drive"))
+
+    def test_dual_ir_state(self):
+        nodes = {
+            r"root\app\ir": {"type": "item", "item_type": "block"},
+            r"root\app\ir\on_off": {"type": "enum", "value": "ON"},
+            r"root\app\ir\ir": {"type": "plist", "value": "Cab A",
+                                "ref": r"root\ir_list",
+                                "desc": "IR (1)"},
+            r"root\app\ir\blend": {"type": "float", "value": 100.0,
+                                    "min": 0.0, "max": 100.0},
+            r"root\app\ir\ir2": {"type": "item", "item_type": "vfolder",
+                                  "desc": "Stereo IR"},
+            r"root\app\ir\ir2\on_off": {"type": "enum", "value": "OFF"},
+            r"root\app\ir\ir2\ir": {"type": "plist", "value": "Cab B",
+                                     "ref": r"root\ir_list",
+                                     "desc": "IR (2)"},
+            r"root\app\ir\ir2\pan1": {"type": "float", "value": -100.0,
+                                       "min": -100.0, "max": 100.0,
+                                       "desc": "Pan IR 1"},
+            r"root\ir_list": {"type": "list",
+                              "value": ["Cab A", "Cab B", ""]},
+        }
+        device = stomp.Device(FakeTransport(nodes),
+                              log=lambda _message: None)
+        device.nodes = dict(nodes)
+
+        dual = device.get_dual_block(r"root\app\ir")
+        self.assertIsNotNone(dual)
+        self.assertEqual(dual["kind"], "ir")
+        self.assertEqual(dual["path"], r"root\app\ir\ir2")
+        self.assertEqual(dual["on_path"], r"root\app\ir\ir2\on_off")
+        self.assertFalse(dual["enabled"])
+        self.assertEqual([param["name"] for param in dual["parameters"]],
+                         ["ir", "pan1"])
+        self.assertEqual(dual["parameters"][0]["options"],
+                         ["Cab A", "Cab B"])
+
     def test_default_chain_fallback(self):
         nodes = {
             r"root\app\gate\on_off": {"value": "ON"},

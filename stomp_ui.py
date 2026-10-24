@@ -234,6 +234,34 @@ headerbar { box-shadow: none; border-bottom: 1px solid alpha(@window_fg_color, 0
     color: alpha(@window_fg_color, 0.68);
 }
 
+/* -- Dual NAM editor ------------------------------------------------ */
+.dual-card {
+    background-color: alpha(@window_fg_color, 0.035);
+    border: 1px solid alpha(@window_fg_color, 0.09);
+    border-radius: 12px;
+    padding: 9px 10px;
+}
+.dual-card-secondary {
+    background-color: alpha(@window_fg_color, 0.02);
+}
+.dual-card-title {
+    font-size: 11px;
+    font-weight: 800;
+    color: alpha(@window_fg_color, 0.82);
+}
+.dual-card-subtitle {
+    font-size: 11px;
+    color: alpha(@window_fg_color, 0.48);
+}
+.dual-card-body { margin-top: 2px; }
+.dual-card.dual-off .dual-card-body { opacity: 0.62; }
+.dual-expander { background-color: transparent; }
+.dual-subhead {
+    font-size: 10px;
+    font-weight: 700;
+    color: alpha(@window_fg_color, 0.48);
+}
+
 /* -- Status / empty states ------------------------------------------ */
 .status-ok    { color: @success_color; font-weight: 600; }
 .status-error { color: @error_color; font-weight: 600; }
@@ -839,6 +867,12 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.details_stack.set_visible_child_name("empty")
         self._details_block_path: str | None = None
+        self._details_dual_path: str | None = None
+        self._dual_card: Gtk.Widget | None = None
+        self._dual_expander: Gtk.Expander | None = None
+        self._dual_switch: Gtk.Switch | None = None
+        self._dual_status: Gtk.Label | None = None
+        self._dual_on: bool | None = None
         self._show_details_hint()
         return panel
 
@@ -1767,6 +1801,12 @@ class MainWindow(Adw.ApplicationWindow):
         self._param_timers.clear()
         self._param_controls.clear()
         self._param_dirty.clear()
+        self._details_dual_path = None
+        self._dual_card = None
+        self._dual_expander = None
+        self._dual_switch = None
+        self._dual_status = None
+        self._dual_on = None
         return children
 
     def _render_details(self) -> None:
@@ -1800,6 +1840,13 @@ class MainWindow(Adw.ApplicationWindow):
             params = self.device.get_block_parameters(path)
         except Exception:
             params = []
+        try:
+            dual_block = self.device.get_dual_block(path)
+        except Exception:
+            dual_block = None
+        if dual_block is not None:
+            self._render_dual_block(params, dual_block)
+            return
         if not params:
             hint = Gtk.Label(label="No editable parameters for this block",
                              xalign=0)
@@ -1808,6 +1855,184 @@ class MainWindow(Adw.ApplicationWindow):
             return
         for param in params:
             self.params_box.append(self._make_param_row(param))
+
+    @staticmethod
+    def _order_dual_params(params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        order = {name: index for index, name in enumerate((
+            "model", "ir", "gain", "lvl", "low", "mid", "treble",
+            "locut", "hicut", "blend", "balance1", "balance2", "pan1", "pan2"))}
+        return sorted(params, key=lambda param: (
+            order.get(param["name"], len(order)), param["name"]))
+
+    @staticmethod
+    def _dual_ui_config(kind: str) -> dict[str, Any]:
+        if kind == "ir":
+            return {
+                "first_title": "IR 1",
+                "first_subtitle": "Primary cabinet",
+                "second_title": "IR 2",
+                "second_subtitle": "Stereo IR \u00b7 runs in parallel",
+                "secondary_params": ("balance1", "balance2", "pan1", "pan2"),
+                "secondary_heading": "LEVEL & PAN",
+                "switch_tooltip": "Enable the second IR in parallel",
+                "switch_label": "Enable second IR",
+                "status_label": "Second IR state",
+            }
+        return {
+            "first_title": "NAM 1",
+            "first_subtitle": "Primary model",
+            "second_title": "NAM 2",
+            "second_subtitle": "Dual amp \u00b7 runs in parallel",
+            "secondary_params": ("pan1", "pan2"),
+            "secondary_heading": "STEREO PLACEMENT",
+            "switch_tooltip": "Enable the second NAM model in parallel",
+            "switch_label": "Enable second NAM model",
+            "status_label": "Second NAM model state",
+        }
+
+    def _make_dual_header(self, title: str, subtitle: str) -> Gtk.Box:
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        labels.set_hexpand(True)
+        title_label = Gtk.Label(label=title, xalign=0)
+        title_label.add_css_class("dual-card-title")
+        labels.append(title_label)
+        subtitle_label = Gtk.Label(label=subtitle, xalign=0)
+        subtitle_label.add_css_class("dual-card-subtitle")
+        labels.append(subtitle_label)
+        header.append(labels)
+        return header
+
+    def _add_group_param_rows(self, body: Gtk.Box,
+                              params: list[dict[str, Any]]) -> None:
+        if not params:
+            hint = Gtk.Label(label="No editable parameters", xalign=0)
+            hint.add_css_class("dim-label")
+            body.append(hint)
+            return
+        for param in self._order_dual_params(params):
+            body.append(self._make_param_row(param))
+
+    def _make_dual_card(self, title: str, subtitle: str,
+                        params: list[dict[str, Any]]) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.add_css_class("dual-card")
+        card.append(self._make_dual_header(title, subtitle))
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        body.add_css_class("dual-card-body")
+        self._add_group_param_rows(body, params)
+        card.append(body)
+        return card
+
+    def _make_dual_secondary_card(self, dual_block: dict[str, Any],
+                                  config: dict[str, Any]) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.add_css_class("dual-card")
+        card.add_css_class("dual-card-secondary")
+
+        header = self._make_dual_header(
+            config["second_title"], config["second_subtitle"])
+        status = Gtk.Label(label="?")
+        status.add_css_class("status-chip")
+        self._set_accessible_label(status, config["status_label"])
+        header.append(status)
+
+        switch = Gtk.Switch()
+        switch.set_valign(Gtk.Align.CENTER)
+        switch.set_tooltip_text(config["switch_tooltip"])
+        self._set_accessible_label(switch, config["switch_label"])
+        switch.connect("state-set", self._on_dual_switch)
+        header.append(switch)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        body.add_css_class("dual-card-body")
+        params = list(dual_block["parameters"])
+        secondary_names = config["secondary_params"]
+        tone_params = [param for param in params
+                       if param["name"] not in secondary_names]
+        secondary_params = [param for param in params
+                            if param["name"] in secondary_names]
+        self._add_group_param_rows(body, tone_params)
+        if secondary_params:
+            body.append(Gtk.Separator())
+            subhead = Gtk.Label(label=config["secondary_heading"], xalign=0)
+            subhead.add_css_class("dual-subhead")
+            body.append(subhead)
+            for param in self._order_dual_params(secondary_params):
+                body.append(self._make_param_row(param))
+
+        expander = Gtk.Expander()
+        expander.add_css_class("dual-expander")
+        expander.set_label_widget(header)
+        expander.set_child(body)
+        card.append(expander)
+
+        self._dual_card = card
+        self._dual_expander = expander
+        self._dual_switch = switch
+        self._dual_status = status
+        self._apply_dual_state(dual_block["enabled"], initial=True)
+        return card
+
+    def _render_dual_block(self, params: list[dict[str, Any]],
+                           dual_block: dict[str, Any]) -> None:
+        config = self._dual_ui_config(dual_block.get("kind", "nam"))
+        self._details_dual_path = dual_block["path"]
+        self.params_box.append(self._make_dual_card(
+            config["first_title"], config["first_subtitle"], params))
+        self.params_box.append(
+            self._make_dual_secondary_card(dual_block, config))
+
+    def _apply_dual_state(self, on: bool | None, *,
+                          initial: bool = False,
+                          sync_switch: bool = True) -> None:
+        changed = initial or on != self._dual_on
+        self._dual_on = on
+        if self._dual_card is not None:
+            if on is False:
+                self._dual_card.add_css_class("dual-off")
+            else:
+                self._dual_card.remove_css_class("dual-off")
+        if self._dual_status is not None:
+            self._set_state_label(self._dual_status, on)
+        if sync_switch and self._dual_switch is not None and \
+                self._dual_switch.get_active() != bool(on):
+            self._syncing = True
+            try:
+                self._dual_switch.set_active(bool(on))
+            finally:
+                self._syncing = False
+        if changed and self._dual_expander is not None:
+            self._dual_expander.set_expanded(on is not False)
+
+    def _on_dual_switch(self, switch: Gtk.Switch, state: bool) -> bool:
+        if self._syncing or self.device is None or self._busy:
+            return True
+        path = self._details_dual_path
+        if path is None:
+            return True
+        on_path = path + r"\on_off"
+        self._log("parallel section -> %s" % ("ON" if state else "OFF"))
+        self._param_dirty.add(on_path)
+        self._apply_dual_state(state, sync_switch=False)
+        self._write_param(on_path, "ON" if state else "OFF")
+        return False
+
+    def _update_dual_state(self, device: stomp.Device) -> None:
+        path = self._details_dual_path
+        if path is None or self._dual_switch is None:
+            return
+        on_path = path + r"\on_off"
+        if on_path in self._param_dirty:
+            return
+        value = device.get_value(on_path)
+        if value == "ON":
+            on: bool | None = True
+        elif value == "OFF":
+            on = False
+        else:
+            on = None
+        self._apply_dual_state(on)
 
     def _update_details_switch(self, state: stomp.DeviceState) -> None:
         path = self._details_block_path
@@ -2037,6 +2262,8 @@ class MainWindow(Adw.ApplicationWindow):
             return
         try:
             params = device.get_block_parameters(path)
+            if self._details_dual_path is not None:
+                params += device.get_block_parameters(self._details_dual_path)
         except Exception:
             return
         by_path = {param["path"]: param for param in params}
@@ -2089,6 +2316,8 @@ class MainWindow(Adw.ApplicationWindow):
                     widget.set_text("" if value is None else str(value))
                 finally:
                     self._syncing = False
+
+        self._update_dual_state(device)
 
     # ------------------------------------------------------------------
     # Master controls

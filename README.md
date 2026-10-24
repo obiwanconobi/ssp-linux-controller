@@ -12,7 +12,65 @@ modern desktop UI for:
 It is built from the reverse-engineered VoidX node protocol — not from an
 official SDK — so use it at your own risk.
 
-![Screenshot of the main window](docs/screenshot.png)
+![Screenshot of the main window with the dual NAM editor open](docs/screenshot.png)
+
+## Install
+
+This is a Linux desktop application. You do not need to be a programmer;
+copy and paste the commands below.
+
+### 1. Install the required packages
+
+**Debian / Ubuntu**
+
+```bash
+sudo apt update
+sudo apt install git python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-serial
+```
+
+**Arch / CachyOS**
+
+```bash
+sudo pacman -S --needed git python-gobject gtk4 libadwaita python-pyserial
+```
+
+On other distributions, install Python 3.10+, GTK 4, libadwaita, PyGObject,
+and `pyserial` using your package manager.
+
+### 2. Download the app
+
+```bash
+git clone https://github.com/obiwanconobi/ssp-linux-controller.git
+cd ssp-linux-controller
+```
+
+You can also download the repository as a ZIP from GitHub, extract it, and
+open a terminal in that folder.
+
+### 3. Connect the pedal
+
+- **Network (default):** connect the pedal and computer to the same Wi-Fi or
+  local network.
+- **USB:** connect the pedal with a data-capable USB cable. If USB does not
+  appear, allow your user to access the serial port:
+  - Debian / Ubuntu: `sudo usermod -aG dialout "$USER"`
+  - Arch / CachyOS: `sudo usermod -aG uucp "$USER"`
+
+  Log out and back in after changing the group.
+
+Close any other app already connected to the pedal, including the official
+VoidX-Control app, before starting this one.
+
+### 4. Start the app
+
+```bash
+python3 stomp.py
+```
+
+In the bottom-right corner, select your pedal and click **Connect**. Network
+discovery is selected by default. If the pedal is not discovered, choose
+**Manual TCP** and enter its address (for example `192.168.1.97:8080`), or run
+`python3 stomp.py --diagnose` for USB diagnostics.
 
 ## Features
 
@@ -29,6 +87,11 @@ official SDK — so use it at your own risk.
 - Selected-block editor: enable switch plus editable parameters (floats as
   sliders, enums and model/IR lists as dropdowns, numbers as spin buttons,
   text as entries).
+- **Dual-NAM Amp editing** on firmware 2.0.8+: separate NAM 1 and NAM 2 cards,
+  independent model and tone controls, stereo pan per model, and a collapsible
+  second-model section.
+- **Dual IR editing**: separate IR 1 and IR 2 cards, independent filter and
+  blend controls, per-IR level and pan, and a collapsible second-IR section.
 - Patch list with single-click loading, previous/next, reload, and save.
 - Master volume and tempo controls.
 - NAM and IR upload with slot selection, overwrite confirmation, and progress.
@@ -41,41 +104,7 @@ Two interfaces are included:
 - `stomp_ui.py` — the modern GTK4/libadwaita interface (default).
 - `stomp_ui_legacy.py` — the earlier, simpler interface, kept for debugging.
 
-## Requirements
-
-- Linux
-- Python 3.10+
-- GTK 4 (4.10+ recommended) and libadwaita
-- `pyserial` (only needed for the USB transport)
-
-### Install on Debian / Ubuntu
-
-```bash
-sudo apt install python3-gi gir1.2-gtk-4.0 python3-serial
-```
-
-### Install on Arch / CachyOS
-
-```bash
-sudo pacman -S python-gobject gtk4 libadwaita python-pyserial
-```
-
-Make sure your user can access the serial device:
-
-```bash
-# Debian/Ubuntu
-sudo usermod -aG dialout "$USER"
-# Arch/CachyOS
-sudo usermod -aG uucp "$USER"
-```
-
-Log out and back in afterwards.
-
-## Running
-
-```bash
-python3 stomp.py
-```
+## Advanced running options
 
 Preselect a transport:
 
@@ -87,9 +116,7 @@ python3 stomp.py --diagnose      # print USB/kernel diagnosis without the UI
 ```
 
 The UI defaults to network (mDNS) discovery; use the transport dropdown in
-the bottom-right corner to switch to USB serial or a manual TCP address. If
-no `/dev/ttyACM*` device appears, run the diagnose command — it explains
-common causes such as a missing `cdc_acm` kernel module after a kernel update.
+the bottom-right corner to switch to USB serial or a manual TCP address.
 
 ## Tests
 
