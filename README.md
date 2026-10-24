@@ -23,7 +23,7 @@ official SDK — so use it at your own risk.
 - Reads the full node tree with `browse root`, then polls `read root` deltas.
 - Discovers the patch list, current patch, signal-chain router, block states,
   master volume, and tempo from the device.
-- **Signal chain as a horizontal row of uniquely coloured blocks** — bypassed
+- **Signal chain as a horizontal row of colour-coded blocks** — bypassed
   blocks are dimmed; click a block to select and edit it.
 - Selected-block editor: enable switch plus editable parameters (floats as
   sliders, enums and model/IR lists as dropdowns, numbers as spin buttons,

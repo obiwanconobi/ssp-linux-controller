@@ -41,34 +41,223 @@ import stomp
 # ---------------------------------------------------------------------------
 
 BASE_CSS = """
-@define-color card-bg alpha(currentColor, 0.16);
+/* -- Palette -------------------------------------------------------- */
+@define-color window_bg_color #0f1118;
+@define-color window_fg_color #f4f6fb;
+@define-color view_bg_color #12141d;
+@define-color view_fg_color #f4f6fb;
+@define-color headerbar_bg_color #131521;
+@define-color headerbar_fg_color #f4f6fb;
+@define-color card_bg_color #191c2a;
+@define-color card_fg_color #f4f6fb;
+@define-color popover_bg_color #1a1d2b;
+@define-color popover_fg_color #f4f6fb;
+@define-color accent_color #4ade80;
+@define-color accent_bg_color #22c55e;
+@define-color accent_fg_color #052e16;
+@define-color success_color #4ade80;
+@define-color success_bg_color #14532d;
+@define-color warning_color #fbbf24;
+@define-color warning_bg_color #78350f;
+@define-color error_color #f87171;
+@define-color error_bg_color #7f1d1d;
+@define-color destructive_bg_color #dc2626;
+@define-color destructive_fg_color #ffffff;
+@define-color borders alpha(@window_fg_color, 0.10);
+@define-color shade_color rgba(0, 0, 0, 0.30);
 
-.title { font-weight: 800; font-size: 15px; }
-.section-title { font-weight: 800; font-size: 12px; letter-spacing: 0.5px;
-                 text-transform: uppercase; opacity: 0.85; }
-.dim-label { opacity: 0.65; }
-.value-label { font-family: monospace; }
+window { background-color: @window_bg_color; color: @window_fg_color; }
+headerbar { box-shadow: none; border-bottom: 1px solid alpha(@window_fg_color, 0.06); }
 
-.chain-block {
+/* -- Surfaces ------------------------------------------------------- */
+.panel {
+    background-color: alpha(@window_fg_color, 0.035);
+    border: 1px solid alpha(@window_fg_color, 0.075);
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+.footer-bar {
+    background-color: alpha(@window_fg_color, 0.035);
+    border: 1px solid alpha(@window_fg_color, 0.075);
+    border-radius: 14px;
+    padding: 8px 12px;
+}
+.panel-header { margin-bottom: 1px; }
+.section-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: @window_fg_color;
+}
+.section-caption {
+    font-size: 12px;
+    font-weight: 500;
+    color: alpha(@window_fg_color, 0.50);
+}
+.dim-label { opacity: 0.60; font-size: 12px; }
+.value-label { font-family: monospace; font-size: 12px; font-weight: 600;
+               color: alpha(@window_fg_color, 0.82); }
+.value-chip {
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: 700;
+    background-color: alpha(@window_fg_color, 0.06);
+    border-radius: 7px;
+    padding: 2px 7px;
+}
+.field-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: alpha(@window_fg_color, 0.50);
+}
+.count-pill {
+    background-color: alpha(@window_fg_color, 0.07);
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: alpha(@window_fg_color, 0.65);
+}
+
+/* -- Header --------------------------------------------------------- */
+.patch-nav {
+    background-color: alpha(@window_fg_color, 0.045);
+    border: 1px solid alpha(@window_fg_color, 0.07);
     border-radius: 12px;
-    border: 2px solid alpha(currentColor, 0.55);
-    background: @card-bg;
-    padding: 4px;
+    padding: 3px;
 }
-.chain-block:hover { background: alpha(currentColor, 0.30); }
-.chain-block:checked {
-    border-color: @theme_fg_color;
-    background: alpha(currentColor, 0.34);
+.patch-nav button { min-height: 30px; border-radius: 9px; }
+.status-pill {
+    background-color: alpha(@window_fg_color, 0.05);
+    border: 1px solid alpha(@window_fg_color, 0.07);
+    border-radius: 999px;
+    padding: 4px 10px;
 }
-.chain-block.bypassed { opacity: 0.38; }
+.status-pill label { font-size: 12px; font-weight: 600; }
+.status-dot {
+    min-width: 7px;
+    min-height: 7px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.30);
+    transition: background-color 160ms ease;
+}
+.status-dot.status-ok {
+    background-color: @success_color;
+    box-shadow: 0 0 6px alpha(@success_color, 0.55);
+}
+.status-dot.status-error { background-color: @error_color; }
+.status-dot.status-idle  { background-color: alpha(@window_fg_color, 0.28); }
 
-.block-abbr { font-weight: 800; font-size: 9px; color: currentColor; }
-.block-name  { font-size: 8px; }
-.block-status { font-size: 7px; font-weight: 700; }
+/* -- Patch list ----------------------------------------------------- */
+.patch-list { background-color: transparent; }
+.patch-row {
+    border-radius: 9px;
+    min-height: 32px;
+    margin: 1px 0;
+    padding: 0;
+    transition: background-color 130ms ease;
+}
+.patch-row:hover { background-color: alpha(@window_fg_color, 0.05); }
+.patch-row:selected {
+    background-color: alpha(@accent_color, 0.13);
+    box-shadow: inset 3px 0 0 @accent_color;
+}
+.patch-row label { padding: 7px 10px; font-size: 13px; }
+.patch-row:selected label { font-weight: 600; }
 
-.status-ok    { color: @success_color; font-weight: 700; }
-.status-error { color: @error_color; font-weight: 700; }
-.status-idle  { opacity: 0.6; }
+/* -- Signal chain --------------------------------------------------- */
+.chain-scroll { background-color: transparent; }
+.chain-block {
+    min-width: 84px;
+    min-height: 60px;
+    padding: 7px 8px 6px;
+    border-radius: 12px;
+    border: 1px solid alpha(@window_fg_color, 0.10);
+    background-color: alpha(@window_fg_color, 0.035);
+    transition: background-color 140ms ease, border-color 140ms ease,
+                opacity 140ms ease;
+}
+.chain-block:hover {
+    background-color: alpha(@window_fg_color, 0.075);
+    border-color: alpha(@window_fg_color, 0.20);
+}
+.chain-block:focus-visible { box-shadow: 0 0 0 2px @accent_color; }
+.chain-block.bypassed { opacity: 0.60; }
+.chain-block.bypassed:hover { opacity: 0.80; }
+.block-dot {
+    min-width: 7px;
+    min-height: 7px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.30);
+}
+.block-abbr {
+    font-weight: 800;
+    font-size: 12px;
+    color: @window_fg_color;
+}
+.block-name { font-size: 11px; color: alpha(@window_fg_color, 0.65); }
+.block-status { font-size: 11px; font-weight: 700; }
+.chain-arrow { opacity: 0.26; }
+.state-on  { color: @success_color; }
+.state-off { color: alpha(@window_fg_color, 0.55); }
+
+/* -- Selected block ------------------------------------------------- */
+.details-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: @window_fg_color;
+}
+.status-chip {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    background-color: alpha(@window_fg_color, 0.06);
+    color: alpha(@window_fg_color, 0.50);
+}
+.status-chip.state-on {
+    color: @success_color;
+    background-color: alpha(@success_color, 0.12);
+}
+.status-chip.state-off {
+    color: alpha(@window_fg_color, 0.50);
+}
+.param-row {
+    padding: 3px 5px;
+    border-radius: 8px;
+    transition: background-color 120ms ease;
+}
+.param-row:hover { background-color: alpha(@window_fg_color, 0.035); }
+.param-label {
+    font-size: 12px;
+    color: alpha(@window_fg_color, 0.68);
+}
+
+/* -- Status / empty states ------------------------------------------ */
+.status-ok    { color: @success_color; font-weight: 600; }
+.status-error { color: @error_color; font-weight: 600; }
+.status-idle  { opacity: 0.65; }
+.empty-state { padding: 22px 12px; }
+.empty-state.compact { padding: 8px 12px; }
+.empty-icon { opacity: 0.32; }
+.empty-title { font-weight: 700; font-size: 13px; }
+.empty-caption {
+    font-size: 12px;
+    color: alpha(@window_fg_color, 0.50);
+}
+
+/* -- Utilities ------------------------------------------------------ */
+.log-scroll {
+    background-color: rgba(0, 0, 0, 0.16);
+    border: 1px solid alpha(@window_fg_color, 0.06);
+    border-radius: 10px;
+}
+.log-view, .log-view text { background-color: transparent; }
+.log-view { font-size: 12px; }
+.file-name {
+    font-size: 12px;
+    color: alpha(@window_fg_color, 0.50);
+}
 """
 
 # Unique colours for the standard blocks; unknown blocks get a hashed colour.
@@ -117,8 +306,17 @@ def _short_for(key: str, label: str) -> str:
     return (label or key).upper()[:6]
 
 
+def _chain_display_name(label: str) -> str:
+    """Use the descriptive half of labels such as 'Drive / distortion'."""
+    if " / " in label:
+        suffix = label.split(" / ", 1)[1].strip()
+        if suffix:
+            return suffix[0].upper() + suffix[1:]
+    return label
+
+
 def _css_class_for(key: str) -> str:
-    return "block-" + re.sub(r"[^A-Za-z0-9_-]", "_", key)
+    return "tone-" + re.sub(r"[^A-Za-z0-9_-]", "_", key)
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +354,7 @@ class MainWindow(Adw.ApplicationWindow):
                  initial_tcp: str | None = None):
         super().__init__(application=app)
         self.set_title("StompStation Pro Control")
-        self.set_default_size(1280, 800)
+        self.set_default_size(1280, 860)
         self.set_size_request(1000, 640)
 
         self._alive = True
@@ -220,7 +418,19 @@ class MainWindow(Adw.ApplicationWindow):
     def _reload_css(self, keys: Sequence[str]) -> None:
         css = BASE_CSS
         for key in keys:
-            css += ".%s { color: %s; }\n" % (_css_class_for(key), _color_for(key))
+            cls = _css_class_for(key)
+            color = _color_for(key)
+            css += (
+                ".block-dot.%s { background-color: %s; }\n"
+                ".details-title.%s { color: %s; }\n"
+                ".chain-block.%s:checked {\n"
+                "    border-color: alpha(%s, 0.80);\n"
+                "    background-color: alpha(%s, 0.13);\n"
+                "}\n"
+                ".chain-block.%s:checked:hover {\n"
+                "    background-color: alpha(%s, 0.18);\n"
+                "}\n"
+            ) % (cls, color, cls, color, cls, color, color, cls, color)
         self._css_provider.load_from_data(css.encode("utf-8"))
         display = Gdk.Display.get_default()
         if display:
@@ -230,7 +440,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _set_block_color_class(self, widget: Gtk.Widget, key: str) -> None:
         for cls in list(widget.get_css_classes()):
-            if cls.startswith("block-"):
+            if cls.startswith("tone-"):
                 widget.remove_css_class(cls)
         widget.add_css_class(_css_class_for(key))
 
@@ -240,68 +450,94 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_ui(self) -> None:
         header = Adw.HeaderBar()
-        title = Gtk.Label(label="StompStation Pro")
-        title.add_css_class("title")
+
+        title = Adw.WindowTitle(title="StompStation Pro",
+                                subtitle="Sonulab StompStation PRO")
         header.pack_start(title)
 
-        nav = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.prev_btn = Gtk.Button.new_with_label("\u25c0")
-        self.prev_btn.set_tooltip_text("Previous patch")
+        # Patch navigation lives in the header centre so the current rig is
+        # always visible, with its related actions grouped beside it.
+        nav = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        nav.add_css_class("patch-nav")
+
+        self.prev_btn = self._icon_button(
+            "go-previous-symbolic", "Previous patch", "Previous patch")
         self.prev_btn.connect("clicked", lambda *_: self._step_patch(-1))
         nav.append(self.prev_btn)
-        self.patch_dd = Gtk.DropDown.new_from_strings([])
+
+        self.patch_dd = Gtk.DropDown.new_from_strings(["No patches"])
         self.patch_dd.set_size_request(240, -1)
+        self.patch_dd.set_tooltip_text("Select a patch")
         self.patch_dd.connect("notify::selected", self._on_patch_selected)
         nav.append(self.patch_dd)
-        self.next_btn = Gtk.Button.new_with_label("\u25b6")
-        self.next_btn.set_tooltip_text("Next patch")
+
+        self.next_btn = self._icon_button(
+            "go-next-symbolic", "Next patch", "Next patch")
         self.next_btn.connect("clicked", lambda *_: self._step_patch(1))
         nav.append(self.next_btn)
-        self.patch_reload_btn = Gtk.Button.new_with_label("\u21bb")
-        self.patch_reload_btn.set_tooltip_text("Reload state from device")
-        self.patch_reload_btn.connect("clicked", lambda *_: self._refresh_all_async())
+
+        nav.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        self.patch_reload_btn = self._icon_button(
+            "view-refresh-symbolic", "Reload state from device",
+            "Reload state from device")
+        self.patch_reload_btn.connect(
+            "clicked", lambda *_: self._refresh_all_async())
         nav.append(self.patch_reload_btn)
-        self.patch_save_btn = Gtk.Button.new_with_label("Save")
-        self.patch_save_btn.set_tooltip_text("Save the current settings into this patch")
+
+        self.patch_save_btn = self._icon_button(
+            "document-save-symbolic", "Save the current settings into this patch",
+            "Save patch")
         self.patch_save_btn.connect("clicked", lambda *_: self._save_patch())
         nav.append(self.patch_save_btn)
+
         header.set_title_widget(nav)
 
-        self.header_status = Gtk.Label(label="Disconnected")
+        status_pill = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        status_pill.add_css_class("status-pill")
+        self.header_dot = Gtk.Box()
+        self.header_dot.set_size_request(7, 7)
+        self.header_dot.set_valign(Gtk.Align.CENTER)
+        self.header_dot.set_halign(Gtk.Align.CENTER)
+        self.header_dot.add_css_class("status-dot")
+        self.header_dot.add_css_class("status-idle")
+        status_pill.append(self.header_dot)
+        self.header_status = Gtk.Label(label="Offline")
         self.header_status.add_css_class("status-idle")
-        header.pack_end(self.header_status)
+        status_pill.append(self.header_status)
+        header.pack_end(status_pill)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        outer.set_margin_top(10)
-        outer.set_margin_bottom(10)
-        outer.set_margin_start(10)
-        outer.set_margin_end(10)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        outer.set_margin_top(12)
+        outer.set_margin_bottom(12)
+        outer.set_margin_start(14)
+        outer.set_margin_end(14)
 
         # Signal chain spans the full width at the top.
         outer.append(self._build_chain_box())
 
-        # The remaining three sections sit below the chain.
-        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        # The remaining sections sit below the chain.
+        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         columns.set_vexpand(True)
         outer.append(columns)
 
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        left.set_size_request(260, -1)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        left.set_size_request(250, -1)
         columns.append(left)
         left.append(self._build_presets_box())
 
-        middle = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        middle = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         middle.set_hexpand(True)
         columns.append(middle)
         middle.append(self._build_details_box())
 
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        right.set_size_request(320, -1)
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        right.set_size_request(324, -1)
         columns.append(right)
         right.append(self._build_master_box())
         right.append(self._build_files_log_box())
 
-        # Device selector + connect/disconnect at the bottom, right-aligned.
+        # Device selector + connect/disconnect at the bottom.
         outer.append(self._build_connection_bar())
 
         toolbar_view = Adw.ToolbarView()
@@ -311,34 +547,111 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._update_sensitivity()
 
+    @staticmethod
+    def _set_accessible_label(widget: Gtk.Widget, label: str) -> None:
+        widget.update_property([Gtk.AccessibleProperty.LABEL], [label])
+
+    @staticmethod
+    def _icon_button(icon_name: str, tooltip: str,
+                     accessible_label: str | None = None) -> Gtk.Button:
+        button = Gtk.Button.new_from_icon_name(icon_name)
+        button.add_css_class("flat")
+        button.set_tooltip_text(tooltip)
+        MainWindow._set_accessible_label(button, accessible_label or tooltip)
+        return button
+
+    @staticmethod
+    def _empty_state(icon_name: str, title: str,
+                     caption: str, compact: bool = False) -> Gtk.Widget:
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL if compact
+            else Gtk.Orientation.VERTICAL,
+            spacing=12 if compact else 6)
+        box.add_css_class("empty-state")
+        if compact:
+            box.add_css_class("compact")
+        box.set_halign(Gtk.Align.CENTER)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_vexpand(not compact)
+
+        image = Gtk.Image.new_from_icon_name(icon_name)
+        image.set_pixel_size(26 if compact else 30)
+        image.add_css_class("empty-icon")
+        box.append(image)
+
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                       spacing=0 if compact else 2)
+        heading = Gtk.Label(label=title, justify=Gtk.Justification.CENTER)
+        heading.add_css_class("empty-title")
+        text.append(heading)
+
+        detail = Gtk.Label(label=caption, justify=Gtk.Justification.CENTER)
+        detail.add_css_class("empty-caption")
+        detail.set_wrap(True)
+        detail.set_max_width_chars(48 if compact else 34)
+        text.append(detail)
+        box.append(text)
+        return box
+
+    @staticmethod
+    def _field(label: str, widget: Gtk.Widget) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        caption = Gtk.Label(label=label, xalign=0)
+        caption.add_css_class("field-label")
+        box.append(caption)
+        box.append(widget)
+        return box
+
     def _build_connection_bar(self) -> Gtk.Widget:
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        bar.add_css_class("footer-bar")
 
         self.spinner = Gtk.Spinner()
         self.spinner.set_visible(False)
         bar.append(self.spinner)
 
+        self.status_dot = Gtk.Box()
+        self.status_dot.set_size_request(7, 7)
+        self.status_dot.set_valign(Gtk.Align.CENTER)
+        self.status_dot.set_halign(Gtk.Align.CENTER)
+        self.status_dot.add_css_class("status-dot")
+        self.status_dot.add_css_class("status-idle")
+        bar.append(self.status_dot)
+
         self.status_label = Gtk.Label(label="Ready", xalign=0)
         self.status_label.set_hexpand(True)
         self.status_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.status_label.add_css_class("status-idle")
         bar.append(self.status_label)
 
-        bar.append(Gtk.Label(label="Device", xalign=0))
+        # Source controls are hidden once connected; the header and status
+        # line carry the connection state, so the footer stays uncluttered.
+        self.source_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                  spacing=8)
+        bar.append(self.source_box)
+
+        source_label = Gtk.Label(label="Device", xalign=0)
+        source_label.add_css_class("field-label")
+        self.source_box.append(source_label)
+
         self.mode_dd = Gtk.DropDown.new_from_strings(
             ["USB serial", "Network (mDNS)", "Manual TCP"])
+        self.mode_dd.set_tooltip_text("Choose how to reach the pedal")
         self.mode_dd.connect("notify::selected", self._on_mode_changed)
-        bar.append(self.mode_dd)
+        self.source_box.append(self.mode_dd)
 
         self.mode_stack = Gtk.Stack()
         self.mode_stack.set_transition_type(Gtk.StackTransitionType.NONE)
-        bar.append(self.mode_stack)
+        self.source_box.append(self.mode_stack)
 
         serial_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.port_dd = Gtk.DropDown.new_from_strings(["Scanning..."])
         self.port_dd.set_size_request(180, -1)
+        self._set_accessible_label(self.port_dd, "Serial port")
         serial_box.append(self.port_dd)
-        refresh = Gtk.Button.new_with_label("Refresh")
-        refresh.set_tooltip_text("Refresh serial ports")
+        refresh = self._icon_button(
+            "view-refresh-symbolic", "Refresh serial ports",
+            "Refresh serial ports")
         refresh.connect("clicked", lambda *_: self._refresh_serial_ports())
         serial_box.append(refresh)
         self.mode_stack.add_named(serial_box, "serial")
@@ -346,9 +659,11 @@ class MainWindow(Adw.ApplicationWindow):
         mdns_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.mdns_dd = Gtk.DropDown.new_from_strings(["Scanning..."])
         self.mdns_dd.set_size_request(180, -1)
+        self._set_accessible_label(self.mdns_dd, "Discovered network device")
         mdns_box.append(self.mdns_dd)
-        scan = Gtk.Button.new_with_label("Scan")
-        scan.set_tooltip_text("Scan for network devices")
+        scan = self._icon_button("edit-find-symbolic",
+                                 "Scan for network devices",
+                                 "Scan for network devices")
         scan.connect("clicked", lambda *_: self._start_mdns_scan())
         mdns_box.append(scan)
         self.mode_stack.add_named(mdns_box, "mdns")
@@ -357,204 +672,348 @@ class MainWindow(Adw.ApplicationWindow):
         self.tcp_entry = Gtk.Entry()
         self.tcp_entry.set_placeholder_text("host:port")
         self.tcp_entry.set_size_request(180, -1)
+        self._set_accessible_label(self.tcp_entry, "Network address")
         manual_box.append(self.tcp_entry)
         self.mode_stack.add_named(manual_box, "manual")
 
-        self.connect_btn = Gtk.Button.new_with_label("Connect")
+        self.connect_btn = Gtk.Button()
         self.connect_btn.add_css_class("suggested-action")
+        self.connect_content = Adw.ButtonContent(
+            icon_name="network-wired-symbolic", label="Connect")
+        self.connect_btn.set_child(self.connect_content)
+        self.connect_btn.set_tooltip_text("Connect to the pedal")
+        self._set_accessible_label(self.connect_btn, "Connect")
         self.connect_btn.connect("clicked", lambda *_: self._on_connect_clicked())
         bar.append(self.connect_btn)
 
         return bar
 
     def _build_presets_box(self) -> Gtk.Widget:
-        frame, box = self._section("Patches")
-        frame.set_vexpand(True)
+        panel, box, header = self._section("Patches")
+        panel.set_vexpand(True)
+
+        self.patch_count_label = Gtk.Label(label="0")
+        self.patch_count_label.add_css_class("count-pill")
+        self.patch_count_label.set_visible(False)
+        header.append(self.patch_count_label)
+
+        self.patch_search = Gtk.SearchEntry()
+        self.patch_search.set_placeholder_text("Search patches")
+        self.patch_search.set_tooltip_text("Filter the patch list")
+        self.patch_search.set_visible(False)
+        self._set_accessible_label(self.patch_search, "Search patches")
+        self.patch_search.connect("search-changed",
+                                  self._on_patch_search_changed)
+        box.append(self.patch_search)
+
+        self.presets_stack = Gtk.Stack()
+        self.presets_stack.set_transition_type(
+            Gtk.StackTransitionType.CROSSFADE)
+        self.presets_stack.set_transition_duration(140)
+        self.presets_stack.set_vexpand(True)
+        box.append(self.presets_stack)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
         self.presets_list = Gtk.ListBox()
+        self.presets_list.add_css_class("patch-list")
         self.presets_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.presets_list.set_activate_on_single_click(True)
         self.presets_list.connect("row-activated", self._on_preset_activated)
         scrolled.set_child(self.presets_list)
-        box.append(scrolled)
-        return frame
+        self.presets_stack.add_named(scrolled, "list")
+
+        empty = self._empty_state(
+            "folder-music-symbolic", "No patches loaded",
+            "Connect to the pedal to browse and load its patches.")
+        self.presets_stack.add_named(empty, "empty")
+        no_results = self._empty_state(
+            "edit-find-symbolic", "No matches",
+            "Try a different search term.")
+        self.presets_stack.add_named(no_results, "no-results")
+        self.presets_stack.set_visible_child_name("empty")
+        return panel
 
     def _build_chain_box(self) -> Gtk.Widget:
-        frame, box = self._section("Signal chain")
+        panel, box, header = self._section("Signal chain")
+        hint = Gtk.Label(label="Click a block to edit it")
+        hint.add_css_class("section-caption")
+        hint.set_visible(False)
+        self.chain_hint = hint
+        header.append(hint)
+
+        self.chain_stack = Gtk.Stack()
+        self.chain_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.chain_stack.set_transition_duration(140)
+        self.chain_stack.set_size_request(-1, 76)
+        box.append(self.chain_stack)
+
         scrolled = Gtk.ScrolledWindow()
+        scrolled.add_css_class("chain-scroll")
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
         scrolled.set_hexpand(True)
+        scrolled.set_min_content_height(76)
         self._chain_wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
                                    spacing=0)
         self._chain_wrap.set_halign(Gtk.Align.START)
         self._chain_wrap.set_valign(Gtk.Align.CENTER)
-        self._chain_wrap.set_vexpand(True)
-        self.chain_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._chain_wrap.set_vexpand(False)
+        self.chain_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                 spacing=6)
         self.chain_box.set_valign(Gtk.Align.CENTER)
         self._chain_wrap.append(self.chain_box)
         scrolled.set_child(self._chain_wrap)
-        box.append(scrolled)
-        hint = Gtk.Label(
-            label="Blocks are shown in chain order. Bypassed blocks are dimmed; "
-                  "click a block to select and edit it.", xalign=0)
-        hint.add_css_class("dim-label")
-        hint.set_wrap(True)
-        box.append(hint)
-        return frame
+        self.chain_stack.add_named(scrolled, "chain")
+
+        empty = self._empty_state(
+            "emblem-music-symbolic", "No signal chain yet",
+            "Connect to your pedal to load the current rig.", compact=True)
+        self.chain_stack.add_named(empty, "empty")
+        self.chain_stack.set_visible_child_name("empty")
+        return panel
 
     def _build_details_box(self) -> Gtk.Widget:
-        frame, box = self._section("Selected block")
-        frame.set_vexpand(True)
+        panel, box, _header = self._section("Selected block")
+        panel.set_vexpand(True)
+        box.set_vexpand(True)
+
+        self.details_stack = Gtk.Stack()
+        self.details_stack.set_transition_type(
+            Gtk.StackTransitionType.CROSSFADE)
+        self.details_stack.set_transition_duration(140)
+        self.details_stack.set_vexpand(True)
+        box.append(self.details_stack)
+
+        empty = self._empty_state(
+            "view-list-symbolic", "No block selected",
+            "Choose a block in the signal chain to edit its controls.")
+        self.details_stack.add_named(empty, "empty")
+
+        editor = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        editor.set_vexpand(True)
+        self.details_stack.add_named(editor, "editor")
+
+        heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        editor.append(heading)
+
+        self.details_dot = Gtk.Box()
+        self.details_dot.set_size_request(8, 8)
+        self.details_dot.add_css_class("block-dot")
+        self.details_dot.set_valign(Gtk.Align.CENTER)
+        heading.append(self.details_dot)
 
         self.details_name = Gtk.Label(label="No block selected", xalign=0)
-        self.details_name.add_css_class("title")
-        box.append(self.details_name)
+        self.details_name.add_css_class("details-title")
+        self.details_name.set_hexpand(True)
+        self.details_name.set_ellipsize(Pango.EllipsizeMode.END)
+        heading.append(self.details_name)
 
-        power_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        box.append(power_row)
-        power_row.append(Gtk.Label(label="Enabled", xalign=0))
+        self.details_status = Gtk.Label(label="")
+        self.details_status.add_css_class("status-chip")
+        self._set_accessible_label(self.details_status, "Block state")
+        heading.append(self.details_status)
+
         self.details_switch = Gtk.Switch()
         self.details_switch.set_valign(Gtk.Align.CENTER)
         self.details_switch.set_sensitive(False)
+        self.details_switch.set_tooltip_text("Enable or bypass this block")
+        self._set_accessible_label(self.details_switch,
+                                   "Enable selected block")
         self.details_switch.connect("state-set", self._on_details_switch)
-        power_row.append(self.details_switch)
-        self.details_status = Gtk.Label(label="", xalign=1)
-        self.details_status.set_hexpand(True)
-        power_row.append(self.details_status)
+        heading.append(self.details_switch)
 
-        separator = Gtk.Separator()
-        box.append(separator)
+        editor.append(Gtk.Separator())
 
         params_scroll = Gtk.ScrolledWindow()
         params_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        params_scroll.set_overlay_scrolling(False)
         params_scroll.set_vexpand(True)
         self.params_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         params_scroll.set_child(self.params_box)
-        box.append(params_scroll)
+        editor.append(params_scroll)
 
+        self.details_stack.set_visible_child_name("empty")
         self._details_block_path: str | None = None
         self._show_details_hint()
-        return frame
+        return panel
 
     def _build_master_box(self) -> Gtk.Widget:
-        frame, box = self._section("Master")
-        vol_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        panel, box, _header = self._section("Master")
+
+        vol_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         box.append(vol_row)
-        vol_row.append(Gtk.Label(label="Volume", xalign=0))
+        vol_label = Gtk.Label(label="Volume", xalign=0)
+        vol_label.add_css_class("param-label")
+        vol_label.set_size_request(58, -1)
+        vol_row.append(vol_label)
         self.volume_scale = Gtk.Scale.new_with_range(
             Gtk.Orientation.HORIZONTAL, 0.0, 100.0, 1.0)
         self.volume_scale.set_hexpand(True)
         self.volume_scale.set_draw_value(False)
+        self.volume_scale.set_tooltip_text("Master output volume")
+        self._set_accessible_label(self.volume_scale, "Master volume")
         self.volume_scale.connect("value-changed", self._on_volume_changed)
         vol_row.append(self.volume_scale)
         self.volume_value_label = Gtk.Label(label="--")
         self.volume_value_label.add_css_class("value-label")
-        self.volume_value_label.set_size_request(48, -1)
+        self.volume_value_label.add_css_class("value-chip")
+        self.volume_value_label.set_size_request(52, -1)
         vol_row.append(self.volume_value_label)
 
-        tempo_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        tempo_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         box.append(tempo_row)
-        tempo_row.append(Gtk.Label(label="Tempo", xalign=0))
+        tempo_label = Gtk.Label(label="Tempo", xalign=0)
+        tempo_label.add_css_class("param-label")
+        tempo_label.set_size_request(58, -1)
+        tempo_row.append(tempo_label)
         self.tempo_spin = Gtk.SpinButton.new_with_range(20.0, 300.0, 1.0)
         self.tempo_spin.set_hexpand(True)
+        self.tempo_spin.set_value(120.0)
+        self.tempo_spin.set_tooltip_text("Patch tempo in beats per minute")
+        self._set_accessible_label(self.tempo_spin, "Tempo in BPM")
         self.tempo_spin.connect("value-changed", self._on_tempo_changed)
         tempo_row.append(self.tempo_spin)
-        tempo_row.append(Gtk.Label(label="BPM", xalign=0))
-        return frame
+        bpm = Gtk.Label(label="BPM", xalign=0)
+        bpm.add_css_class("field-label")
+        tempo_row.append(bpm)
+        return panel
 
     def _build_files_log_box(self) -> Gtk.Widget:
-        notebook = Gtk.Notebook()
-        notebook.set_vexpand(True)
-        notebook.append_page(self._build_upload_page(), Gtk.Label(label="Files"))
-        notebook.append_page(self._build_log_page(), Gtk.Label(label="Activity"))
-        return notebook
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        panel.add_css_class("panel")
+        panel.set_vexpand(True)
+
+        self.utility_stack = Adw.ViewStack()
+        self.utility_stack.set_vexpand(True)
+        self.utility_stack.add_titled_with_icon(
+            self._build_upload_page(), "files", "Files",
+            "folder-download-symbolic")
+        self.utility_stack.add_titled_with_icon(
+            self._build_log_page(), "activity", "Activity",
+            "utilities-terminal-symbolic")
+
+        switcher = Adw.ViewSwitcher()
+        switcher.set_stack(self.utility_stack)
+        switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
+        switcher.set_halign(Gtk.Align.CENTER)
+        panel.append(switcher)
+        panel.append(self.utility_stack)
+        return panel
 
     def _build_upload_page(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.append(row)
-        row.append(Gtk.Label(label="Target", xalign=0))
-        self.target_dd = Gtk.DropDown.new_from_strings(["Waiting for device..."])
+        self.target_dd = Gtk.DropDown.new_from_strings(
+            ["Waiting for device..."])
         self.target_dd.set_hexpand(True)
+        self.target_dd.set_tooltip_text("Choose which library receives the file")
+        self._set_accessible_label(self.target_dd, "Upload target")
         self.target_dd.connect("notify::selected", self._on_target_changed)
-        row.append(self.target_dd)
+        box.append(self._field("Upload target", self.target_dd))
 
-        row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.append(row2)
-        row2.append(Gtk.Label(label="Slot", xalign=0))
         self.slot_dd = Gtk.DropDown.new_from_strings(["--"])
         self.slot_dd.set_hexpand(True)
+        self.slot_dd.set_tooltip_text("Choose the destination slot")
+        self._set_accessible_label(self.slot_dd, "Upload slot")
         self.slot_dd.connect("notify::selected", self._on_slot_changed)
-        row2.append(self.slot_dd)
+        box.append(self._field("Slot", self.slot_dd))
 
-        row3 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.append(row3)
-        self.file_btn = Gtk.Button.new_with_label("Choose file...")
+        self.file_btn = Gtk.Button()
+        self.file_btn.set_child(Adw.ButtonContent(
+            icon_name="document-open-symbolic", label="Choose file"))
+        self.file_btn.set_tooltip_text("Choose a NAM model or IR WAV file")
+        self._set_accessible_label(self.file_btn, "Choose file")
         self.file_btn.connect("clicked", lambda *_: self._choose_file())
-        row3.append(self.file_btn)
+
         self.file_label = Gtk.Label(label="No file selected", xalign=0)
+        self.file_label.add_css_class("file-name")
         self.file_label.set_hexpand(True)
         self.file_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        row3.append(self.file_label)
 
-        self.upload_btn = Gtk.Button.new_with_label("Upload")
+        file_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        file_box.append(self.file_btn)
+        file_box.append(self.file_label)
+        box.append(self._field("File", file_box))
+
+        self.upload_btn = Gtk.Button()
         self.upload_btn.add_css_class("suggested-action")
+        self.upload_btn.set_child(Adw.ButtonContent(
+            icon_name="document-send-symbolic", label="Upload"))
+        self.upload_btn.set_tooltip_text("Upload the selected file to the pedal")
+        self._set_accessible_label(self.upload_btn, "Upload file")
         self.upload_btn.connect("clicked", lambda *_: self._on_upload_clicked())
         box.append(self.upload_btn)
 
         self.progress = Gtk.ProgressBar()
         self.progress.set_show_text(True)
         self.progress.set_text("Idle")
+        self.progress.set_visible(False)
         box.append(self.progress)
         return box
 
     def _build_log_page(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         box.append(toolbar)
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        toolbar.append(spacer)
-        clear_btn = Gtk.Button.new_with_label("Clear")
+        caption = Gtk.Label(label="Session events", xalign=0)
+        caption.add_css_class("section-caption")
+        caption.set_hexpand(True)
+        toolbar.append(caption)
+        clear_btn = self._icon_button("user-trash-symbolic",
+                                      "Clear activity log",
+                                      "Clear activity log")
         clear_btn.connect("clicked", lambda *_: self._clear_log())
         toolbar.append(clear_btn)
 
+        self.log_placeholder = Gtk.Label(
+            label="Connection and device events will appear here.")
+        self.log_placeholder.add_css_class("empty-caption")
+        self.log_placeholder.set_wrap(True)
+        self.log_placeholder.set_max_width_chars(32)
+        self.log_placeholder.set_halign(Gtk.Align.CENTER)
+        self.log_placeholder.set_valign(Gtk.Align.CENTER)
+        self.log_placeholder.set_can_target(False)
+
         scrolled = Gtk.ScrolledWindow()
+        scrolled.add_css_class("log-scroll")
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_overlay_scrolling(False)
         scrolled.set_vexpand(True)
         self.log_view = Gtk.TextView()
+        self.log_view.add_css_class("log-view")
         self.log_view.set_editable(False)
         self.log_view.set_cursor_visible(False)
         self.log_view.set_monospace(True)
         self.log_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.log_view.set_top_margin(10)
+        self.log_view.set_bottom_margin(10)
+        self.log_view.set_left_margin(10)
+        self.log_view.set_right_margin(10)
         scrolled.set_child(self.log_view)
-        box.append(scrolled)
+
+        overlay = Gtk.Overlay()
+        overlay.set_child(scrolled)
+        overlay.add_overlay(self.log_placeholder)
+        overlay.set_vexpand(True)
+        box.append(overlay)
         return box
 
     @staticmethod
-    def _section(title: str) -> tuple[Gtk.Frame, Gtk.Box]:
-        frame = Gtk.Frame(label=title)
-        frame_label = frame.get_label_widget()
-        if frame_label is not None:
-            frame_label.add_css_class("section-title")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
-        box.set_margin_start(8)
-        box.set_margin_end(8)
-        frame.set_child(box)
-        return frame, box
+    def _section(title: str) -> tuple[Gtk.Box, Gtk.Box, Gtk.Box]:
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        panel.add_css_class("panel")
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.add_css_class("panel-header")
+        label = Gtk.Label(label=title, xalign=0)
+        label.add_css_class("section-title")
+        label.set_hexpand(True)
+        header.append(label)
+        panel.append(header)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        panel.append(box)
+        return panel, box, header
 
     # ------------------------------------------------------------------
     # Logging / status
@@ -576,6 +1035,7 @@ class MainWindow(Adw.ApplicationWindow):
                 break
         if not lines:
             return
+        self.log_placeholder.set_visible(False)
         buffer = self.log_view.get_buffer()
         buffer.insert(buffer.get_end_iter(), "\n".join(lines) + "\n")
         if buffer.get_line_count() > 2500:
@@ -588,18 +1048,25 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _clear_log(self) -> None:
         self.log_view.get_buffer().set_text("")
+        self.log_placeholder.set_visible(True)
 
     def _set_status(self, text: str, error: bool = False) -> None:
         self.status_label.set_text(text)
         for cls in ("status-ok", "status-error", "status-idle"):
             self.status_label.remove_css_class(cls)
-        self.status_label.add_css_class("status-error" if error else "status-ok")
+            self.status_dot.remove_css_class(cls)
+        cls = "status-error" if error else "status-ok"
+        self.status_label.add_css_class(cls)
+        self.status_dot.add_css_class(cls)
 
     def _set_header_status(self, text: str, connected: bool) -> None:
         self.header_status.set_text(text)
         for cls in ("status-ok", "status-error", "status-idle"):
             self.header_status.remove_css_class(cls)
-        self.header_status.add_css_class("status-ok" if connected else "status-idle")
+            self.header_dot.remove_css_class(cls)
+        cls = "status-ok" if connected else "status-idle"
+        self.header_status.add_css_class(cls)
+        self.header_dot.add_css_class(cls)
 
     def _set_busy(self, busy: bool, text: str | None = None) -> None:
         self._busy = busy
@@ -620,10 +1087,17 @@ class MainWindow(Adw.ApplicationWindow):
         idle = not self._busy and not self._uploading
 
         if connected:
-            self.connect_btn.set_label("Disconnect")
+            self.connect_content.set_label("Disconnect")
+            self.connect_btn.remove_css_class("suggested-action")
+            self.connect_btn.set_tooltip_text("Disconnect from the pedal")
+            self._set_accessible_label(self.connect_btn, "Disconnect")
         else:
-            self.connect_btn.set_label("Connect")
+            self.connect_content.set_label("Connect")
+            self.connect_btn.add_css_class("suggested-action")
+            self.connect_btn.set_tooltip_text("Connect to the pedal")
+            self._set_accessible_label(self.connect_btn, "Connect")
         self.connect_btn.set_sensitive(idle)
+        self.source_box.set_visible(not connected)
         self.mode_dd.set_sensitive(not connected and idle)
         self.port_dd.set_sensitive(not connected and idle)
         self.mdns_dd.set_sensitive(not connected and idle)
@@ -631,7 +1105,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         for widget in (self.prev_btn, self.next_btn, self.patch_dd,
                        self.patch_reload_btn, self.patch_save_btn,
-                       self.presets_list):
+                       self.presets_list, self.patch_search):
             widget.set_sensitive(connected and idle)
         self.chain_box.set_sensitive(connected and idle)
         self.volume_scale.set_sensitive(connected and idle)
@@ -643,6 +1117,10 @@ class MainWindow(Adw.ApplicationWindow):
                       self._selected_target is not None and
                       self._selected_slot is not None)
         self.upload_btn.set_sensitive(can_upload)
+        if can_upload:
+            self.upload_btn.add_css_class("suggested-action")
+        else:
+            self.upload_btn.remove_css_class("suggested-action")
 
     # ------------------------------------------------------------------
     # Connection
@@ -790,6 +1268,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._patch_names = []
         self._preset_rows.clear()
         self._clear_presets()
+        self._patch_dd_model([])
+        self.patch_search.set_text("")
         self._clear_chain()
         self._selected_block_path = None
         self._last_preset_value = None
@@ -803,6 +1283,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._slot_signature = None
         self.progress.set_fraction(0.0)
         self.progress.set_text("Idle")
+        self.progress.set_visible(False)
         self._log("disconnected")
         self._update_sensitivity()
 
@@ -946,7 +1427,10 @@ class MainWindow(Adw.ApplicationWindow):
     def _patch_dd_model(self, names: list[str]) -> None:
         self._syncing = True
         try:
-            self.patch_dd.set_model(Gtk.StringList.new(names))
+            self.patch_dd.set_model(
+                Gtk.StringList.new(names if names else ["No patches"]))
+            if not names:
+                self.patch_dd.set_selected(0)
         finally:
             self._syncing = False
 
@@ -955,15 +1439,14 @@ class MainWindow(Adw.ApplicationWindow):
         for name in names:
             row = Gtk.ListBoxRow()
             row.name = name
+            row.add_css_class("patch-row")
+            row.set_tooltip_text("Load %s" % name)
             label = Gtk.Label(label=name, xalign=0)
-            label.set_margin_top(6)
-            label.set_margin_bottom(6)
-            label.set_margin_start(8)
-            label.set_margin_end(8)
             label.set_ellipsize(Pango.EllipsizeMode.END)
             row.set_child(label)
             self.presets_list.append(row)
             self._preset_rows[name] = row
+        self._filter_patches()
 
     def _clear_presets(self) -> None:
         child = self.presets_list.get_first_child()
@@ -972,6 +1455,36 @@ class MainWindow(Adw.ApplicationWindow):
             self.presets_list.remove(child)
             child = next_child
         self._preset_rows.clear()
+        self.patch_count_label.set_text("0")
+        self.patch_count_label.set_visible(False)
+        self.patch_search.set_visible(False)
+        self.presets_stack.set_visible_child_name("empty")
+
+    def _on_patch_search_changed(self, _entry: Gtk.SearchEntry) -> None:
+        self._filter_patches()
+
+    def _filter_patches(self) -> None:
+        query = self.patch_search.get_text().strip().casefold()
+        visible = 0
+        for name, row in self._preset_rows.items():
+            match = not query or query in name.casefold()
+            row.set_visible(match)
+            visible += int(match)
+        total = len(self._preset_rows)
+        if total == 0:
+            self.patch_count_label.set_text("0")
+            self.patch_count_label.set_visible(False)
+            self.patch_search.set_visible(False)
+            self.presets_stack.set_visible_child_name("empty")
+            return
+        self.patch_search.set_visible(True)
+        self.patch_count_label.set_visible(True)
+        self.patch_count_label.set_text(
+            str(total) if not query else "%d / %d" % (visible, total))
+        if visible == 0:
+            self.presets_stack.set_visible_child_name("no-results")
+        else:
+            self.presets_stack.set_visible_child_name("list")
 
     def _on_preset_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         if self._syncing or self.device is None:
@@ -1060,17 +1573,27 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _make_chain_card(self, block: stomp.BlockState) -> dict[str, Any]:
         key = _key_for_path(block.path)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-        box.set_size_request(78, 48)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_size_request(84, 60)
+
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        top.set_halign(Gtk.Align.CENTER)
+        dot = Gtk.Box()
+        dot.set_size_request(7, 7)
+        dot.set_valign(Gtk.Align.CENTER)
+        dot.add_css_class("block-dot")
+        dot.add_css_class(_css_class_for(key))
+        top.append(dot)
 
         abbr = Gtk.Label(label=_short_for(key, block.label), xalign=0.5)
         abbr.add_css_class("block-abbr")
-        box.append(abbr)
+        top.append(abbr)
+        box.append(top)
 
-        name = Gtk.Label(label=block.label, xalign=0.5)
+        name = Gtk.Label(label=_chain_display_name(block.label), xalign=0.5)
         name.add_css_class("block-name")
         name.set_ellipsize(Pango.EllipsizeMode.END)
-        name.set_max_width_chars(10)
+        name.set_max_width_chars(12)
         box.append(name)
 
         status = Gtk.Label(label="?", xalign=0.5)
@@ -1087,6 +1610,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._chain_cards.clear()
         self._chain_keys = []
         self._chain_sig = None
+        self.chain_hint.set_visible(False)
+        self.chain_stack.set_visible_child_name("empty")
 
     def _rebuild_chain(self, blocks: list[stomp.BlockState]) -> None:
         self._clear_chain()
@@ -1094,16 +1619,27 @@ class MainWindow(Adw.ApplicationWindow):
         for block in blocks:
             key = _key_for_path(block.path)
             self._chain_keys.append(key)
+            if self.chain_box.get_first_child() is not None:
+                arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
+                arrow.set_pixel_size(12)
+                arrow.add_css_class("chain-arrow")
+                arrow.set_valign(Gtk.Align.CENTER)
+                self.chain_box.append(arrow)
             card = self._make_chain_card(block)
             btn = Gtk.ToggleButton()
             btn.add_css_class("chain-block")
             btn.add_css_class(_css_class_for(key))
             btn.set_valign(Gtk.Align.CENTER)
+            btn.set_tooltip_text("Select %s block" % block.label)
+            self._set_accessible_label(btn, "%s block" % block.label)
             btn.set_child(card["box"])
             btn.connect("toggled", self._on_chain_toggled, block.path)
             self.chain_box.append(btn)
             self._chain_cards[block.path] = {"btn": btn, **card}
         self._reload_css(self._chain_keys)
+        self.chain_hint.set_visible(bool(blocks))
+        self.chain_stack.set_visible_child_name(
+            "chain" if blocks else "empty")
 
     def _render_chain(self, blocks: list[stomp.BlockState]) -> None:
         signature = self._chain_signature(blocks)
@@ -1119,8 +1655,11 @@ class MainWindow(Adw.ApplicationWindow):
             card = self._chain_cards.get(block.path)
             if card is None:
                 continue
-            card["status"].set_text(
-                "ON" if block.on else ("OFF" if block.on is False else "?"))
+            self._set_state_label(card["status"], block.on)
+            state_text = ("on" if block.on else
+                          ("off" if block.on is False else "state unknown"))
+            self._set_accessible_label(
+                card["btn"], "%s block, %s" % (block.label, state_text))
             if block.on is False:
                 card["btn"].add_css_class("bypassed")
             else:
@@ -1154,12 +1693,29 @@ class MainWindow(Adw.ApplicationWindow):
     # ------------------------------------------------------------------
 
     def _show_details_hint(self) -> None:
+        self.details_stack.set_visible_child_name("empty")
         self.details_name.set_text("No block selected")
-        self.details_name.remove_css_class("title")
+        self.details_name.remove_css_class("details-title")
         self.details_name.add_css_class("dim-label")
         self.details_status.set_text("")
+        for cls in ("state-on", "state-off"):
+            self.details_status.remove_css_class(cls)
         self.details_switch.set_sensitive(False)
         self._clear_params()
+
+    @staticmethod
+    def _set_state_label(label: Gtk.Label, on: bool | None) -> None:
+        for cls in ("state-on", "state-off"):
+            label.remove_css_class(cls)
+        if on is True:
+            label.set_text("ON")
+            label.add_css_class("state-on")
+        elif on is False:
+            label.set_text("OFF")
+            label.add_css_class("state-off")
+        else:
+            label.set_text("?")
+            label.add_css_class("state-off")
 
     def _clear_params(self) -> list[Gtk.Widget]:
         children: list[Gtk.Widget] = []
@@ -1182,30 +1738,32 @@ class MainWindow(Adw.ApplicationWindow):
             return
 
         block = next((b for b in self._state.blocks if b.path == path), None)
+        if block is None:
+            self._show_details_hint()
+            return
         key = _key_for_path(path)
-        self.details_name.set_text(block.label if block else key)
+        self.details_stack.set_visible_child_name("editor")
+        self.details_name.set_text(block.label)
         self.details_name.remove_css_class("dim-label")
-        self.details_name.add_css_class("title")
+        self.details_name.add_css_class("details-title")
         self._set_block_color_class(self.details_name, key)
-        self.details_switch.set_sensitive(block is not None and block.on is not None)
+        self._set_block_color_class(self.details_dot, key)
+        self.details_switch.set_sensitive(block.on is not None)
         self._syncing = True
         try:
-            self.details_switch.set_active(bool(block.on if block else False))
+            self.details_switch.set_active(bool(block.on))
         finally:
             self._syncing = False
-        self.details_status.set_text(
-            "ON" if (block and block.on) else
-            ("OFF" if (block and block.on is False) else "?"))
+        self._set_state_label(self.details_status, block.on)
         self._details_block_path = path
 
-        if block is None:
-            return
         try:
             params = self.device.get_block_parameters(path)
         except Exception:
             params = []
         if not params:
-            hint = Gtk.Label(label="No editable parameters for this block", xalign=0)
+            hint = Gtk.Label(label="No editable parameters for this block",
+                             xalign=0)
             hint.add_css_class("dim-label")
             self.params_box.append(hint)
             return
@@ -1219,8 +1777,7 @@ class MainWindow(Adw.ApplicationWindow):
         block = next((b for b in state.blocks if b.path == path), None)
         if block is None:
             return
-        self.details_status.set_text(
-            "ON" if block.on else ("OFF" if block.on is False else "?"))
+        self._set_state_label(self.details_status, block.on)
         self._syncing = True
         try:
             self.details_switch.set_active(bool(block.on))
@@ -1250,11 +1807,14 @@ class MainWindow(Adw.ApplicationWindow):
     # ------------------------------------------------------------------
 
     def _make_param_row(self, param: dict[str, Any]) -> Gtk.Widget:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        row.add_css_class("param-row")
         label_text = param.get("desc") or param["name"].replace("_", " ").title()
         name = Gtk.Label(label=label_text, xalign=0)
-        name.set_size_request(96, -1)
+        name.add_css_class("param-label")
+        name.set_size_request(110, -1)
         name.set_ellipsize(Pango.EllipsizeMode.END)
+        name.set_tooltip_text(label_text)
         row.append(name)
 
         kind = param.get("kind")
@@ -1268,6 +1828,8 @@ class MainWindow(Adw.ApplicationWindow):
                 float(param["max"]), 0.01)
             scale.set_hexpand(True)
             scale.set_draw_value(False)
+            scale.set_tooltip_text(label_text)
+            self._set_accessible_label(scale, label_text)
             self._syncing = True
             try:
                 scale.set_value(float(value))
@@ -1275,7 +1837,8 @@ class MainWindow(Adw.ApplicationWindow):
                 self._syncing = False
             value_label = Gtk.Label(label=self._fmt_param_value(value))
             value_label.add_css_class("value-label")
-            value_label.set_size_request(52, -1)
+            value_label.set_size_request(46, -1)
+            value_label.set_xalign(1)
             scale.connect("value-changed", self._on_param_scale_changed,
                           path, value_label)
             row.append(scale)
@@ -1289,6 +1852,8 @@ class MainWindow(Adw.ApplicationWindow):
             options = param.get("options") or []
             dd = Gtk.DropDown.new_from_strings([str(o) for o in options])
             dd.set_hexpand(True)
+            dd.set_tooltip_text(label_text)
+            self._set_accessible_label(dd, label_text)
             if value in options:
                 self._syncing = True
                 try:
@@ -1305,6 +1870,8 @@ class MainWindow(Adw.ApplicationWindow):
         if kind == "number":
             spin = Gtk.SpinButton.new_with_range(-1e9, 1e9, 0.01)
             spin.set_hexpand(True)
+            spin.set_tooltip_text(label_text)
+            self._set_accessible_label(spin, label_text)
             self._syncing = True
             try:
                 spin.set_value(float(value))
@@ -1316,9 +1883,14 @@ class MainWindow(Adw.ApplicationWindow):
             return row
 
         if kind == "bool":
+            spacer = Gtk.Box()
+            spacer.set_hexpand(True)
+            row.append(spacer)
             switch = Gtk.Switch()
             switch.set_hexpand(False)
             switch.set_valign(Gtk.Align.CENTER)
+            switch.set_tooltip_text(label_text)
+            self._set_accessible_label(switch, label_text)
             self._syncing = True
             try:
                 switch.set_active(bool(value))
@@ -1332,6 +1904,8 @@ class MainWindow(Adw.ApplicationWindow):
         entry = Gtk.Entry()
         entry.set_hexpand(True)
         entry.set_text("" if value is None else str(value))
+        entry.set_tooltip_text(label_text)
+        self._set_accessible_label(entry, label_text)
         entry.connect("activate", self._on_param_entry_activate, path, entry)
         row.append(entry)
         self._param_controls[path] = {"kind": "entry", "widget": entry}
@@ -1633,6 +2207,7 @@ class MainWindow(Adw.ApplicationWindow):
         if old_kind is not None and old_kind != self._selected_target.kind:
             self._selected_file = None
             self.file_label.set_text("No file selected")
+            self.file_label.set_tooltip_text(None)
         self._slot_signature = None
         self._selected_slot = None
         if self._state is not None:
@@ -1723,7 +2298,9 @@ class MainWindow(Adw.ApplicationWindow):
             size_text = "%d KiB" % (os.path.getsize(path) // 1024)
         except OSError:
             size_text = "unknown size"
-        self.file_label.set_text("%s  (%s)" % (os.path.basename(path), size_text))
+        display_name = "%s  (%s)" % (os.path.basename(path), size_text)
+        self.file_label.set_text(display_name)
+        self.file_label.set_tooltip_text(path)
         self._update_sensitivity()
 
     def _on_upload_clicked(self) -> None:
@@ -1777,6 +2354,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_sensitivity()
         self.spinner.set_visible(True)
         self.spinner.start()
+        self.progress.set_visible(True)
         self.progress.set_fraction(0.0)
         self.progress.set_text("Starting...")
         self._set_status("Uploading %s..." % os.path.basename(path))
