@@ -57,6 +57,7 @@ except Exception:  # pragma: no cover - exercised on systems without pyserial
 NAM_SLOT_SIZE = 1024 * 1024          # NAM payloads are zero-padded to 1 MiB
 CHUNK_SIZE = 1024
 NAME_SIZE = 128
+MAX_PRESET_NAME_BYTES = 63
 IR_LENGTH = 2048
 IR_GAIN = 0.3191413049364811         # matches the official app (about -9.92 dB)
 
@@ -264,6 +265,17 @@ def json_compact(value: Any) -> str:
 
 def _interesting_path(path: str) -> bool:
     return path == "root" or path.startswith("root\\")
+
+
+def preset_name_error(name: str) -> str | None:
+    """Return why ``name`` cannot be used for a preset slot, if it cannot."""
+    if not name:
+        return "patch name cannot be empty"
+    if any(character == "\0" or ord(character) < 32 for character in name):
+        return "patch name cannot contain control characters"
+    if len(name.encode("utf-8")) > MAX_PRESET_NAME_BYTES:
+        return "patch name must be at most %d bytes" % MAX_PRESET_NAME_BYTES
+    return None
 
 
 def parse_message(text: str) -> list[ParsedLine]:
@@ -1262,6 +1274,59 @@ class Device:
             raise StompError("there is no current preset to save")
         self.write(target, value, extra={"save": "save"})
         self._log("saved preset %r" % value)
+
+    def rename_preset(self, old_name: str, new_name: str) -> None:
+        """Rename a preset slot without rewriting its contents.
+
+        The name table is committed with a single ``dwrite`` of a padded
+        128-byte name at ``chunk:-1``.  Other slots' contents are untouched.
+        """
+        if not old_name:
+            raise StompError("there is no preset selected to rename")
+        problem = preset_name_error(new_name)
+        if problem:
+            raise StompError(problem)
+
+        preset = self.get_preset_state()
+        list_path = preset.list_path or PRESET_LIST_PATH
+        names = self.get_list(list_path)
+        if not names:
+            raise StompError("the preset list is not available")
+        try:
+            index = names.index(old_name)
+        except ValueError:
+            raise StompError("preset %r is not in %s"
+                             % (old_name, list_path)) from None
+        if new_name == old_name:
+            return
+        # The pedal treats names case-insensitively and refuses duplicates.
+        for other, existing in enumerate(names):
+            if other != index and existing and \
+                    existing.casefold() == new_name.casefold():
+                raise StompError("a preset named %r already exists" % new_name)
+
+        payload = _encode_name_chunk(new_name).hex()
+        with self.pause_polling():
+            idx, ack = self._ack_for_chunk(list_path, index, -1, payload,
+                                           timeout=5.0)
+        if idx not in (-1, index):
+            raise UploadRejected(
+                "device acknowledged the wrong slot for rename "
+                "(wanted %d, got %d)" % (index, idx))
+        if ack != -1:
+            raise ProtocolError(
+                "rename did not finish (device asked for chunk %d)" % ack)
+
+        self.read_path(list_path, timeout=DEFAULT_TIMEOUT)
+        updated = self.get_list(list_path)
+        if index >= len(updated) or updated[index] != new_name:
+            raise ProtocolError("device did not rename preset %r" % old_name)
+        if preset.path:
+            try:
+                self.read_path(preset.path, timeout=2.0)
+            except StompError:
+                pass
+        self._log("renamed preset %r to %r" % (old_name, new_name))
 
     def read_list(self, path: str) -> list[str]:
         try:

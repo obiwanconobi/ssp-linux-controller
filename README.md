@@ -92,7 +92,8 @@ discovery is selected by default. If the pedal is not discovered, choose
   second-model section.
 - **Dual IR editing**: separate IR 1 and IR 2 cards, independent filter and
   blend controls, per-IR level and pan, and a collapsible second-IR section.
-- Patch list with single-click loading, previous/next, reload, and save.
+- Patch list with single-click loading, rename, previous/next, reload, and
+  save.
 - Master volume and tempo controls.
 - NAM and IR upload with slot selection, overwrite confirmation, and progress.
 - Activity log.

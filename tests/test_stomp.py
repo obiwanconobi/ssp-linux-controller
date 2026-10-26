@@ -114,12 +114,28 @@ class FakeTransport(stomp.Transport):
             obj = json.loads(payload)
             self.dwrites.append((path, obj))
             value = str(obj.get("value", ""))
-            done = "gz" in value or (path.endswith("ir_list") and
-                                     obj.get("chunk") == 8)
-            ack = -1 if done else int(obj.get("chunk", 0)) + 1
+            chunk = int(obj.get("chunk", 0))
+            index = int(obj.get("index", -1))
+            if chunk == -1:
+                # A final name-table write renames or deletes a slot.
+                node = self.nodes.get(path)
+                if node is not None and isinstance(node.get("value"), list):
+                    name = bytes.fromhex(value).rstrip(b"\0").decode("utf-8")
+                    if 0 <= index < len(node["value"]):
+                        old_name = node["value"][index]
+                        node["value"][index] = name
+                        for node_path, preset_node in self.nodes.items():
+                            if (node_path.endswith("\\preset") and
+                                    preset_node.get("value") == old_name):
+                                preset_node["value"] = name
+                ack = -1
+            else:
+                done = "gz" in value or (path.endswith("ir_list") and
+                                         chunk == 8)
+                ack = -1 if done else chunk + 1
             self.buffer.extend((
                 "dwrite " + path + ":" +
-                compact({"index": obj.get("index", -1), "chunk": ack}) + "\0"
+                compact({"index": index, "chunk": ack}) + "\0"
             ).encode())
         else:
             self.buffer.extend(b"\0")
@@ -214,6 +230,40 @@ class DeviceStateTests(unittest.TestCase):
             'write root\\app\\preset:{"value":"Patch B","save":"save"}',
             transport.commands)
         device.close()
+
+    def test_rename_preset(self):
+        device, transport = make_device()
+        device.rename_preset("Patch B", "Renamed B")
+
+        renames = [obj for _path, obj in transport.dwrites
+                   if obj.get("chunk") == -1]
+        self.assertEqual(len(renames), 1)
+        self.assertEqual(renames[0]["index"], 1)
+        value = renames[0]["value"]
+        self.assertEqual(len(value), stomp.NAME_SIZE * 2)
+        self.assertEqual(bytes.fromhex(value).rstrip(b"\0"), b"Renamed B")
+        self.assertEqual(device.get_list(r"root\presets"),
+                         ["Patch A", "Renamed B", ""])
+        self.assertEqual(device.get_preset_state().current, "Renamed B")
+        device.close()
+
+    def test_rename_preset_rejects_duplicate_and_long_names(self):
+        device, transport = make_device()
+        before = len(transport.commands)
+        with self.assertRaises(stomp.StompError):
+            device.rename_preset("Patch B", "Patch A")
+        with self.assertRaises(stomp.StompError):
+            device.rename_preset("Patch B", "patch a")
+        with self.assertRaises(stomp.StompError):
+            device.rename_preset("Patch B", "x" * 64)
+        self.assertEqual(len(transport.commands), before)
+        device.close()
+
+    def test_preset_name_validation(self):
+        self.assertIsNone(stomp.preset_name_error("A" * 63))
+        self.assertIsNotNone(stomp.preset_name_error(""))
+        self.assertIsNotNone(stomp.preset_name_error("A" * 64))
+        self.assertIsNotNone(stomp.preset_name_error("bad\nname"))
 
     def test_preset_state_without_metadata(self):
         nodes = {

@@ -395,6 +395,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._state: stomp.DeviceState | None = None
         self._busy = False
         self._uploading = False
+        self._rename_dialog: Adw.Dialog | None = None
         self._syncing = False
         self._scanning = False
         self._refresh_running = False
@@ -727,6 +728,13 @@ class MainWindow(Adw.ApplicationWindow):
         self.patch_count_label.add_css_class("count-pill")
         self.patch_count_label.set_visible(False)
         header.append(self.patch_count_label)
+
+        self.patch_rename_btn = self._icon_button(
+            "document-edit-symbolic", "Rename the current patch",
+            "Rename patch")
+        self.patch_rename_btn.connect(
+            "clicked", lambda *_: self._show_rename_patch_dialog())
+        header.append(self.patch_rename_btn)
 
         self.patch_search = Gtk.SearchEntry()
         self.patch_search.set_placeholder_text("Search patches")
@@ -1145,6 +1153,10 @@ class MainWindow(Adw.ApplicationWindow):
                        self.patch_reload_btn, self.patch_save_btn,
                        self.presets_list, self.patch_search):
             widget.set_sensitive(connected and idle)
+        current_patch = self._state.preset.current if self._state else ""
+        self.patch_rename_btn.set_sensitive(
+            connected and idle and bool(current_patch) and
+            current_patch in self._patch_names)
         self.chain_box.set_sensitive(connected and idle)
         self.volume_scale.set_sensitive(connected and idle)
         self.tempo_spin.set_sensitive(connected and idle)
@@ -1302,6 +1314,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _after_disconnected(self) -> None:
         self._set_busy(False, "Disconnected")
+        if self._rename_dialog is not None:
+            self._rename_dialog.close()
         self._state = None
         self._patch_names = []
         self._preset_rows.clear()
@@ -1604,6 +1618,131 @@ class MainWindow(Adw.ApplicationWindow):
             self._set_status(error, error=True)
         else:
             self._set_status("Patch saved")
+
+    def _show_rename_patch_dialog(self) -> None:
+        if self.device is None or self._state is None or self._busy:
+            return
+        old_name = self._state.preset.current
+        if not old_name:
+            self._set_status("No patch is selected to rename", error=True)
+            return
+
+        dialog = Adw.Dialog()
+        dialog.set_title("Rename Patch")
+        dialog.set_content_width(380)
+        self._rename_dialog = dialog
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
+        header.set_title_widget(Adw.WindowTitle(title="Rename Patch"))
+        toolbar.add_top_bar(header)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda *_: dialog.close())
+        header.pack_start(cancel_btn)
+
+        rename_btn = Gtk.Button(label="Rename")
+        rename_btn.add_css_class("suggested-action")
+        header.pack_end(rename_btn)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        content.set_margin_top(16)
+        content.set_margin_bottom(18)
+        content.set_margin_start(18)
+        content.set_margin_end(18)
+
+        caption = Gtk.Label(label="Patch name", xalign=0)
+        caption.add_css_class("field-label")
+        content.append(caption)
+
+        entry = Gtk.Entry()
+        entry.set_text(old_name)
+        entry.set_max_length(stomp.MAX_PRESET_NAME_BYTES)
+        entry.set_hexpand(True)
+        self._set_accessible_label(entry, "Patch name")
+        content.append(entry)
+
+        error = Gtk.Label(label="", xalign=0)
+        error.add_css_class("status-error")
+        error.set_wrap(True)
+        error.set_visible(False)
+        content.append(error)
+
+        toolbar.set_content(content)
+        dialog.set_child(toolbar)
+
+        def show_error(message: str) -> None:
+            error.set_text(message)
+            error.set_visible(True)
+            entry.grab_focus()
+            entry.select_region(0, -1)
+
+        def submit() -> None:
+            new_name = entry.get_text().strip()
+            problem = stomp.preset_name_error(new_name)
+            if problem:
+                show_error(problem[0].upper() + problem[1:] + ".")
+                return
+            if new_name == old_name:
+                dialog.close()
+                return
+            if any(name != old_name and
+                   name.casefold() == new_name.casefold()
+                   for name in self._patch_names):
+                show_error("A patch named %r already exists." % new_name)
+                return
+            dialog.close()
+            self._rename_patch(old_name, new_name)
+
+        entry.connect("activate", lambda *_: submit())
+        rename_btn.connect("clicked", lambda *_: submit())
+        dialog.connect("closed", self._on_rename_dialog_closed)
+        dialog.present(self)
+        entry.grab_focus()
+        entry.select_region(0, -1)
+
+    def _on_rename_dialog_closed(self, _dialog: Adw.Dialog) -> None:
+        self._rename_dialog = None
+
+    def _rename_patch(self, old_name: str, new_name: str) -> None:
+        device = self.device
+        if device is None:
+            return
+        self._set_busy(True, "Renaming patch...")
+
+        def worker() -> None:
+            try:
+                device.rename_preset(old_name, new_name)
+                self._post(self._patch_renamed, old_name, new_name, None)
+            except Exception as exc:
+                self._post(self._patch_renamed, old_name, new_name, str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _patch_renamed(self, old_name: str, new_name: str,
+                       error: str | None) -> None:
+        self._set_busy(False, "Patch renamed" if not error else "Rename failed")
+        if error:
+            self._log("rename %r to %r failed: %s"
+                      % (old_name, new_name, error))
+            self._set_status(error, error=True)
+        else:
+            self._log("renamed patch %r to %r" % (old_name, new_name))
+            self._set_status("Renamed to %r" % new_name)
+            device = self.device
+            if device is not None and device.connected:
+                try:
+                    state = device.state()
+                except Exception:
+                    state = None
+                if state is not None:
+                    self._last_preset_value = state.preset.current
+                    self._last_chain_signature = self._chain_signature(
+                        state.blocks)
+                    self._render_state(state)
+        self._update_sensitivity()
 
     # ------------------------------------------------------------------
     # Signal chain
@@ -2006,7 +2145,10 @@ class MainWindow(Adw.ApplicationWindow):
             self._dual_expander.set_expanded(on is not False)
 
     def _on_dual_switch(self, switch: Gtk.Switch, state: bool) -> bool:
-        if self._syncing or self.device is None or self._busy:
+        if self._syncing:
+            # Let programmatic set_active() update the switch's visual state.
+            return False
+        if self.device is None or self._busy:
             return True
         path = self._details_dual_path
         if path is None:
@@ -2049,7 +2191,10 @@ class MainWindow(Adw.ApplicationWindow):
             self._syncing = False
 
     def _on_details_switch(self, switch: Gtk.Switch, state: bool) -> bool:
-        if self._syncing or self.device is None or self._busy:
+        if self._syncing:
+            # Let programmatic set_active() update the switch's visual state.
+            return False
+        if self.device is None or self._busy:
             return True
         path = self._details_block_path
         if path is None:
@@ -2207,7 +2352,10 @@ class MainWindow(Adw.ApplicationWindow):
         self._write_param(path, options[idx])
 
     def _on_param_bool(self, switch: Gtk.Switch, state: bool, path: str) -> bool:
-        if self._syncing or self.device is None:
+        if self._syncing:
+            # Let programmatic set_active() update the switch's visual state.
+            return False
+        if self.device is None:
             return True
         self._param_dirty.add(path)
         self._write_param(path, state)

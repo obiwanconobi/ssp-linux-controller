@@ -153,6 +153,8 @@ Polling:
   `write <presetPath>:{"value":"<name>"}`
 - Save preset:
   `write <presetPath>:{"value":"<name>","save":"save"}`
+- Rename preset:
+  `dwrite <presetListPath>:{"index":<slot>,"chunk":-1,"value":"<128-byte padded name as hex>"}`
 - Enable/disable block:
   `write <blockPath>\on_off:{"value":"ON"|"OFF"}`
 
@@ -491,6 +493,7 @@ you probably updated the kernel and have not rebooted...
 | Network connection | Working against real pedal |
 | USB connection | Working after reboot (`/dev/ttyACM0`, `cdc_acm` loaded) |
 | Preset reading/changing | Implemented and tested |
+| Preset rename | Implemented and tested against fake device |
 | Block on/off | Implemented and tested |
 | Block parameter editing | Implemented (floats/enums/numbers/text); smoke-tested |
 | Volume/tempo | Implemented; volume write verified on hardware |
@@ -517,7 +520,8 @@ you probably updated the kernel and have not rebooted...
 4. **Chain editing** — add/remove/reorder blocks by writing the router matrix.
    The protocol notes contain enough information, but the UI currently only
    toggles existing blocks.
-5. **Patch list operations** — rename/move/delete/import/export bundles.
+5. **Patch list operations** — move/delete/import/export bundles (rename is
+   implemented).
 6. **Chunked list reads (`dread`)** — not needed for the current preset/NAM/IR
    lists because browse returns full values, but not implemented as a general
    file download.
