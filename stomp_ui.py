@@ -280,6 +280,12 @@ headerbar { box-shadow: none; border-bottom: 1px solid alpha(@window_fg_color, 0
     font-weight: 700;
     color: alpha(@window_fg_color, 0.48);
 }
+.time-module {
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid alpha(@window_fg_color, 0.07);
+    background-color: alpha(@window_fg_color, 0.022);
+}
 
 /* -- Status / empty states ------------------------------------------ */
 .status-ok    { color: @success_color; font-weight: 600; }
@@ -474,6 +480,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._param_timers: dict[str, int] = {}
         self._param_controls: dict[str, dict[str, Any]] = {}
         self._param_dirty: set[str] = set()
+        self._group_controls: dict[str, dict[str, Any]] = {}
+        self._module_controls: dict[str, dict[str, Any]] = {}
 
         self._css_provider = Gtk.CssProvider()
         self._reload_css([])
@@ -2362,6 +2370,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._param_timers.clear()
         self._param_controls.clear()
         self._param_dirty.clear()
+        self._group_controls.clear()
+        self._module_controls.clear()
         self._details_dual_path = None
         self._dual_card = None
         self._dual_expander = None
@@ -2399,24 +2409,37 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_chain_edit_buttons()
 
         try:
-            params = self.device.get_block_parameters(path)
-        except Exception:
-            params = []
-        try:
             dual_block = self.device.get_dual_block(path)
         except Exception:
             dual_block = None
         if dual_block is not None:
+            try:
+                params = self.device.get_block_parameters(path)
+            except Exception:
+                params = []
             self._render_dual_block(params, dual_block)
             return
-        if not params:
+        try:
+            editor = self.device.get_block_editor(path)
+        except Exception:
+            editor = {}
+        items = editor.get("items") or []
+        if not items:
             hint = Gtk.Label(label="No editable parameters for this block",
                              xalign=0)
             hint.add_css_class("dim-label")
             self.params_box.append(hint)
             return
-        for param in params:
-            self.params_box.append(self._make_param_row(param))
+        for item in items:
+            self.params_box.append(self._make_editor_item(item))
+
+    def _make_editor_item(self, item: dict[str, Any]) -> Gtk.Widget:
+        kind = item.get("kind")
+        if kind == "time":
+            return self._make_time_card(item)
+        if kind == "group":
+            return self._make_group_card(item)
+        return self._make_param_row(item)
 
     @staticmethod
     def _order_dual_params(params: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2750,6 +2773,221 @@ class MainWindow(Adw.ApplicationWindow):
         self._param_controls[path] = {"kind": "entry", "widget": entry}
         return row
 
+    def _make_group_card(self, group: dict[str, Any]) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.add_css_class("dual-card")
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        labels.set_hexpand(True)
+        title_text = group.get("label") or group.get("name") or ""
+        title = Gtk.Label(label=title_text, xalign=0)
+        title.add_css_class("dual-card-title")
+        labels.append(title)
+        subtitle_text = group.get("subtitle") or ""
+        if subtitle_text:
+            subtitle = Gtk.Label(label=subtitle_text, xalign=0)
+            subtitle.add_css_class("dual-card-subtitle")
+            labels.append(subtitle)
+        header.append(labels)
+
+        on_off = group.get("on_off")
+        status = None
+        switch = None
+        if on_off:
+            status = Gtk.Label(label="?")
+            status.add_css_class("status-chip")
+            self._set_accessible_label(status, "%s state" % title_text)
+            header.append(status)
+
+            switch = Gtk.Switch()
+            switch.set_valign(Gtk.Align.CENTER)
+            switch.set_tooltip_text("Enable or disable %s" % title_text)
+            self._set_accessible_label(switch, "Enable %s" % title_text)
+            switch.connect("state-set", self._on_group_switch,
+                           on_off["path"])
+            header.append(switch)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        body.add_css_class("dual-card-body")
+        items = group.get("items") or []
+        if items:
+            for item in items:
+                body.append(self._make_editor_item(item))
+        else:
+            hint = Gtk.Label(label="No editable parameters", xalign=0)
+            hint.add_css_class("dim-label")
+            body.append(hint)
+
+        expander = Gtk.Expander()
+        expander.add_css_class("dual-expander")
+        expander.set_label_widget(header)
+        expander.set_child(body)
+        card.append(expander)
+
+        if on_off:
+            self._group_controls[on_off["path"]] = {
+                "card": card, "switch": switch, "status": status,
+                "expander": expander, "on": None,
+            }
+            self._apply_group_state(on_off["path"], on_off.get("value"),
+                                    initial=True)
+        else:
+            expander.set_expanded(True)
+        return card
+
+    def _apply_group_state(self, on_path: str, on: bool | None, *,
+                           initial: bool = False,
+                           sync_switch: bool = True) -> None:
+        control = self._group_controls.get(on_path)
+        if control is None:
+            return
+        changed = initial or on != control.get("on")
+        control["on"] = on
+        card = control["card"]
+        if on is False:
+            card.add_css_class("dual-off")
+        else:
+            card.remove_css_class("dual-off")
+        if control["status"] is not None:
+            self._set_state_label(control["status"], on)
+        switch = control["switch"]
+        if sync_switch and switch is not None and \
+                switch.get_active() != bool(on):
+            self._syncing = True
+            try:
+                switch.set_active(bool(on))
+            finally:
+                self._syncing = False
+        if changed and control["expander"] is not None:
+            control["expander"].set_expanded(on is not False)
+
+    def _on_group_switch(self, switch: Gtk.Switch, state: bool,
+                         on_path: str) -> bool:
+        if self._syncing:
+            return False
+        if self.device is None or self._busy:
+            return True
+        self._param_dirty.add(on_path)
+        self._apply_group_state(on_path, state, sync_switch=False)
+        self._write_param(on_path, "ON" if state else "OFF")
+        return False
+
+    def _make_time_card(self, module: dict[str, Any]) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.add_css_class("time-module")
+
+        title_text = module.get("label") or module.get("name") or "Time"
+        title = Gtk.Label(label=title_text, xalign=0)
+        title.add_css_class("dual-card-title")
+        card.append(title)
+
+        options = module.get("mode_options") or []
+        if options:
+            mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                               spacing=10)
+            mode_row.add_css_class("param-row")
+            label = Gtk.Label(label="Mode", xalign=0)
+            label.add_css_class("param-label")
+            label.set_size_request(110, -1)
+            mode_row.append(label)
+            dropdown = Gtk.DropDown.new_from_strings(
+                [option["label"] for option in options])
+            dropdown.set_hexpand(True)
+            dropdown.set_tooltip_text("Choose tempo sync or a manual value")
+            self._set_accessible_label(dropdown, "%s mode" % title_text)
+            current = module.get("module_value")
+            index = next((i for i, option in enumerate(options)
+                          if option["value"] == current), None)
+            if index is not None:
+                self._syncing = True
+                try:
+                    dropdown.set_selected(index)
+                finally:
+                    self._syncing = False
+            dropdown.connect("notify::selected",
+                             self._on_module_mode_changed,
+                             module["path"], options)
+            mode_row.append(dropdown)
+            card.append(mode_row)
+            self._module_controls[module["path"]] = {
+                "dropdown": dropdown, "options": options, "value": current,
+            }
+
+        for key in ("rawdata", "subdivision", "lock"):
+            param = module.get(key)
+            if param:
+                card.append(self._make_param_row(param))
+        for item in module.get("items") or []:
+            card.append(self._make_editor_item(item))
+        return card
+
+    def _on_module_mode_changed(self, dropdown: Gtk.DropDown, _pspec,
+                                module_path: str,
+                                options: list[dict[str, str]]) -> None:
+        if self._syncing or self.device is None:
+            return
+        index = dropdown.get_selected()
+        if index == Gtk.INVALID_LIST_POSITION or index >= len(options):
+            return
+        value = options[index]["value"]
+        self._param_dirty.add(module_path)
+        self._write_param(module_path, value)
+
+    def _update_group_states(self, device: stomp.Device) -> None:
+        for on_path in list(self._group_controls):
+            if on_path in self._param_dirty:
+                continue
+            value = device.get_value(on_path)
+            if value == "ON":
+                on: bool | None = True
+            elif value == "OFF":
+                on = False
+            else:
+                on = None
+            self._apply_group_state(on_path, on)
+
+    def _update_module_modes(self, device: stomp.Device) -> None:
+        for module_path, control in list(self._module_controls.items()):
+            if module_path in self._param_dirty:
+                continue
+            value = device.get_value(module_path)
+            options = control["options"]
+            index = next((i for i, option in enumerate(options)
+                          if option["value"] == value), None)
+            if index is not None and \
+                    control["dropdown"].get_selected() != index:
+                self._syncing = True
+                try:
+                    control["dropdown"].set_selected(index)
+                finally:
+                    self._syncing = False
+            control["value"] = value
+
+    @classmethod
+    def _flatten_editor_parameters(cls, node: dict[str, Any]
+                                   ) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for item in node.get("items") or []:
+            result.extend(cls._flatten_editor_item(item))
+        return result
+
+    @classmethod
+    def _flatten_editor_item(cls, item: dict[str, Any]
+                             ) -> list[dict[str, Any]]:
+        kind = item.get("kind")
+        if kind == "time":
+            result: list[dict[str, Any]] = []
+            for key in ("rawdata", "subdivision", "lock"):
+                param = item.get(key)
+                if param:
+                    result.append(param)
+            result.extend(cls._flatten_editor_parameters(item))
+            return result
+        if kind == "group":
+            return cls._flatten_editor_parameters(item)
+        return [item]
+
     @staticmethod
     def _fmt_param_value(value: Any, factor: float = 1.0) -> str:
         try:
@@ -2842,9 +3080,12 @@ class MainWindow(Adw.ApplicationWindow):
         if path is None or device is None:
             return
         try:
-            params = device.get_block_parameters(path)
             if self._details_dual_path is not None:
+                params = device.get_block_parameters(path)
                 params += device.get_block_parameters(self._details_dual_path)
+            else:
+                editor = device.get_block_editor(path)
+                params = self._flatten_editor_parameters(editor)
         except Exception:
             return
         by_path = {param["path"]: param for param in params}
@@ -2901,6 +3142,8 @@ class MainWindow(Adw.ApplicationWindow):
                     self._syncing = False
 
         self._update_dual_state(device)
+        self._update_group_states(device)
+        self._update_module_modes(device)
 
     # ------------------------------------------------------------------
     # Master controls

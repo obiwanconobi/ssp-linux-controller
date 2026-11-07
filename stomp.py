@@ -130,6 +130,11 @@ DEFAULT_CHAIN = (
 # Signal-chain connectors seen in the captures ("s" = series link).
 _ROUTER_IGNORED_CELLS = {"", "s", "S", "p", "P", "parallel", "series"}
 
+# Container item types used by block editors.  ``vfolder_tc`` groups carry an
+# ``on_off`` child (Modulation, Pitch, Dual Delay); plain ``vfolder`` groups
+# (Tone and Character) do not.
+_CONTROL_FOLDER_TYPES = {"vfolder", "vfolder_tc", "hfolder", "sfolder"}
+
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -284,6 +289,21 @@ def json_compact(value: Any) -> str:
 
 def _interesting_path(path: str) -> bool:
     return path == "root" or path.startswith("root\\")
+
+
+def _direct_children(nodes: dict[str, dict[str, Any]],
+                     path: str) -> list[tuple[str, dict[str, Any]]]:
+    """Return direct children of ``path`` in browse-tree order."""
+    prefix = path + "\\"
+    result: list[tuple[str, dict[str, Any]]] = []
+    for child_path, node in nodes.items():
+        if not child_path.startswith(prefix):
+            continue
+        relative = child_path[len(prefix):]
+        if not relative or "\\" in relative:
+            continue
+        result.append((child_path, node))
+    return result
 
 
 def preset_name_error(name: str) -> str | None:
@@ -1708,6 +1728,153 @@ class Device:
             )
         return volume, tempo
 
+    def _parameter_from_node(self, path: str, node: dict[str, Any],
+                             nodes: dict[str, dict[str, Any]]
+                             ) -> dict[str, Any] | None:
+        """Build a UI parameter dict from one node, or ``None``."""
+        value = node.get("value")
+        ntype = node.get("type")
+        desc = node.get("desc") or ""
+        name = path_name(path)
+        if ntype == "float":
+            return {
+                "path": path, "name": name, "kind": "float",
+                "value": value,
+                "min": node.get("min"), "max": node.get("max"),
+                "unit": node.get("unit") or "", "dec": node.get("dec"),
+                "desc": desc,
+            }
+        if ntype == "enum":
+            options = node.get("options")
+            if isinstance(options, list) and options:
+                return {
+                    "path": path, "name": name, "kind": "enum",
+                    "value": value,
+                    "options": [str(option) for option in options],
+                    "desc": desc,
+                }
+            return None
+        if ntype == "plist":
+            # A parameter list references a NodeList of choices (e.g. the
+            # drive/amp model or the cabinet IR).  Offer the list entries
+            # as selectable options.
+            ref = node.get("ref")
+            options: list[str] = []
+            if isinstance(ref, str):
+                list_node = nodes.get(normalize_path(ref), {})
+                list_value = list_node.get("value")
+                if isinstance(list_value, list):
+                    options = [str(item) for item in list_value if str(item)]
+            return {
+                "path": path, "name": name, "kind": "choice",
+                "value": value, "options": options, "desc": desc,
+            }
+        if isinstance(value, bool):
+            return {"path": path, "name": name, "kind": "bool",
+                    "value": value, "desc": desc}
+        if isinstance(value, (int, float)):
+            return {"path": path, "name": name, "kind": "number",
+                    "value": value, "desc": desc}
+        if isinstance(value, str) and value != "":
+            return {"path": path, "name": name, "kind": "text",
+                    "value": value, "desc": desc}
+        return None
+
+    def _group_from_node(self, path: str, node: dict[str, Any],
+                         nodes: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """Build a folder/module group, including its editable children."""
+        item_type = node.get("item_type") or ""
+        on_path = path + r"\on_off"
+        on_node = nodes.get(on_path)
+        on_off = None
+        if on_node is not None:
+            on_value = on_node.get("value")
+            enabled: bool | None = None
+            if on_value == "ON":
+                enabled = True
+            elif on_value == "OFF":
+                enabled = False
+            on_off = {"path": on_path, "value": enabled}
+        params, groups, items = self._collect_control_children(path, nodes)
+        group: dict[str, Any] = {
+            "kind": "group",
+            "path": path,
+            "name": path_name(path),
+            "label": node.get("desc") or path_name(path),
+            "item_type": item_type,
+            "on_off": on_off,
+            "parameters": params,
+            "groups": groups,
+            "items": items,
+        }
+        if item_type == "module":
+            named = {param["name"]: param for param in params}
+            rawdata = named.get("rawdata")
+            subdivision = named.get("sbdv")
+            lock = named.get("lock")
+            if rawdata is not None and subdivision is not None:
+                keep = [param for param in params
+                        if param["name"] not in ("rawdata", "sbdv", "lock")]
+                keep_items = [item for item in items
+                              if item not in (rawdata, subdivision, lock)]
+                unit = rawdata.get("unit") or ""
+                manual_label = "Manual (%s)" % unit if unit else "Manual"
+                group.update({
+                    "kind": "time",
+                    "module_value": node.get("value"),
+                    "parameters": keep,
+                    "items": keep_items,
+                    "rawdata": rawdata,
+                    "subdivision": subdivision,
+                    "lock": lock,
+                    "mode_options": [
+                        {"value": "partempo", "label": "Tempo Sync"},
+                        {"value": "rawdata", "label": manual_label},
+                    ],
+                })
+        return group
+
+    def _collect_control_children(
+            self, path: str, nodes: dict[str, dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
+               list[dict[str, Any]]]:
+        params: list[dict[str, Any]] = []
+        groups: list[dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
+        for child_path, node in _direct_children(nodes, path):
+            name = path_name(child_path)
+            if name == "on_off" or name.startswith("_"):
+                continue
+            item_type = node.get("item_type") or ""
+            if item_type == "link":
+                continue
+            if item_type in _CONTROL_FOLDER_TYPES or item_type == "module":
+                group = self._group_from_node(child_path, node, nodes)
+                groups.append(group)
+                items.append(group)
+                continue
+            param = self._parameter_from_node(child_path, node, nodes)
+            if param is not None:
+                params.append(param)
+                items.append(param)
+        return params, groups, items
+
+    def get_block_editor(self, block_path: str) -> dict[str, Any]:
+        """Return a block's controls, including nested folders/modules.
+
+        The result has ``parameters`` (direct scalar controls), ``groups``
+        (folders/modules) and ``items`` (both kinds in browse-tree order).
+        Groups may contain further ``parameters``/``groups``/``items``.  Time
+        and rate modules are marked ``kind == "time"`` and expose their
+        ``rawdata``, ``subdivision`` and ``lock`` controls.
+        """
+        block_path = normalize_path(block_path)
+        with self._cache_lock:
+            nodes = dict(self.nodes)
+        params, groups, items = self._collect_control_children(
+            block_path, nodes)
+        return {"parameters": params, "groups": groups, "items": items}
+
     def get_block_parameters(self, block_path: str) -> list[dict[str, Any]]:
         """Return the editable child parameters of a block node.
 
@@ -1717,65 +1884,17 @@ class Device:
         where available, ``min``/``max``/``unit``/``options``/``desc``.
         """
         block_path = normalize_path(block_path)
-        prefix = block_path + "\\"
         with self._cache_lock:
             nodes = dict(self.nodes)
 
         params: list[dict[str, Any]] = []
-        for path, node in nodes.items():
-            if not path.startswith(prefix):
-                continue
-            rel = path[len(prefix):]
-            if "\\" in rel:
-                continue  # only direct children for now
+        for path, node in _direct_children(nodes, block_path):
             name = path_name(path)
             if name == "on_off" or name.startswith("_"):
                 continue
-
-            value = node.get("value")
-            ntype = node.get("type")
-            desc = node.get("desc") or ""
-            if ntype == "float":
-                params.append({
-                    "path": path, "name": name, "kind": "float",
-                    "value": value,
-                    "min": node.get("min"), "max": node.get("max"),
-                    "unit": node.get("unit") or "", "dec": node.get("dec"),
-                    "desc": desc,
-                })
-            elif ntype == "enum":
-                options = node.get("options")
-                if isinstance(options, list) and options:
-                    params.append({
-                        "path": path, "name": name, "kind": "enum",
-                        "value": value,
-                        "options": [str(option) for option in options],
-                        "desc": desc,
-                    })
-            elif ntype == "plist":
-                # A parameter list references a NodeList of choices (e.g. the
-                # drive/amp model or the cabinet IR).  Offer the list entries
-                # as selectable options.
-                ref = node.get("ref")
-                options: list[str] = []
-                if isinstance(ref, str):
-                    list_node = nodes.get(normalize_path(ref), {})
-                    list_value = list_node.get("value")
-                    if isinstance(list_value, list):
-                        options = [str(item) for item in list_value if str(item)]
-                params.append({
-                    "path": path, "name": name, "kind": "choice",
-                    "value": value, "options": options, "desc": desc,
-                })
-            elif isinstance(value, bool):
-                params.append({"path": path, "name": name, "kind": "bool",
-                               "value": value, "desc": desc})
-            elif isinstance(value, (int, float)):
-                params.append({"path": path, "name": name, "kind": "number",
-                               "value": value, "desc": desc})
-            elif isinstance(value, str) and value != "":
-                params.append({"path": path, "name": name, "kind": "text",
-                               "value": value, "desc": desc})
+            param = self._parameter_from_node(path, node, nodes)
+            if param is not None:
+                params.append(param)
 
         params.sort(key=lambda param: param["name"])
         return params

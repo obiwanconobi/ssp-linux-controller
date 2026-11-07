@@ -88,7 +88,9 @@ discovery is selected by default. If the pedal is not discovered, choose
   are fixed in place by the device and cannot be moved or removed.
 - Selected-block editor: enable switch plus editable parameters (floats as
   sliders, enums and model/IR lists as dropdowns, numbers as spin buttons,
-  text as entries).
+  text as entries). Nested folders are shown as collapsible sections
+  (Tone and Character, Modulation, Pitch, Dual Delay, EQ bands, etc.), and
+  time/rate controls offer tempo-synced subdivisions or a manual ms/Hz value.
 - **Dual-NAM Amp editing** on firmware 2.0.8+: separate NAM 1 and NAM 2 cards,
   independent model and tone controls, stereo pan per model, and a collapsible
   second-model section.

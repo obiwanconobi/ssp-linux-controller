@@ -480,6 +480,110 @@ class ChainEditingTests(unittest.TestCase):
         device.close()
 
 
+class BlockEditorTests(unittest.TestCase):
+    def _device(self):
+        nodes = {
+            "root": {"type": "root", "value": ""},
+            "root\\app": {"type": "item", "item_type": "system",
+                           "value": ""},
+            "root\\app\\delay": {"type": "item", "item_type": "block",
+                                  "desc": "Delay"},
+            "root\\app\\delay\\on_off": {"type": "enum", "value": "ON",
+                                          "options": ["ON", "OFF"]},
+            "root\\app\\delay\\dlytime": {
+                "type": "item", "item_type": "module", "value": "partempo",
+                "desc": "Time"},
+            "root\\app\\delay\\dlytime\\rawdata": {
+                "type": "float", "value": 143.0, "min": 1.0, "max": 2000.0,
+                "unit": "ms", "desc": "Time"},
+            "root\\app\\delay\\dlytime\\sbdv": {
+                "type": "enum", "value": "1/4",
+                "options": ["1/4", "1/8"], "desc": "Time Subdivision"},
+            "root\\app\\delay\\dlytime\\lock": {
+                "type": "enum", "value": "Unlocked",
+                "options": ["Unlocked", "Global", "Preset"],
+                "desc": "Lock Options"},
+            "root\\app\\delay\\fdbk": {
+                "type": "float", "value": 17.0, "min": 0.0, "max": 100.0,
+                "unit": "%", "desc": "Feedback"},
+            "root\\app\\delay\\tcfolder": {
+                "type": "item", "item_type": "vfolder", "value": "",
+                "desc": "Tone and Character"},
+            "root\\app\\delay\\tcfolder\\tape": {
+                "type": "float", "value": 10.0, "min": 0.0, "max": 100.0,
+                "unit": "%", "desc": "Tape"},
+            "root\\app\\delay\\tcfolder\\tdir": {
+                "type": "enum", "value": "Standard",
+                "options": ["Standard", "Reverse"],
+                "desc": "Time Behavior"},
+            "root\\app\\delay\\modfolder": {
+                "type": "item", "item_type": "vfolder_tc", "value": "",
+                "desc": "Modulation"},
+            "root\\app\\delay\\modfolder\\on_off": {
+                "type": "enum", "value": "ON", "options": ["ON", "OFF"],
+                "desc": "Enable"},
+            "root\\app\\delay\\modfolder\\rate": {
+                "type": "item", "item_type": "module", "value": "partempo",
+                "desc": "Rate"},
+            "root\\app\\delay\\modfolder\\rate\\rawdata": {
+                "type": "float", "value": 1.0, "min": 0.05, "max": 8.0,
+                "unit": "Hz", "desc": "Rate"},
+            "root\\app\\delay\\modfolder\\rate\\sbdv": {
+                "type": "enum", "value": "1/4",
+                "options": ["1/4", "1/8"], "desc": "Time Subdivision"},
+            "root\\app\\delay\\modfolder\\rate\\lock": {
+                "type": "enum", "value": "Unlocked",
+                "options": ["Unlocked", "Global", "Preset"],
+                "desc": "Lock Options"},
+            "root\\app\\delay\\modfolder\\shape": {
+                "type": "enum", "value": "Square",
+                "options": ["Triang", "Sin", "Square"], "desc": "Shape"},
+        }
+        device = stomp.Device(FakeTransport(nodes),
+                              log=lambda _message: None)
+        device.connect()
+        return device
+
+    def test_editor_exposes_nested_folders_and_time_modules(self):
+        device = self._device()
+        editor = device.get_block_editor(r"root\app\delay")
+        self.assertEqual([item["kind"] for item in editor["items"]],
+                         ["time", "float", "group", "group"])
+        self.assertEqual([item.get("label") for item in editor["items"]],
+                         ["Time", None, "Tone and Character", "Modulation"])
+
+        time_module = editor["items"][0]
+        self.assertEqual(time_module["module_value"], "partempo")
+        self.assertEqual(time_module["rawdata"]["value"], 143.0)
+        self.assertEqual(time_module["subdivision"]["value"], "1/4")
+        self.assertEqual(time_module["lock"]["value"], "Unlocked")
+        self.assertEqual([option["value"]
+                          for option in time_module["mode_options"]],
+                         ["partempo", "rawdata"])
+
+        tone = editor["items"][2]
+        self.assertEqual([item["name"] for item in tone["items"]],
+                         ["tape", "tdir"])
+
+        modulation = editor["items"][3]
+        self.assertEqual(modulation["on_off"]["value"], True)
+        self.assertEqual([item["kind"] for item in modulation["items"]],
+                         ["time", "enum"])
+        rate = modulation["items"][0]
+        self.assertEqual(rate["kind"], "time")
+        self.assertEqual(rate["rawdata"]["unit"], "Hz")
+        self.assertEqual(
+            [option["label"] for option in rate["mode_options"]],
+            ["Tempo Sync", "Manual (Hz)"])
+
+        # The legacy direct-child API still reports the module's text value.
+        direct = {param["name"]: param
+                  for param in device.get_block_parameters(r"root\app\delay")}
+        self.assertEqual(direct["dlytime"]["kind"], "text")
+        self.assertEqual(direct["dlytime"]["value"], "partempo")
+        device.close()
+
+
 class UploadTests(unittest.TestCase):
     def _nam_file(self, name="Test Amp"):
         payload = json.dumps({

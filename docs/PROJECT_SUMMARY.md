@@ -1,6 +1,6 @@
 # StompStation Pro Control — Project Summary
 
-Last updated: 2026-10-23
+Last updated: 2026-11-07
 
 Working directory: `/home/conner/Documents/Code/stompstation`
 
@@ -234,11 +234,15 @@ modelling software:
     parameters — floats as sliders, enums as dropdowns, numbers as spin
     buttons, text as entries, and drive/amp **model** + cabinet **IR** shown as
     dropdowns populated from `nam_drive` / `nam_amp` / `ir_list`, via
-    `Device.get_block_parameters()`). Blocks exposing a parallel second group
-    get separate two-card editors via `Device.get_dual_block()`: NAM 1/NAM 2
-    for firmware 2.0.8+ `nam2` groups, and IR 1/IR 2 for `ir2` groups. The
-    second card has its own enable switch, controls, stereo mix/pan, and
-    collapses while disabled.
+    `Device.get_block_parameters()`). `Device.get_block_editor()` additionally
+    exposes nested `vfolder`/`vfolder_tc`/`module` groups (Tone and Character,
+    Modulation, Pitch, Dual Delay, EQ bands, etc.). Time/rate modules render a
+    Tempo Sync / Manual mode selector plus their `rawdata` value, subdivision,
+    and lock options. Blocks exposing a parallel second group get separate
+    two-card editors via `Device.get_dual_block()`: NAM 1/NAM 2 for firmware
+    2.0.8+ `nam2` groups, and IR 1/IR 2 for `ir2` groups. The second card has
+    its own enable switch, controls, stereo mix/pan, and collapses while
+    disabled.
   - right: master volume/tempo and a notebook with file upload
     (target/slot/file/progress) and the activity log.
 - **Bottom, right-aligned** — the device selector (USB serial / mDNS / manual
@@ -329,11 +333,12 @@ python3 -m unittest discover -s tests -v
 
 ### Automated tests
 
-`tests/test_stomp.py` contains **24 passing tests** covering:
+`tests/test_stomp.py` contains **25 passing tests** covering:
 
 - `path:json` parsing, including `dwrite` ACK prefixes and token lines.
 - Router flattening for matrix and flat formats.
 - Chain slot discovery including empty and fixed positions.
+- Nested block folders/modules and tempo/manual time controls.
 - Adding, moving, and removing chain blocks; fixed blocks rejected.
 - Host/port parsing.
 - Connect + full state discovery from a synthetic `browse root`.
@@ -350,7 +355,7 @@ python3 -m unittest discover -s tests -v
 Run result:
 
 ```
-Ran 24 tests in 5.909s
+Ran 25 tests in 5.909s
 OK
 ```
 
@@ -513,7 +518,7 @@ you probably updated the kernel and have not rebooted...
 | Password auth | Not implemented |
 | Chain editing | Add/remove/reorder implemented; fixed positions respected |
 | Patch import/export | Not implemented |
-| Automated tests | 24/24 passing |
+| Automated tests | 25/25 passing |
 
 ---
 
