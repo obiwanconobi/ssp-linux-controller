@@ -329,10 +329,12 @@ python3 -m unittest discover -s tests -v
 
 ### Automated tests
 
-`tests/test_stomp.py` contains **15 passing tests** covering:
+`tests/test_stomp.py` contains **24 passing tests** covering:
 
 - `path:json` parsing, including `dwrite` ACK prefixes and token lines.
 - Router flattening for matrix and flat formats.
+- Chain slot discovery including empty and fixed positions.
+- Adding, moving, and removing chain blocks; fixed blocks rejected.
 - Host/port parsing.
 - Connect + full state discovery from a synthetic `browse root`.
 - Preset/block save and toggle commands.
@@ -348,7 +350,7 @@ python3 -m unittest discover -s tests -v
 Run result:
 
 ```
-Ran 15 tests in 4.307s
+Ran 24 tests in 5.909s
 OK
 ```
 
@@ -360,6 +362,8 @@ OK
 - Verified block toggle writes.
 - Verified volume change/write and dirty-state behavior.
 - Verified target switching and slot-list refresh.
+- Verified chain add/remove/reorder through the UI and drag/drop paths
+  against the fake device.
 - Verified a NAM upload through the UI thread path.
 - Verified app shutdown after the `do_shutdown` fix.
 
@@ -379,6 +383,9 @@ Against the real pedal over network at `192.168.1.97:8080`:
 - Master volume read as `root\app\output\vol`.
 - Tempo range read as 30–240 BPM.
 - Writing the current volume value back succeeded (no net change).
+- Chain editing verified on firmware 2.3.6: added an unused Chorus block,
+  moved it (swapping with Pitch), removed it, and restored the original
+  router and `on_off` state. Amp, Delay, and Reverb stayed fixed throughout.
 
 No real-hardware NAM/IR upload has been performed.
 
@@ -496,6 +503,7 @@ you probably updated the kernel and have not rebooted...
 | Preset rename | Implemented and tested against fake device |
 | Block on/off | Implemented and tested |
 | Block parameter editing | Implemented (floats/enums/numbers/text); smoke-tested |
+| Chain add/remove/reorder | Implemented; Amp/Delay/Reverb fixed positions respected |
 | Volume/tempo | Implemented; volume write verified on hardware |
 | NAM upload | Implemented and tested against fake device |
 | IR upload | Implemented and tested against fake device |
@@ -503,9 +511,9 @@ you probably updated the kernel and have not rebooted...
 | Modern UI | Implemented and smoke-tested (network + USB) |
 | Legacy/debug UI | Preserved as `stomp_ui_legacy.py` (`--legacy`) |
 | Password auth | Not implemented |
-| Chain editing | Not exposed in UI (block on/off + params only) |
+| Chain editing | Add/remove/reorder implemented; fixed positions respected |
 | Patch import/export | Not implemented |
-| Automated tests | 16/16 passing |
+| Automated tests | 24/24 passing |
 
 ---
 
@@ -517,9 +525,9 @@ you probably updated the kernel and have not rebooted...
    confirm name/list updates and audio.
 3. **Password/token authentication** — the proprietary `hashString` algorithm
    (with the `"voidxdevteam"` salt) is not recovered.
-4. **Chain editing** — add/remove/reorder blocks by writing the router matrix.
-   The protocol notes contain enough information, but the UI currently only
-   toggles existing blocks.
+4. **Chain editing** — add/remove/reorder is implemented for the router matrix.
+   Amp, Delay, and Reverb occupy device-fixed positions and remain in the
+   chain, matching the official app.
 5. **Patch list operations** — move/delete/import/export bundles (rename is
    implemented).
 6. **Chunked list reads (`dread`)** — not needed for the current preset/NAM/IR

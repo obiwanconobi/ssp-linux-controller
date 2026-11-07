@@ -181,6 +181,25 @@ class BlockState:
 
 
 @dataclass
+class ChainSlot:
+    """One editable position in the router matrix.
+
+    ``path`` is the block occupying the slot, or ``None`` for an empty slot.
+    ``fixed`` cells are locked by the device (Amp/Delay/Reverb on current
+    firmware) and cannot be moved or removed.
+    """
+
+    row: int
+    col: int
+    path: str | None = None
+    fixed: bool = False
+
+    @property
+    def occupied(self) -> bool:
+        return self.path is not None
+
+
+@dataclass
 class PresetState:
     path: str | None
     list_path: str | None
@@ -343,6 +362,21 @@ def flatten_router(value: Any) -> list[str]:
 
     walk(value)
     return found
+
+
+def _router_rows(value: Any) -> list[list[Any]]:
+    """Normalize a router value to a list of rows, preserving its shape."""
+    if not isinstance(value, list) or not value:
+        return []
+    if all(isinstance(row, list) for row in value):
+        return [list(row) for row in value]
+    return [list(value)]
+
+
+def _router_cell_is_link(cell: Any) -> bool:
+    """True for connector markers such as ``"s"``; empty cells are slots."""
+    return (isinstance(cell, str) and cell.strip() != "" and
+            cell.strip().lower() in _ROUTER_IGNORED_CELLS)
 
 
 def block_label(path: str, node: dict | None = None) -> str:
@@ -1461,6 +1495,164 @@ class Device:
                                      label=block_label(path, node),
                                      on=on, on_path=on_path))
         return result
+
+    def _chain_layout(self) -> tuple[str, list[list[Any]], list[list[Any]]]:
+        """Return ``(router_path, matrix, fixed_matrix)`` from the cache."""
+        router_path = self._find_router_path()
+        if not router_path:
+            raise StompError("the device does not expose a signal-chain router")
+        with self._cache_lock:
+            node = dict(self.nodes.get(router_path, {}))
+        matrix = _router_rows(node.get("value"))
+        if not matrix:
+            raise StompError("the signal chain is empty or unavailable")
+        return router_path, matrix, _router_rows(node.get("fixed"))
+
+    @staticmethod
+    def _chain_cell(matrix: list[list[Any]], fixed: list[list[Any]],
+                    row: int, col: int) -> tuple[str | None, bool]:
+        """Return ``(block_path_or_None, fixed)`` for a router cell."""
+        try:
+            cell = matrix[row][col]
+        except (IndexError, TypeError):
+            raise StompError("that chain position does not exist") from None
+        if not isinstance(cell, str) or _router_cell_is_link(cell):
+            raise StompError("that position is not a usable chain slot")
+        text = normalize_path(cell).strip()
+        if text and not _interesting_path(text):
+            raise StompError("that position is not a usable chain slot")
+        is_fixed = False
+        try:
+            is_fixed = bool(fixed[row][col])
+        except (IndexError, TypeError):
+            pass
+        return (text or None), is_fixed
+
+    def get_chain_slots(self) -> list[ChainSlot]:
+        """Return every editable position in the current router matrix.
+
+        This includes empty slots and fixed slots, unlike
+        :meth:`get_chain_blocks`, which only returns occupied blocks.
+        """
+        try:
+            _router_path, matrix, fixed = self._chain_layout()
+        except StompError:
+            return []
+        slots: list[ChainSlot] = []
+        for row_index, row in enumerate(matrix):
+            for col_index, cell in enumerate(row):
+                if not isinstance(cell, str) or _router_cell_is_link(cell):
+                    continue
+                text = normalize_path(cell).strip()
+                if text and not _interesting_path(text):
+                    continue
+                is_fixed = False
+                try:
+                    is_fixed = bool(fixed[row_index][col_index])
+                except (IndexError, TypeError):
+                    pass
+                slots.append(ChainSlot(row=row_index, col=col_index,
+                                       path=text or None, fixed=is_fixed))
+        return slots
+
+    def get_available_blocks(self) -> list[dict[str, Any]]:
+        """Return block items that are not currently referenced by the chain."""
+        router_path = self._find_router_path()
+        if not router_path:
+            return []
+        parent = path_parent(router_path)
+        used = {slot.path for slot in self.get_chain_slots() if slot.path}
+        with self._cache_lock:
+            nodes = dict(self.nodes)
+        available: list[dict[str, Any]] = []
+        for path, node in nodes.items():
+            if path_parent(path) != parent:
+                continue
+            if node.get("item_type") != "block" or path in used:
+                continue
+            available.append({
+                "path": path,
+                "name": block_label(path, node),
+                "desc": node.get("desc") or "",
+            })
+        available.sort(key=lambda item: (
+            item["name"].casefold(), item["path"]))
+        return available
+
+    def _enable_block_and_ancestors(self, block_path: str) -> None:
+        """Turn on a block and any parent modules that expose ``on_off``."""
+        path = normalize_path(block_path)
+        while path and path != "root":
+            on_path = path + r"\on_off"
+            with self._cache_lock:
+                node = self.nodes.get(on_path)
+            if node is not None and node.get("value") != "ON":
+                self.write(on_path, "ON")
+            path = path_parent(path)
+
+    def add_chain_block(self, row: int, col: int, block_path: str) -> None:
+        """Place an available block into an empty chain slot."""
+        block_path = normalize_path(block_path)
+        with self.pause_polling():
+            with self._cache_lock:
+                node = self.nodes.get(block_path)
+            if node is None or node.get("item_type") != "block":
+                raise StompError("that block is not available")
+            if any(slot.path == block_path
+                   for slot in self.get_chain_slots()):
+                raise StompError("that block is already in the signal chain")
+            router_path, matrix, fixed = self._chain_layout()
+            current, is_fixed = self._chain_cell(matrix, fixed, row, col)
+            if current is not None:
+                raise StompError("that chain slot is already occupied")
+            if is_fixed:
+                raise StompError("that chain slot is fixed")
+            matrix[row][col] = block_path
+            self.write(router_path, matrix)
+            self._enable_block_and_ancestors(block_path)
+            with self._cache_lock:
+                label_node = dict(self.nodes.get(block_path, {}))
+        self._log("added %s to the signal chain"
+                  % block_label(block_path, label_node))
+
+    def remove_chain_block(self, row: int, col: int) -> str:
+        """Remove the block in a chain slot and return its path."""
+        with self.pause_polling():
+            router_path, matrix, fixed = self._chain_layout()
+            current, is_fixed = self._chain_cell(matrix, fixed, row, col)
+            if current is None:
+                raise StompError("that chain slot is empty")
+            if is_fixed:
+                raise StompError("that block is fixed and cannot be removed")
+            matrix[row][col] = ""
+            self.write(router_path, matrix)
+            with self._cache_lock:
+                label_node = dict(self.nodes.get(current, {}))
+        self._log("removed %s from the signal chain" %
+                  block_label(current, label_node))
+        return current
+
+    def move_chain_block(self, row: int, col: int,
+                         target_row: int, target_col: int) -> None:
+        """Move a block to another slot, swapping with an occupied slot."""
+        if (row, col) == (target_row, target_col):
+            return
+        with self.pause_polling():
+            router_path, matrix, fixed = self._chain_layout()
+            source, source_fixed = self._chain_cell(matrix, fixed, row, col)
+            target, target_fixed = self._chain_cell(
+                matrix, fixed, target_row, target_col)
+            if source is None:
+                raise StompError("that chain slot is empty")
+            if source_fixed or target_fixed:
+                raise StompError("fixed blocks cannot be moved")
+            matrix[row][col] = target or ""
+            matrix[target_row][target_col] = source
+            self.write(router_path, matrix)
+            with self._cache_lock:
+                label_node = dict(self.nodes.get(source, {}))
+        self._log("moved %s in the signal chain" %
+                  block_label(source, label_node))
 
     def _find_master_paths(self) -> dict[str, str] | None:
         with self._cache_lock:

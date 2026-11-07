@@ -185,6 +185,25 @@ headerbar { box-shadow: none; border-bottom: 1px solid alpha(@window_fg_color, 0
 .chain-block:focus-visible { box-shadow: 0 0 0 2px @accent_color; }
 .chain-block.bypassed { opacity: 0.60; }
 .chain-block.bypassed:hover { opacity: 0.80; }
+.chain-block.chain-fixed { border-style: solid; }
+.chain-empty {
+    min-width: 84px;
+    min-height: 60px;
+    padding: 7px 8px 6px;
+    border-radius: 12px;
+    border: 1px dashed alpha(@window_fg_color, 0.18);
+    background-color: transparent;
+    color: alpha(@window_fg_color, 0.42);
+}
+.chain-empty:hover {
+    border-color: alpha(@window_fg_color, 0.35);
+    background-color: alpha(@window_fg_color, 0.045);
+    color: alpha(@window_fg_color, 0.72);
+}
+.chain-empty:focus-visible { box-shadow: 0 0 0 2px @accent_color; }
+.chain-lock { opacity: 0.45; }
+.add-block-title { font-weight: 700; }
+.add-block-note { font-size: 12px; }
 .block-dot {
     min-width: 7px;
     min-height: 7px;
@@ -322,6 +341,27 @@ def _key_for_path(path: str) -> str:
     return path.rsplit("\\", 1)[-1]
 
 
+def _param_display_factor(param: dict[str, Any]) -> float:
+    """Return the multiplier used to show a float parameter as a whole number.
+
+    Most parameters use native units (dB, %, ms, Hz, ...), so the multiplier
+    is 1.  Small normalized ranges (for example the 0.0-1.0 reverb decay and
+    mix controls) are shown as 0-100 instead, which keeps useful resolution
+    while still only exposing whole numbers in the UI.
+    """
+    try:
+        span = float(param["max"]) - float(param["min"])
+    except (KeyError, TypeError, ValueError):
+        return 1.0
+    return 100.0 if 0.0 < span <= 1.0 else 1.0
+
+
+def _whole_device_value(display_value: float, factor: float) -> int | float:
+    """Convert a whole-number display value back to a device value."""
+    value = float(display_value) / factor
+    return int(round(value)) if factor == 1.0 else round(value, 6)
+
+
 def _color_for(key: str) -> str:
     if key in BLOCK_COLORS:
         return BLOCK_COLORS[key]
@@ -408,11 +448,16 @@ class MainWindow(Adw.ApplicationWindow):
         self._preset_rows: dict[str, Gtk.ListBoxRow] = {}
         self._last_preset_value: str | None = None
 
-        self._chain_sig: tuple[tuple[str, str], ...] | None = None
+        self._chain_sig: tuple[Any, ...] | None = None
         self._chain_cards: dict[str, dict[str, Any]] = {}
         self._chain_keys: list[str] = []
+        self._chain_slots: list[stomp.ChainSlot] = []
+        self._chain_slot_by_path: dict[str, stomp.ChainSlot] = {}
+        self._empty_slot_cards: dict[tuple[int, int], Gtk.Widget] = {}
+        self._drag_source_path: str | None = None
+        self._add_block_popover: Gtk.Popover | None = None
         self._selected_block_path: str | None = None
-        self._last_chain_signature: tuple[tuple[str, str], ...] | None = None
+        self._last_chain_signature: tuple[Any, ...] | None = None
 
         self._targets: list[stomp.UploadTarget] = []
         self._target_signature: tuple[tuple[str, str, str], ...] | None = None
@@ -777,7 +822,8 @@ class MainWindow(Adw.ApplicationWindow):
     def _build_chain_box(self) -> Gtk.Widget:
         panel, box, header = self._section("Signal chain")
         hint = Gtk.Label(
-            label="Click a block to edit it; right-click to enable/disable")
+            label="Click + to add a block; drag blocks to reorder; "
+                  "right-click to enable/disable")
         hint.add_css_class("section-caption")
         hint.set_visible(False)
         self.chain_hint = hint
@@ -854,6 +900,27 @@ class MainWindow(Adw.ApplicationWindow):
         self._set_accessible_label(self.details_status, "Block state")
         heading.append(self.details_status)
 
+        self.details_move_left = self._icon_button(
+            "go-previous-symbolic", "Move block earlier",
+            "Move selected block earlier in the chain")
+        self.details_move_left.connect(
+            "clicked", lambda *_: self._move_selected_block(-1))
+        heading.append(self.details_move_left)
+
+        self.details_move_right = self._icon_button(
+            "go-next-symbolic", "Move block later",
+            "Move selected block later in the chain")
+        self.details_move_right.connect(
+            "clicked", lambda *_: self._move_selected_block(1))
+        heading.append(self.details_move_right)
+
+        self.details_remove = self._icon_button(
+            "user-trash-symbolic", "Remove block from chain",
+            "Remove selected block from the chain")
+        self.details_remove.add_css_class("destructive-action")
+        self.details_remove.connect("clicked", self._on_details_remove)
+        heading.append(self.details_remove)
+
         self.details_switch = Gtk.Switch()
         self.details_switch.set_valign(Gtk.Align.CENTER)
         self.details_switch.set_sensitive(False)
@@ -895,6 +962,7 @@ class MainWindow(Adw.ApplicationWindow):
         vol_row.append(vol_label)
         self.volume_scale = Gtk.Scale.new_with_range(
             Gtk.Orientation.HORIZONTAL, 0.0, 100.0, 1.0)
+        self.volume_scale.set_round_digits(0)
         self.volume_scale.set_hexpand(True)
         self.volume_scale.set_draw_value(False)
         self.volume_scale.set_tooltip_text("Master output volume")
@@ -914,6 +982,7 @@ class MainWindow(Adw.ApplicationWindow):
         tempo_label.set_size_request(58, -1)
         tempo_row.append(tempo_label)
         self.tempo_spin = Gtk.SpinButton.new_with_range(20.0, 300.0, 1.0)
+        self.tempo_spin.set_digits(0)
         self.tempo_spin.set_hexpand(True)
         self.tempo_spin.set_value(120.0)
         self.tempo_spin.set_tooltip_text("Patch tempo in beats per minute")
@@ -1158,6 +1227,7 @@ class MainWindow(Adw.ApplicationWindow):
             connected and idle and bool(current_patch) and
             current_patch in self._patch_names)
         self.chain_box.set_sensitive(connected and idle)
+        self._update_chain_edit_buttons()
         self.volume_scale.set_sensitive(connected and idle)
         self.tempo_spin.set_sensitive(connected and idle)
         self.target_dd.set_sensitive(connected and idle)
@@ -1381,8 +1451,11 @@ class MainWindow(Adw.ApplicationWindow):
                 except Exception:
                     state = None
                 if state is not None:
+                    slots = device.get_chain_slots()
                     self._last_preset_value = state.preset.current
-                    self._last_chain_signature = self._chain_signature(state.blocks)
+                    self._last_chain_signature = (
+                        self._chain_layout_signature(slots) if slots
+                        else self._chain_signature(state.blocks))
                     self._render_state(state)
         self._update_sensitivity()
 
@@ -1411,18 +1484,35 @@ class MainWindow(Adw.ApplicationWindow):
     def _chain_signature(blocks: list[stomp.BlockState]) -> tuple[tuple[str, str], ...]:
         return tuple((block.path, block.label) for block in blocks)
 
+    @staticmethod
+    def _chain_layout_signature(
+            slots: list[stomp.ChainSlot]) -> tuple[tuple[int, int, str, bool], ...]:
+        return tuple((slot.row, slot.col, slot.path or "", slot.fixed)
+                     for slot in slots)
+
+    def _current_chain_slots(self) -> list[stomp.ChainSlot]:
+        device = self.device
+        if device is None:
+            return []
+        try:
+            return device.get_chain_slots()
+        except Exception:
+            return []
+
     def _render_state(self, state: stomp.DeviceState) -> None:
         self._state = state
+        slots = self._current_chain_slots()
 
         self._render_presets(state.preset)
-        self._render_chain(state.blocks)
+        self._render_chain(state.blocks, slots)
         self._render_master(state.volume, state.tempo)
         self._render_targets(state)
         self._update_details_switch(state)
         self._update_param_values()
         self._update_sensitivity()
 
-        chain_signature = self._chain_signature(state.blocks)
+        chain_signature = (self._chain_layout_signature(slots) if slots
+                           else self._chain_signature(state.blocks))
         chain_changed = (self._last_chain_signature is not None and
                          chain_signature != self._last_chain_signature)
         preset_changed = (self._last_preset_value is not None and
@@ -1738,9 +1828,11 @@ class MainWindow(Adw.ApplicationWindow):
                 except Exception:
                     state = None
                 if state is not None:
+                    slots = device.get_chain_slots()
                     self._last_preset_value = state.preset.current
-                    self._last_chain_signature = self._chain_signature(
-                        state.blocks)
+                    self._last_chain_signature = (
+                        self._chain_layout_signature(slots) if slots
+                        else self._chain_signature(state.blocks))
                     self._render_state(state)
         self._update_sensitivity()
 
@@ -1748,7 +1840,8 @@ class MainWindow(Adw.ApplicationWindow):
     # Signal chain
     # ------------------------------------------------------------------
 
-    def _make_chain_card(self, block: stomp.BlockState) -> dict[str, Any]:
+    def _make_chain_card(self, block: stomp.BlockState,
+                         fixed: bool = False) -> dict[str, Any]:
         key = _key_for_path(block.path)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.set_size_request(84, 60)
@@ -1765,6 +1858,14 @@ class MainWindow(Adw.ApplicationWindow):
         abbr = Gtk.Label(label=_short_for(key, block.label), xalign=0.5)
         abbr.add_css_class("block-abbr")
         top.append(abbr)
+
+        if fixed:
+            lock = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
+            lock.set_pixel_size(11)
+            lock.add_css_class("chain-lock")
+            lock.set_valign(Gtk.Align.CENTER)
+            lock.set_tooltip_text("Fixed block: cannot be moved or removed")
+            top.append(lock)
         box.append(top)
 
         name = Gtk.Label(label=_chain_display_name(block.label), xalign=0.5)
@@ -1778,56 +1879,134 @@ class MainWindow(Adw.ApplicationWindow):
         box.append(status)
         return {"box": box, "status": status, "name": name}
 
+    @staticmethod
+    def _make_chain_arrow() -> Gtk.Widget:
+        arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
+        arrow.set_pixel_size(12)
+        arrow.add_css_class("chain-arrow")
+        arrow.set_valign(Gtk.Align.CENTER)
+        return arrow
+
     def _clear_chain(self) -> None:
+        self._close_add_block_popover()
         child = self.chain_box.get_first_child()
         while child is not None:
             next_child = child.get_next_sibling()
             self.chain_box.remove(child)
             child = next_child
         self._chain_cards.clear()
+        self._chain_slots = []
+        self._chain_slot_by_path.clear()
+        self._empty_slot_cards.clear()
+        self._drag_source_path = None
         self._chain_keys = []
         self._chain_sig = None
         self.chain_hint.set_visible(False)
         self.chain_stack.set_visible_child_name("empty")
 
-    def _rebuild_chain(self, blocks: list[stomp.BlockState]) -> None:
-        self._clear_chain()
-        self._chain_sig = self._chain_signature(blocks)
-        for block in blocks:
-            key = _key_for_path(block.path)
-            self._chain_keys.append(key)
-            if self.chain_box.get_first_child() is not None:
-                arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
-                arrow.set_pixel_size(12)
-                arrow.add_css_class("chain-arrow")
-                arrow.set_valign(Gtk.Align.CENTER)
-                self.chain_box.append(arrow)
-            card = self._make_chain_card(block)
-            btn = Gtk.ToggleButton()
-            btn.add_css_class("chain-block")
-            btn.add_css_class(_css_class_for(key))
-            btn.set_valign(Gtk.Align.CENTER)
-            btn.set_tooltip_text(
-                "Select %s block; right-click to enable/disable" % block.label)
-            self._set_accessible_label(btn, "%s block" % block.label)
-            btn.set_child(card["box"])
-            btn.connect("toggled", self._on_chain_toggled, block.path)
-            right_click = Gtk.GestureClick()
-            right_click.set_button(Gdk.BUTTON_SECONDARY)
-            right_click.connect("pressed", self._on_chain_right_click,
-                                block.path)
-            btn.add_controller(right_click)
-            self.chain_box.append(btn)
-            self._chain_cards[block.path] = {"btn": btn, **card}
-        self._reload_css(self._chain_keys)
-        self.chain_hint.set_visible(bool(blocks))
-        self.chain_stack.set_visible_child_name(
-            "chain" if blocks else "empty")
+    def _make_empty_slot(self, slot: stomp.ChainSlot) -> Gtk.Widget:
+        button = Gtk.Button()
+        button.add_css_class("chain-empty")
+        button.set_valign(Gtk.Align.CENTER)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        content.set_halign(Gtk.Align.CENTER)
+        icon = Gtk.Image.new_from_icon_name("list-add-symbolic")
+        icon.set_pixel_size(17)
+        content.append(icon)
+        label = Gtk.Label(label="Add block")
+        label.add_css_class("block-name")
+        content.append(label)
+        button.set_child(content)
+        if slot.fixed:
+            button.set_sensitive(False)
+            button.set_tooltip_text("This chain position is fixed")
+        else:
+            button.set_tooltip_text("Add a block to this empty chain position")
+            self._set_accessible_label(button, "Add a block here")
+            button.connect("clicked", self._on_empty_slot_clicked, slot)
+            self._add_chain_drop_target(button, slot)
+        self._empty_slot_cards[(slot.row, slot.col)] = button
+        return button
 
-    def _render_chain(self, blocks: list[stomp.BlockState]) -> None:
-        signature = self._chain_signature(blocks)
+    def _append_chain_block(self, block: stomp.BlockState,
+                            slot: stomp.ChainSlot | None) -> None:
+        key = _key_for_path(block.path)
+        fixed = bool(slot.fixed) if slot is not None else False
+        self._chain_keys.append(key)
+        card = self._make_chain_card(block, fixed=fixed)
+        btn = Gtk.ToggleButton()
+        btn.add_css_class("chain-block")
+        btn.add_css_class(_css_class_for(key))
+        btn.set_valign(Gtk.Align.CENTER)
+        if fixed:
+            btn.add_css_class("chain-fixed")
+        tooltip = "Select %s block; right-click to enable/disable" % block.label
+        tooltip += ("; fixed in the chain" if fixed else "; drag to reorder")
+        btn.set_tooltip_text(tooltip)
+        self._set_accessible_label(btn, "%s block" % block.label)
+        btn.set_child(card["box"])
+        btn.connect("toggled", self._on_chain_toggled, block.path)
+        right_click = Gtk.GestureClick()
+        right_click.set_button(Gdk.BUTTON_SECONDARY)
+        right_click.connect("pressed", self._on_chain_right_click,
+                            block.path)
+        btn.add_controller(right_click)
+        if slot is not None:
+            self._chain_slot_by_path[block.path] = slot
+            if not fixed:
+                self._add_block_drag_source(btn, block.path)
+                self._add_chain_drop_target(btn, slot)
+        self.chain_box.append(btn)
+        entry = {"btn": btn, **card}
+        if slot is not None:
+            entry["slot"] = slot
+        self._chain_cards[block.path] = entry
+
+    def _rebuild_chain(self, blocks: list[stomp.BlockState],
+                       slots: list[stomp.ChainSlot]) -> None:
+        self._clear_chain()
+        self._chain_sig = (self._chain_layout_signature(slots) if slots
+                           else self._chain_signature(blocks))
+        self._chain_slots = list(slots)
+        block_by_path = {block.path: block for block in blocks}
+
+        if slots:
+            for slot in slots:
+                if self.chain_box.get_first_child() is not None:
+                    self.chain_box.append(self._make_chain_arrow())
+                if slot.path is None:
+                    self.chain_box.append(self._make_empty_slot(slot))
+                    continue
+                block = block_by_path.get(slot.path)
+                if block is None:
+                    node = None
+                    if self.device is not None:
+                        node = self.device.nodes.get(slot.path)
+                    block = stomp.BlockState(
+                        path=slot.path,
+                        label=stomp.block_label(slot.path, node),
+                        on=None, on_path=slot.path + r"\on_off")
+                self._append_chain_block(block, slot)
+        else:
+            # Older firmware without a router: display the blocks only.
+            for block in blocks:
+                if self.chain_box.get_first_child() is not None:
+                    self.chain_box.append(self._make_chain_arrow())
+                self._append_chain_block(block, None)
+
+        self._reload_css(self._chain_keys)
+        has_content = bool(slots or blocks)
+        self.chain_hint.set_visible(has_content)
+        self.chain_stack.set_visible_child_name(
+            "chain" if has_content else "empty")
+
+    def _render_chain(self, blocks: list[stomp.BlockState],
+                      slots: list[stomp.ChainSlot] | None = None) -> None:
+        slots = list(slots or [])
+        signature = (self._chain_layout_signature(slots) if slots
+                     else self._chain_signature(blocks))
         if signature != self._chain_sig:
-            self._rebuild_chain(blocks)
+            self._rebuild_chain(blocks, slots)
 
         if self._selected_block_path and not any(
                 b.path == self._selected_block_path for b in blocks):
@@ -1852,6 +2031,246 @@ class MainWindow(Adw.ApplicationWindow):
                 card["btn"].set_active(block.path == self._selected_block_path)
             finally:
                 self._syncing = False
+        self._update_chain_edit_buttons()
+
+    # ---- chain add / remove / reorder ---------------------------------
+
+    def _block_label_for(self, path: str) -> str:
+        if self._state is not None:
+            for block in self._state.blocks:
+                if block.path == path:
+                    return block.label
+        return stomp.block_label(path, None)
+
+    def _movable_neighbor(self, slot: stomp.ChainSlot,
+                          direction: int) -> stomp.ChainSlot | None:
+        slots = self._chain_slots or self._current_chain_slots()
+        index = next((i for i, candidate in enumerate(slots)
+                      if candidate.row == slot.row and
+                      candidate.col == slot.col), None)
+        if index is None:
+            return None
+        step = -1 if direction < 0 else 1
+        index += step
+        while 0 <= index < len(slots):
+            candidate = slots[index]
+            if not candidate.fixed:
+                return candidate
+            index += step
+        return None
+
+    def _update_chain_edit_buttons(self) -> None:
+        if not hasattr(self, "details_move_left"):
+            return
+        device = self.device
+        path = self._selected_block_path
+        slot = self._chain_slot_by_path.get(path) if path else None
+        if slot is None and path and device is not None:
+            slot = next((candidate for candidate in self._current_chain_slots()
+                         if candidate.path == path), None)
+        editable = device is not None and not self._busy and slot is not None
+        movable = editable and not bool(slot and slot.fixed)
+        self.details_move_left.set_sensitive(
+            movable and self._movable_neighbor(slot, -1) is not None)
+        self.details_move_right.set_sensitive(
+            movable and self._movable_neighbor(slot, 1) is not None)
+        self.details_remove.set_sensitive(bool(movable))
+        self.details_remove.set_tooltip_text(
+            "Amp, Delay and Reverb are fixed in the signal chain"
+            if slot is not None and slot.fixed
+            else "Remove selected block from the chain")
+
+    def _chain_edit_async(self, message: str,
+                          operation: Callable[[stomp.Device], None]) -> None:
+        device = self.device
+        if device is None or self._busy:
+            return
+        self._set_busy(True, message)
+
+        def worker() -> None:
+            try:
+                operation(device)
+            except Exception as exc:
+                self._post(self._chain_edit_done, str(exc))
+            else:
+                self._post(self._chain_edit_done, None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _chain_edit_done(self, error: str | None) -> None:
+        if error:
+            self._set_busy(False, "Chain edit failed")
+            self._log("chain edit failed: %s" % error)
+            self._set_status(error, error=True)
+            self._update_sensitivity()
+        else:
+            self._set_busy(False, "Signal chain updated")
+            self._refresh_all_async()
+
+    def _on_details_remove(self, _button: Gtk.Button | None = None) -> None:
+        path = self._selected_block_path
+        slot = self._chain_slot_by_path.get(path) if path else None
+        if slot is None or slot.fixed or self.device is None or self._busy:
+            return
+        self._chain_edit_async(
+            "Removing %s..." % self._block_label_for(path),
+            lambda device: device.remove_chain_block(slot.row, slot.col))
+
+    def _move_selected_block(self, direction: int) -> None:
+        path = self._selected_block_path
+        slot = self._chain_slot_by_path.get(path) if path else None
+        if slot is None or slot.fixed or self.device is None or self._busy:
+            return
+        target = self._movable_neighbor(slot, direction)
+        if target is None:
+            return
+        self._chain_edit_async(
+            "Moving %s..." % self._block_label_for(path),
+            lambda device: device.move_chain_block(
+                slot.row, slot.col, target.row, target.col))
+
+    def _close_add_block_popover(self) -> None:
+        popover = self._add_block_popover
+        self._add_block_popover = None
+        if popover is None:
+            return
+        try:
+            popover.popdown()
+        except Exception:
+            pass
+        try:
+            if popover.get_parent() is not None:
+                popover.unparent()
+        except Exception:
+            pass
+
+    def _on_empty_slot_clicked(self, button: Gtk.Button,
+                               slot: stomp.ChainSlot) -> None:
+        device = self.device
+        if device is None or self._busy:
+            return
+        self._close_add_block_popover()
+        try:
+            available = device.get_available_blocks()
+        except Exception as exc:
+            self._log("could not list available blocks: %s" % exc)
+            return
+
+        popover = Gtk.Popover()
+        popover.set_has_arrow(True)
+        popover.set_parent(button)
+        self._add_block_popover = popover
+
+        def on_closed(_popover: Gtk.Popover) -> None:
+            if self._add_block_popover is popover:
+                self._add_block_popover = None
+            try:
+                if popover.get_parent() is not None:
+                    popover.unparent()
+            except Exception:
+                pass
+
+        popover.connect("closed", on_closed)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        title = Gtk.Label(label="Add block", xalign=0)
+        title.add_css_class("add-block-title")
+        box.append(title)
+        if not available:
+            note = Gtk.Label(
+                label="All available blocks are already in the chain.",
+                xalign=0)
+            note.add_css_class("add-block-note")
+            note.add_css_class("dim-label")
+            note.set_wrap(True)
+            note.set_max_width_chars(28)
+            box.append(note)
+        else:
+            scrolled = Gtk.ScrolledWindow()
+            scrolled.set_policy(Gtk.PolicyType.NEVER,
+                                Gtk.PolicyType.AUTOMATIC)
+            scrolled.set_size_request(240, 300)
+            listbox = Gtk.ListBox()
+            listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+            for item in available:
+                row = Gtk.ListBoxRow()
+                row.block_path = item["path"]
+                row.set_tooltip_text(item.get("desc") or item["name"])
+                label = Gtk.Label(label=item["name"], xalign=0)
+                label.set_ellipsize(Pango.EllipsizeMode.END)
+                label.set_margin_top(7)
+                label.set_margin_bottom(7)
+                label.set_margin_start(8)
+                label.set_margin_end(8)
+                row.set_child(label)
+                listbox.append(row)
+
+            def on_row_activated(_listbox: Gtk.ListBox,
+                                 row: Gtk.ListBoxRow) -> None:
+                block_path = getattr(row, "block_path", None)
+                popover.popdown()
+                if block_path:
+                    self._chain_edit_async(
+                        "Adding %s..." % self._block_label_for(block_path),
+                        lambda device: device.add_chain_block(
+                            slot.row, slot.col, block_path))
+
+            listbox.connect("row-activated", on_row_activated)
+            scrolled.set_child(listbox)
+            box.append(scrolled)
+        popover.set_child(box)
+        popover.popup()
+
+    # ---- drag and drop reordering --------------------------------------
+
+    def _add_block_drag_source(self, widget: Gtk.Widget, path: str) -> None:
+        source = Gtk.DragSource.new()
+        source.set_actions(Gdk.DragAction.MOVE)
+        source.connect("prepare", self._on_chain_drag_prepare, path)
+        source.connect("drag-end", self._on_chain_drag_end)
+        widget.add_controller(source)
+
+    def _on_chain_drag_prepare(self, _source: Gtk.DragSource,
+                               _x: float, _y: float,
+                               path: str) -> Gdk.ContentProvider | None:
+        if self.device is None or self._busy:
+            return None
+        self._drag_source_path = path
+        return Gdk.ContentProvider.new_for_bytes(
+            "text/plain;charset=utf-8", GLib.Bytes.new(path.encode("utf-8")))
+
+    def _on_chain_drag_end(self, _source: Gtk.DragSource, _drag: Gdk.Drag,
+                           _delete_data: bool) -> None:
+        self._drag_source_path = None
+
+    def _add_chain_drop_target(self, widget: Gtk.Widget,
+                               slot: stomp.ChainSlot) -> None:
+        target = Gtk.DropTarget.new(str, Gdk.DragAction.MOVE)
+        target.connect("drop", self._on_chain_drop, slot)
+        widget.add_controller(target)
+
+    def _on_chain_drop(self, _target: Gtk.DropTarget, _value: str,
+                       _x: float, _y: float, slot: stomp.ChainSlot) -> bool:
+        source_path = self._drag_source_path or (
+            _value if isinstance(_value, str) else None)
+        self._drag_source_path = None
+        if not source_path or self.device is None or self._busy:
+            return False
+        source = self._chain_slot_by_path.get(source_path)
+        if source is None or source.fixed or slot.fixed:
+            return False
+        if (source.row, source.col) == (slot.row, slot.col):
+            return False
+        if slot.path == source_path:
+            return False
+        self._chain_edit_async(
+            "Moving %s..." % self._block_label_for(source_path),
+            lambda device: device.move_chain_block(
+                source.row, source.col, slot.row, slot.col))
+        return True
 
     def _on_chain_toggled(self, btn: Gtk.ToggleButton, path: str) -> None:
         if self._syncing:
@@ -1913,6 +2332,9 @@ class MainWindow(Adw.ApplicationWindow):
         for cls in ("state-on", "state-off"):
             self.details_status.remove_css_class(cls)
         self.details_switch.set_sensitive(False)
+        self.details_move_left.set_sensitive(False)
+        self.details_move_right.set_sensitive(False)
+        self.details_remove.set_sensitive(False)
         self._clear_params()
 
     @staticmethod
@@ -1974,6 +2396,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._syncing = False
         self._set_state_label(self.details_status, block.on)
         self._details_block_path = path
+        self._update_chain_edit_buttons()
 
         try:
             params = self.device.get_block_parameters(path)
@@ -2232,28 +2655,34 @@ class MainWindow(Adw.ApplicationWindow):
 
         if kind == "float" and isinstance(param.get("min"), (int, float)) and \
                 isinstance(param.get("max"), (int, float)):
+            factor = _param_display_factor(param)
+            minimum = float(param["min"]) * factor
+            maximum = float(param["max"]) * factor
+            if factor != 1.0:
+                minimum, maximum = round(minimum), round(maximum)
             scale = Gtk.Scale.new_with_range(
-                Gtk.Orientation.HORIZONTAL, float(param["min"]),
-                float(param["max"]), 0.01)
+                Gtk.Orientation.HORIZONTAL, minimum, maximum, 1.0)
+            scale.set_round_digits(0)
             scale.set_hexpand(True)
             scale.set_draw_value(False)
             scale.set_tooltip_text(label_text)
             self._set_accessible_label(scale, label_text)
             self._syncing = True
             try:
-                scale.set_value(float(value))
+                scale.set_value(float(round(float(value) * factor)))
             finally:
                 self._syncing = False
-            value_label = Gtk.Label(label=self._fmt_param_value(value))
+            value_label = Gtk.Label(label=self._fmt_param_value(value, factor))
             value_label.add_css_class("value-label")
             value_label.set_size_request(46, -1)
             value_label.set_xalign(1)
             scale.connect("value-changed", self._on_param_scale_changed,
-                          path, value_label)
+                          path, value_label, factor)
             row.append(scale)
             row.append(value_label)
             self._param_controls[path] = {
                 "kind": "scale", "widget": scale, "value_label": value_label,
+                "factor": factor,
             }
             return row
 
@@ -2277,13 +2706,14 @@ class MainWindow(Adw.ApplicationWindow):
             return row
 
         if kind == "number":
-            spin = Gtk.SpinButton.new_with_range(-1e9, 1e9, 0.01)
+            spin = Gtk.SpinButton.new_with_range(-1e9, 1e9, 1.0)
+            spin.set_digits(0)
             spin.set_hexpand(True)
             spin.set_tooltip_text(label_text)
             self._set_accessible_label(spin, label_text)
             self._syncing = True
             try:
-                spin.set_value(float(value))
+                spin.set_value(float(round(float(value))))
             finally:
                 self._syncing = False
             spin.connect("value-changed", self._on_param_spin_changed, path)
@@ -2321,25 +2751,28 @@ class MainWindow(Adw.ApplicationWindow):
         return row
 
     @staticmethod
-    def _fmt_param_value(value: Any) -> str:
+    def _fmt_param_value(value: Any, factor: float = 1.0) -> str:
         try:
-            return ("%.2f" % float(value)).rstrip("0").rstrip(".")
-        except (TypeError, ValueError):
+            return "%d" % round(float(value) * factor)
+        except (TypeError, ValueError, OverflowError):
             return str(value)
 
     def _on_param_scale_changed(self, scale: Gtk.Scale, path: str,
-                                label: Gtk.Label) -> None:
-        label.set_text(self._fmt_param_value(scale.get_value()))
+                                label: Gtk.Label, factor: float) -> None:
+        try:
+            label.set_text("%d" % round(scale.get_value()))
+        except (TypeError, ValueError, OverflowError):
+            pass
         if self._syncing or self.device is None:
             return
         self._param_dirty.add(path)
-        self._schedule_param(path, round(float(scale.get_value()), 6))
+        self._schedule_param(path, _whole_device_value(scale.get_value(), factor))
 
     def _on_param_spin_changed(self, spin: Gtk.SpinButton, path: str) -> None:
         if self._syncing or self.device is None:
             return
         self._param_dirty.add(path)
-        self._schedule_param(path, round(float(spin.get_value()), 6))
+        self._schedule_param(path, int(round(spin.get_value())))
 
     def _on_param_enum_changed(self, dropdown: Gtk.DropDown, _pspec, path: str,
                                options: list[str]) -> None:
@@ -2443,13 +2876,15 @@ class MainWindow(Adw.ApplicationWindow):
                     float_value = float(value)
                 except (TypeError, ValueError):
                     continue
+                factor = float(control.get("factor", 1.0))
                 self._syncing = True
                 try:
-                    widget.set_value(float_value)
+                    widget.set_value(float(round(float_value * factor)))
                 finally:
                     self._syncing = False
                 if kind == "scale" and "value_label" in control:
-                    control["value_label"].set_text(self._fmt_param_value(value))
+                    control["value_label"].set_text(
+                        self._fmt_param_value(value, factor))
             elif kind == "switch":
                 self._syncing = True
                 try:
@@ -2474,12 +2909,12 @@ class MainWindow(Adw.ApplicationWindow):
     def _render_master(self, volume: stomp.ControlState | None,
                        tempo: stomp.ControlState | None) -> None:
         if volume is not None:
-            self.volume_value_label.set_text("%.1f" % volume.value)
+            self.volume_value_label.set_text(self._fmt_param_value(volume.value))
             self.volume_scale.set_range(volume.min, volume.max)
             if not self._volume_dirty and not self.volume_scale.has_focus():
                 self._syncing = True
                 try:
-                    self.volume_scale.set_value(volume.value)
+                    self.volume_scale.set_value(float(round(volume.value)))
                 finally:
                     self._syncing = False
         else:
@@ -2490,7 +2925,7 @@ class MainWindow(Adw.ApplicationWindow):
             if not self._tempo_dirty and not self.tempo_spin.has_focus():
                 self._syncing = True
                 try:
-                    self.tempo_spin.set_value(tempo.value)
+                    self.tempo_spin.set_value(float(round(tempo.value)))
                 finally:
                     self._syncing = False
         else:
@@ -2500,7 +2935,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._master_tempo = tempo
 
     def _on_volume_changed(self, scale: Gtk.Scale) -> None:
-        self.volume_value_label.set_text("%.1f" % scale.get_value())
+        self.volume_value_label.set_text(self._fmt_param_value(scale.get_value()))
         if self._syncing or self.device is None:
             return
         self._volume_dirty = True
@@ -2518,8 +2953,8 @@ class MainWindow(Adw.ApplicationWindow):
         if self._busy:
             self._volume_timer = GLib.timeout_add(250, self._apply_volume)
             return False
-        value = round(float(self.volume_scale.get_value()), 6)
-        self._log("master volume -> %.1f" % value)
+        value = int(round(float(self.volume_scale.get_value())))
+        self._log("master volume -> %d" % value)
 
         def worker() -> None:
             try:
@@ -2533,7 +2968,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _volume_written(self, value: float) -> None:
         self._volume_dirty = False
-        self.volume_value_label.set_text("%.1f" % value)
+        self.volume_value_label.set_text(self._fmt_param_value(value))
 
     def _on_tempo_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing or self.device is None:
@@ -2553,8 +2988,8 @@ class MainWindow(Adw.ApplicationWindow):
         if self._busy:
             self._tempo_timer = GLib.timeout_add(250, self._apply_tempo)
             return False
-        value = round(float(self.tempo_spin.get_value()), 6)
-        self._log("tempo -> %.1f BPM" % value)
+        value = int(round(float(self.tempo_spin.get_value())))
+        self._log("tempo -> %d BPM" % value)
 
         def worker() -> None:
             try:
@@ -2856,6 +3291,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_close(self, *_args: Any) -> bool:
         self._alive = False
+        self._close_add_block_popover()
         device, self.device = self.device, None
         if device is not None:
             try:

@@ -395,6 +395,91 @@ class DeviceStateTests(unittest.TestCase):
                          [r"root\app\gate", r"root\app\amp"])
 
 
+class ChainEditingTests(unittest.TestCase):
+    def _nodes(self):
+        return {
+            "root": {"type": "root", "value": ""},
+            "root\\app": {"type": "item", "item_type": "system", "value": ""},
+            "root\\app\\router": {
+                "type": "router",
+                "value": [["", "s", "", "s", "root\\app\\amp", "s",
+                           "root\\app\\delay", "s", "root\\app\\reverb",
+                           "s", ""]],
+                "fixed": [[False, False, False, False, True, False, True,
+                           False, True, False, False]],
+            },
+            "root\\app\\amp": {"type": "item", "item_type": "block",
+                                "desc": "Amp"},
+            "root\\app\\amp\\on_off": {"type": "enum", "value": "ON"},
+            "root\\app\\delay": {"type": "item", "item_type": "block",
+                                  "desc": "Delay"},
+            "root\\app\\delay\\on_off": {"type": "enum", "value": "ON"},
+            "root\\app\\reverb": {"type": "item", "item_type": "block",
+                                   "desc": "Reverb"},
+            "root\\app\\reverb\\on_off": {"type": "enum", "value": "ON"},
+            "root\\app\\gate": {"type": "item", "item_type": "block",
+                                 "desc": "Gate"},
+            "root\\app\\gate\\on_off": {"type": "enum", "value": "OFF"},
+            "root\\app\\chorus": {"type": "item", "item_type": "block",
+                                   "desc": "Chorus"},
+            "root\\app\\chorus\\on_off": {"type": "enum", "value": "OFF"},
+        }
+
+    def _device(self):
+        nodes = self._nodes()
+        transport = FakeTransport(nodes)
+        device = stomp.Device(transport, log=lambda _message: None)
+        device.connect()
+        return device, transport
+
+    def test_chain_slots_expose_empty_and_fixed_positions(self):
+        device, _ = self._device()
+        slots = device.get_chain_slots()
+        self.assertEqual([slot.path for slot in slots], [
+            None, None, r"root\app\amp", r"root\app\delay",
+            r"root\app\reverb", None])
+        self.assertEqual([slot.fixed for slot in slots],
+                         [False, False, True, True, True, False])
+        self.assertEqual(
+            [item["path"] for item in device.get_available_blocks()],
+            [r"root\app\chorus", r"root\app\gate"])
+        device.close()
+
+    def test_add_move_and_remove_chain_block(self):
+        device, _ = self._device()
+        device.add_chain_block(0, 0, r"root\app\gate")
+        matrix = device.nodes[r"root\app\router"]["value"]
+        self.assertEqual(matrix[0][0], r"root\app\gate")
+        self.assertEqual(device.get_value(r"root\app\gate\on_off"), "ON")
+        self.assertEqual(
+            [block.path for block in device.state().blocks][0],
+            r"root\app\gate")
+
+        device.move_chain_block(0, 0, 0, 2)
+        matrix = device.nodes[r"root\app\router"]["value"]
+        self.assertEqual(matrix[0][0], "")
+        self.assertEqual(matrix[0][2], r"root\app\gate")
+
+        device.remove_chain_block(0, 2)
+        matrix = device.nodes[r"root\app\router"]["value"]
+        self.assertEqual(matrix[0][2], "")
+        self.assertNotIn(r"root\app\gate",
+                         [slot.path for slot in device.get_chain_slots()])
+        device.close()
+
+    def test_fixed_chain_blocks_cannot_move_or_remove(self):
+        device, transport = self._device()
+        before = len(transport.commands)
+        with self.assertRaises(stomp.StompError):
+            device.remove_chain_block(0, 4)
+        with self.assertRaises(stomp.StompError):
+            device.move_chain_block(0, 4, 0, 0)
+        with self.assertRaises(stomp.StompError):
+            device.add_chain_block(0, 4, r"root\app\gate")
+        self.assertEqual(len(transport.commands), before)
+        device.close()
+
+
 class UploadTests(unittest.TestCase):
     def _nam_file(self, name="Test Amp"):
         payload = json.dumps({

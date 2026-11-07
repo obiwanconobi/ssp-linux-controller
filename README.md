@@ -83,7 +83,9 @@ discovery is selected by default. If the pedal is not discovered, choose
   master volume, and tempo from the device.
 - **Signal chain as a horizontal row of colour-coded blocks** — bypassed
   blocks are dimmed; click a block to select and edit it, or right-click it
-  to enable/disable it.
+  to enable/disable it. Empty slot cards add a block; blocks can be dragged
+  (or moved with the editor arrows) to reorder them. Amp, Delay, and Reverb
+  are fixed in place by the device and cannot be moved or removed.
 - Selected-block editor: enable switch plus editable parameters (floats as
   sliders, enums and model/IR lists as dropdowns, numbers as spin buttons,
   text as entries).
@@ -165,8 +167,8 @@ paths. See `docs/stompstation-pro-protocol.md` for details.
 
 - Password/token authentication is not implemented (the proprietary hash is
   not documented).
-- Chain editing (add/remove/reorder blocks) is not exposed in the UI; block
-  on/off and parameter editing are.
+- Chain editing follows the device's fixed positions: Amp, Delay, and Reverb
+  cannot be moved or removed.
 - Patch import/export bundles are not implemented.
 - IR conversion uses the first channel and first 2048 samples, with no
   resampling (matching the official app's observed behaviour).
