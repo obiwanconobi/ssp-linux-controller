@@ -1267,11 +1267,19 @@ class StompWindow(Gtk.ApplicationWindow):
         if target is None:
             return
         dialog = Gtk.FileDialog()
-        dialog.set_title("Choose a NAM model" if target.kind == "nam"
-                         else "Choose an IR WAV file")
+        if target.kind == "pnam":
+            dialog.set_title("Choose a parametric NAM model")
+        elif target.kind == "nam":
+            dialog.set_title("Choose a NAM model")
+        else:
+            dialog.set_title("Choose an IR WAV file")
 
         file_filter = Gtk.FileFilter()
-        if target.kind == "nam":
+        if target.kind == "pnam":
+            file_filter.set_name("Parametric NAM models")
+            file_filter.add_pattern("*.pnam")
+            file_filter.add_pattern("*.PNAM")
+        elif target.kind == "nam":
             file_filter.set_name("NAM models")
             file_filter.add_pattern("*.nam")
             file_filter.add_pattern("*.NAM")
@@ -1314,6 +1322,10 @@ class StompWindow(Gtk.ApplicationWindow):
         if target.kind == "nam" and not path.lower().endswith(".nam"):
             self._log("the selected file is not a .nam model")
             self._set_status("Choose a .nam file", error=True)
+            return
+        if target.kind == "pnam" and not path.lower().endswith(".pnam"):
+            self._log("the selected file is not a .pnam model")
+            self._set_status("Choose a .pnam file", error=True)
             return
         if target.kind == "ir" and not path.lower().endswith(".wav"):
             self._log("the selected file is not a .wav IR")
@@ -1367,6 +1379,10 @@ class StompWindow(Gtk.ApplicationWindow):
             try:
                 if target.kind == "ir":
                     result = device.load_ir(path, slot=slot, progress=on_progress)
+                elif target.kind == "pnam":
+                    result = device.load_pnam(path, slot=slot,
+                                              target=target.path,
+                                              progress=on_progress)
                 else:
                     result = device.load_nam(path, slot=slot, target=target.path,
                                              progress=on_progress)

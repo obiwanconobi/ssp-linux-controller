@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
 import os
 import queue
 import re
@@ -29,6 +30,7 @@ import threading
 import time
 from typing import Any, Callable, Sequence
 
+import cairo
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -286,6 +288,20 @@ headerbar { box-shadow: none; border-bottom: 1px solid alpha(@window_fg_color, 0
     border: 1px solid alpha(@window_fg_color, 0.07);
     background-color: alpha(@window_fg_color, 0.022);
 }
+.global-eq-off { opacity: 0.60; }
+.eq-band-button {
+    min-width: 34px;
+    min-height: 32px;
+    padding: 2px 8px;
+}
+.eq-band-button:checked {
+    background-color: alpha(@accent_color, 0.28);
+    color: @accent_color;
+}
+.dual-card.eq-band-selected {
+    border-color: alpha(@accent_color, 0.70);
+    box-shadow: 0 0 0 1px alpha(@accent_color, 0.35);
+}
 
 /* -- Status / empty states ------------------------------------------ */
 .status-ok    { color: @success_color; font-weight: 600; }
@@ -368,6 +384,229 @@ def _whole_device_value(display_value: float, factor: float) -> int | float:
     return int(round(value)) if factor == 1.0 else round(value, 6)
 
 
+def _pfloat_display_range(param: dict[str, Any]
+                          ) -> tuple[float, float] | None:
+    """Return the user-facing range of a parametric NAM control."""
+    try:
+        minimum = float(param["display_min"])
+        maximum = float(param["display_max"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if maximum <= minimum:
+        return None
+    return minimum, maximum
+
+
+def _pfloat_to_display(param: dict[str, Any], value: Any) -> float:
+    """Map a normalized pfloat device value to its user-facing value."""
+    bounds = _pfloat_display_range(param)
+    if bounds is None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+    try:
+        raw = float(value)
+        raw_min = float(param.get("min", 0.0))
+        raw_max = float(param.get("max", 1.0))
+    except (TypeError, ValueError):
+        return bounds[0]
+    if raw_max == raw_min:
+        return bounds[0]
+    fraction = (raw - raw_min) / (raw_max - raw_min)
+    return bounds[0] + fraction * (bounds[1] - bounds[0])
+
+
+def _pfloat_to_device(param: dict[str, Any], display_value: float) -> float:
+    """Map a user-facing pfloat value back to the normalized device value."""
+    bounds = _pfloat_display_range(param)
+    if bounds is None:
+        return round(float(display_value), 6)
+    try:
+        raw_min = float(param.get("min", 0.0))
+        raw_max = float(param.get("max", 1.0))
+    except (TypeError, ValueError):
+        raw_min, raw_max = 0.0, 1.0
+    fraction = ((float(display_value) - bounds[0]) /
+                (bounds[1] - bounds[0]))
+    raw = raw_min + fraction * (raw_max - raw_min)
+    return round(min(raw_max, max(raw_min, raw)), 6)
+
+
+def _pfloat_decimals(param: dict[str, Any]) -> int:
+    try:
+        return max(0, min(6, int(param.get("display_decimals", 1))))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _fmt_pfloat_value(param: dict[str, Any], display_value: float) -> str:
+    decimals = _pfloat_decimals(param)
+    text = ("%." + str(decimals) + "f") % display_value
+    unit = str(param.get("unit") or "")
+    return "%s %s" % (text, unit) if unit else text
+
+
+def _pfloat_option_index(param: dict[str, Any], value: Any,
+                         count: int) -> int:
+    """Map a normalized pfloat switch value to an option index."""
+    if count <= 1:
+        return 0
+    bounds = _pfloat_display_range(param)
+    if bounds is not None:
+        index = int(round(_pfloat_to_display(param, value) - bounds[0]))
+        return max(0, min(count - 1, index))
+    try:
+        raw = float(value)
+        raw_min = float(param.get("min", 0.0))
+        raw_max = float(param.get("max", 1.0))
+    except (TypeError, ValueError):
+        return 0
+    if raw_max == raw_min:
+        return 0
+    fraction = (raw - raw_min) / (raw_max - raw_min)
+    return max(0, min(count - 1, int(round(fraction * (count - 1)))))
+
+
+def _pfloat_option_value(param: dict[str, Any], index: int,
+                         count: int) -> float:
+    """Map an option index back to the normalized device value."""
+    if count <= 1:
+        return _pfloat_to_device(param, 0.0)
+    bounds = _pfloat_display_range(param)
+    if bounds is not None:
+        return _pfloat_to_device(param, bounds[0] + index)
+    try:
+        raw_min = float(param.get("min", 0.0))
+        raw_max = float(param.get("max", 1.0))
+    except (TypeError, ValueError):
+        raw_min, raw_max = 0.0, 1.0
+    fraction = index / float(count - 1)
+    return round(raw_min + fraction * (raw_max - raw_min), 6)
+
+
+# ---------------------------------------------------------------------------
+# Parametric EQ response drawing
+# ---------------------------------------------------------------------------
+
+EQ_MIN_FREQ = 20.0
+EQ_MAX_FREQ = 20000.0
+EQ_MIN_GAIN = -15.0
+EQ_MAX_GAIN = 15.0
+EQ_SAMPLE_RATE = 48000.0
+EQ_BAND_COLORS = ("#38bdf8", "#34d399", "#fbbf24", "#f472b6")
+EQ_GRID_FREQS = (20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000)
+EQ_GRID_GAINS = (-15, -10, -5, 0, 5, 10, 15)
+
+
+def _eq_band_color(index: int) -> str:
+    return EQ_BAND_COLORS[int(index) % len(EQ_BAND_COLORS)]
+
+
+def _hex_to_rgb(color: str) -> tuple[float, float, float]:
+    color = color.lstrip("#")
+    return tuple(int(color[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+
+def _format_frequency(freq: float) -> str:
+    if freq >= 1000:
+        value = freq / 1000.0
+        return ("%.1fk" % value).replace(".0k", "k")
+    return "%d" % round(freq)
+
+
+def _eq_band_response_db(band: dict[str, Any], freqs: list[float],
+                         sample_rate: float = EQ_SAMPLE_RATE
+                         ) -> list[float]:
+    """Approximate the magnitude response of one EQ band.
+
+    Uses the RBJ cookbook biquads at 48 kHz.  The device's hidden slope
+    controls are not modelled; Q determines the bandwidth/resonance.
+    """
+    try:
+        f0 = float(band.get("frequency", 1000.0))
+        q = float(band.get("q", 0.707))
+        gain = float(band.get("gain", 0.0))
+    except (TypeError, ValueError):
+        return [0.0] * len(freqs)
+    f0 = max(1.0, min(f0, sample_rate / 2.0 - 10.0))
+    q = max(0.05, min(q, 40.0))
+    gain = max(-60.0, min(gain, 60.0))
+    kind = str(band.get("type", "BP")).upper()
+
+    amplitude = 10.0 ** (gain / 40.0)
+    w0 = 2.0 * math.pi * f0 / sample_rate
+    cos_w0 = math.cos(w0)
+    sin_w0 = math.sin(w0)
+    alpha = sin_w0 / (2.0 * q)
+    sqrt_a = math.sqrt(amplitude)
+
+    if kind == "LPS":
+        b0 = amplitude * ((amplitude + 1.0) -
+                          (amplitude - 1.0) * cos_w0 +
+                          2.0 * sqrt_a * alpha)
+        b1 = 2.0 * amplitude * ((amplitude - 1.0) -
+                                (amplitude + 1.0) * cos_w0)
+        b2 = amplitude * ((amplitude + 1.0) -
+                          (amplitude - 1.0) * cos_w0 -
+                          2.0 * sqrt_a * alpha)
+        a0 = ((amplitude + 1.0) + (amplitude - 1.0) * cos_w0 +
+              2.0 * sqrt_a * alpha)
+        a1 = -2.0 * ((amplitude - 1.0) + (amplitude + 1.0) * cos_w0)
+        a2 = ((amplitude + 1.0) + (amplitude - 1.0) * cos_w0 -
+              2.0 * sqrt_a * alpha)
+    elif kind == "HPS":
+        b0 = amplitude * ((amplitude + 1.0) +
+                          (amplitude - 1.0) * cos_w0 +
+                          2.0 * sqrt_a * alpha)
+        b1 = -2.0 * amplitude * ((amplitude - 1.0) +
+                                 (amplitude + 1.0) * cos_w0)
+        b2 = amplitude * ((amplitude + 1.0) +
+                          (amplitude - 1.0) * cos_w0 -
+                          2.0 * sqrt_a * alpha)
+        a0 = ((amplitude + 1.0) - (amplitude - 1.0) * cos_w0 +
+              2.0 * sqrt_a * alpha)
+        a1 = 2.0 * ((amplitude - 1.0) - (amplitude + 1.0) * cos_w0)
+        a2 = ((amplitude + 1.0) - (amplitude - 1.0) * cos_w0 -
+              2.0 * sqrt_a * alpha)
+    elif kind == "LP":
+        gain_factor = 10.0 ** (gain / 20.0)
+        b0 = (1.0 - cos_w0) * 0.5 * gain_factor
+        b1 = (1.0 - cos_w0) * gain_factor
+        b2 = (1.0 - cos_w0) * 0.5 * gain_factor
+        a0 = 1.0 + alpha
+        a1 = -2.0 * cos_w0
+        a2 = 1.0 - alpha
+    elif kind == "HP":
+        gain_factor = 10.0 ** (gain / 20.0)
+        b0 = (1.0 + cos_w0) * 0.5 * gain_factor
+        b1 = -(1.0 + cos_w0) * gain_factor
+        b2 = (1.0 + cos_w0) * 0.5 * gain_factor
+        a0 = 1.0 + alpha
+        a1 = -2.0 * cos_w0
+        a2 = 1.0 - alpha
+    else:  # BP / peaking
+        b0 = 1.0 + alpha * amplitude
+        b1 = -2.0 * cos_w0
+        b2 = 1.0 - alpha * amplitude
+        a0 = 1.0 + alpha / amplitude
+        a1 = -2.0 * cos_w0
+        a2 = 1.0 - alpha / amplitude
+
+    result: list[float] = []
+    for freq in freqs:
+        z = complex(math.cos(-2.0 * math.pi * freq / sample_rate),
+                    math.sin(-2.0 * math.pi * freq / sample_rate))
+        numerator = b0 + b1 * z + b2 * z * z
+        denominator = a0 + a1 * z + a2 * z * z
+        if abs(denominator) < 1e-30:
+            result.append(0.0)
+            continue
+        magnitude = abs(numerator / denominator)
+        result.append(20.0 * math.log10(max(magnitude, 1e-9)))
+    return result
+
+
 def _color_for(key: str) -> str:
     if key in BLOCK_COLORS:
         return BLOCK_COLORS[key]
@@ -392,6 +631,358 @@ def _chain_display_name(label: str) -> str:
 
 def _css_class_for(key: str) -> str:
     return "tone-" + re.sub(r"[^A-Za-z0-9_-]", "_", key)
+
+
+# ---------------------------------------------------------------------------
+# EQ graph widget
+# ---------------------------------------------------------------------------
+
+class EqCurveWidget(Gtk.DrawingArea):
+    """Frequency-response plot for the global parametric EQ."""
+
+    def __init__(self, *, interactive: bool = False, height: int = 160,
+                 on_select: Callable[[int], None] | None = None,
+                 on_change: Callable[[int, float, float], None] | None = None):
+        super().__init__()
+        self.set_size_request(-1, height)
+        self.set_hexpand(True)
+        self.set_vexpand(interactive)
+        self.set_draw_func(self._draw)
+        self.add_css_class("eq-graph")
+        self._interactive = interactive
+        self._on_select = on_select
+        self._on_change = on_change
+        self._bands: list[dict[str, Any]] = []
+        self._selected = 0
+        self._width = 0
+        self._height = 0
+        self._drag_index: int | None = None
+        self._drag_start = (0.0, 0.0)
+
+        click = Gtk.GestureClick()
+        click.connect("pressed", self._on_click)
+        self.add_controller(click)
+
+        if interactive:
+            drag = Gtk.GestureDrag()
+            drag.connect("drag-begin", self._on_drag_begin)
+            drag.connect("drag-update", self._on_drag_update)
+            drag.connect("drag-end", self._on_drag_end)
+            self.add_controller(drag)
+            self.set_tooltip_text(
+                "Drag a numbered handle to move a band; use the controls "
+                "below for Q and filter type.")
+        else:
+            self.set_tooltip_text(
+                "Global EQ response. Click a numbered band to edit it.")
+
+    def set_bands(self, bands: list[dict[str, Any]],
+                  selected: int | None = None) -> None:
+        self._bands = [dict(band) for band in bands]
+        if selected is not None:
+            self._selected = selected
+        self.queue_draw()
+
+    def set_selected(self, selected: int) -> None:
+        if selected != self._selected:
+            self._selected = selected
+            self.queue_draw()
+
+    # ---- geometry ------------------------------------------------------
+
+    def _plot_geometry(self) -> tuple[float, float, float, float]:
+        left = 32.0 if self._width >= 300 else 26.0
+        right = 10.0
+        top = 8.0
+        bottom = 20.0 if self._height >= 100 else 16.0
+        return (left, top,
+                max(10.0, self._width - left - right),
+                max(10.0, self._height - top - bottom))
+
+    @staticmethod
+    def _freq_to_x(freq: float, left: float, plot_width: float) -> float:
+        freq = max(EQ_MIN_FREQ, min(EQ_MAX_FREQ, float(freq)))
+        ratio = ((math.log10(freq) - math.log10(EQ_MIN_FREQ)) /
+                 (math.log10(EQ_MAX_FREQ) - math.log10(EQ_MIN_FREQ)))
+        return left + ratio * plot_width
+
+    @staticmethod
+    def _x_to_freq(x: float, left: float, plot_width: float) -> float:
+        ratio = max(0.0, min(1.0, (x - left) / plot_width))
+        return 10.0 ** (math.log10(EQ_MIN_FREQ) + ratio *
+                        (math.log10(EQ_MAX_FREQ) - math.log10(EQ_MIN_FREQ)))
+
+    @staticmethod
+    def _gain_to_y(gain: float, top: float, plot_height: float) -> float:
+        gain = max(EQ_MIN_GAIN, min(EQ_MAX_GAIN, float(gain)))
+        ratio = (EQ_MAX_GAIN - gain) / (EQ_MAX_GAIN - EQ_MIN_GAIN)
+        return top + ratio * plot_height
+
+    @staticmethod
+    def _y_to_gain(y: float, top: float, plot_height: float) -> float:
+        ratio = max(0.0, min(1.0, (y - top) / plot_height))
+        return EQ_MAX_GAIN - ratio * (EQ_MAX_GAIN - EQ_MIN_GAIN)
+
+    def _handle_points(self) -> list[tuple[int, float, float]]:
+        left, top, plot_width, plot_height = self._plot_geometry()
+        points: list[tuple[int, float, float]] = []
+        for band in self._bands:
+            try:
+                index = int(band.get("index", 0))
+                freq = float(band.get("frequency", 1000.0))
+                gain = float(band.get("gain", 0.0))
+            except (TypeError, ValueError):
+                continue
+            points.append((
+                index,
+                self._freq_to_x(freq, left, plot_width),
+                self._gain_to_y(gain, top, plot_height),
+            ))
+        return points
+
+    def _nearest_band(self, x: float, y: float,
+                      threshold: float = 24.0) -> int | None:
+        best: int | None = None
+        best_distance = threshold
+        for index, px, py in self._handle_points():
+            distance = math.hypot(px - x, py - y)
+            if distance <= best_distance:
+                best = index
+                best_distance = distance
+        return best
+
+    def _band_by_x(self, x: float) -> int | None:
+        points = self._handle_points()
+        if not points:
+            return None
+        return min(points, key=lambda point: abs(point[1] - x))[0]
+
+    @staticmethod
+    def _gesture_xy(result: Any) -> tuple[float, float] | None:
+        if not result:
+            return None
+        if len(result) == 3:
+            ok, x, y = result
+            return (float(x), float(y)) if ok else None
+        if len(result) == 2:
+            x, y = result
+            return (float(x), float(y))
+        return None
+
+    # ---- interaction ---------------------------------------------------
+
+    def _on_click(self, _gesture: Gtk.GestureClick, _n_press: int,
+                  x: float, y: float) -> None:
+        if not self._bands:
+            return
+        index = self._nearest_band(x, y, 28.0)
+        if index is None:
+            index = self._band_by_x(x)
+        if index is None:
+            return
+        self._selected = index
+        self.queue_draw()
+        if self._on_select:
+            self._on_select(index)
+
+    def _on_drag_begin(self, gesture: Gtk.GestureDrag,
+                       _x: float, _y: float) -> None:
+        if not self._bands:
+            return
+        start = self._gesture_xy(gesture.get_start_point())
+        if start is None:
+            return
+        self._drag_start = start
+        index = self._nearest_band(start[0], start[1], 24.0)
+        if index is None:
+            self._drag_index = None
+            return
+        self._drag_index = index
+        self._selected = index
+        self.queue_draw()
+        if self._on_select:
+            self._on_select(index)
+
+    def _on_drag_update(self, gesture: Gtk.GestureDrag,
+                        _offset_x: float, _offset_y: float) -> None:
+        if self._drag_index is None:
+            return
+        offset = self._gesture_xy(gesture.get_offset())
+        if offset is None:
+            return
+        left, top, plot_width, plot_height = self._plot_geometry()
+        x = self._drag_start[0] + offset[0]
+        y = self._drag_start[1] + offset[1]
+        freq = round(self._x_to_freq(x, left, plot_width))
+        gain = round(self._y_to_gain(y, top, plot_height))
+        freq = max(EQ_MIN_FREQ, min(EQ_MAX_FREQ, freq))
+        gain = max(EQ_MIN_GAIN, min(EQ_MAX_GAIN, gain))
+        band = next((candidate for candidate in self._bands
+                     if int(candidate.get("index", -1)) == self._drag_index),
+                    None)
+        if band is None:
+            return
+        band["frequency"] = float(freq)
+        band["gain"] = float(gain)
+        self.queue_draw()
+        if self._on_change:
+            self._on_change(self._drag_index, float(freq), float(gain))
+
+    def _on_drag_end(self, _gesture: Gtk.GestureDrag,
+                     _x: float, _y: float) -> None:
+        self._drag_index = None
+
+    # ---- drawing -------------------------------------------------------
+
+    @staticmethod
+    def _rounded_rect(cr: Any, x: float, y: float,
+                      width: float, height: float, radius: float) -> None:
+        radius = min(radius, width / 2.0, height / 2.0)
+        cr.new_sub_path()
+        cr.arc(x + width - radius, y + radius, radius,
+               -math.pi / 2.0, 0.0)
+        cr.arc(x + width - radius, y + height - radius, radius,
+               0.0, math.pi / 2.0)
+        cr.arc(x + radius, y + height - radius, radius,
+               math.pi / 2.0, math.pi)
+        cr.arc(x + radius, y + radius, radius,
+               math.pi, 3.0 * math.pi / 2.0)
+        cr.close_path()
+
+    def _draw(self, _area: Gtk.DrawingArea, cr: Any,
+              width: int, height: int) -> None:
+        self._width = width
+        self._height = height
+        if width < 40 or height < 30:
+            return
+        left, top, plot_width, plot_height = self._plot_geometry()
+
+        cr.save()
+        self._rounded_rect(cr, 0.5, 0.5, width - 1.0, height - 1.0, 10.0)
+        cr.clip()
+        cr.set_source_rgba(0.012, 0.018, 0.032, 0.72)
+        cr.paint()
+
+        label_size = 9.0 if width < 420 else 10.0
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL,
+                            cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(label_size)
+
+        # Horizontal dB grid.
+        for gain in EQ_GRID_GAINS:
+            y = self._gain_to_y(gain, top, plot_height)
+            cr.set_source_rgba(1.0, 1.0, 1.0,
+                               0.16 if gain == 0 else 0.07)
+            cr.set_line_width(1.0)
+            cr.move_to(left, y)
+            cr.line_to(left + plot_width, y)
+            cr.stroke()
+            if width >= 260:
+                text = "%+d" % gain
+                extents = cr.text_extents(text)
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.38)
+                cr.move_to(left - 6.0 - extents.width,
+                           y + extents.height / 2.0 - 1.0)
+                cr.show_text(text)
+
+        # Vertical frequency grid.
+        label_freqs = {20, 100, 1000, 10000, 20000} if width < 560 else \
+            set(EQ_GRID_FREQS)
+        for freq in EQ_GRID_FREQS:
+            x = self._freq_to_x(freq, left, plot_width)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.07)
+            cr.set_line_width(1.0)
+            cr.move_to(x, top)
+            cr.line_to(x, top + plot_height)
+            cr.stroke()
+            if freq in label_freqs:
+                text = _format_frequency(freq)
+                extents = cr.text_extents(text)
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.38)
+                cr.move_to(x - extents.width / 2.0,
+                           top + plot_height + extents.height + 4.0)
+                cr.show_text(text)
+
+        # Curves.
+        cr.save()
+        cr.rectangle(left, top, plot_width, plot_height)
+        cr.clip()
+        sample_count = 220 if width < 500 else 300
+        freqs = [EQ_MIN_FREQ *
+                 (EQ_MAX_FREQ / EQ_MIN_FREQ) **
+                 (i / float(sample_count - 1))
+                 for i in range(sample_count)]
+        curves: list[list[float]] = []
+        for band in self._bands:
+            values = _eq_band_response_db(band, freqs)
+            curves.append(values)
+            try:
+                band_index = int(band.get("index", 0))
+            except (TypeError, ValueError):
+                band_index = 0
+            selected = band_index == self._selected
+            color = _hex_to_rgb(_eq_band_color(band_index))
+            self._draw_curve(cr, freqs, values, color,
+                             0.72 if selected else 0.26,
+                             1.8 if selected else 1.0,
+                             left, top, plot_width, plot_height)
+        if curves:
+            combined = [sum(values[index] for values in curves)
+                        for index in range(sample_count)]
+            self._draw_curve(cr, freqs, combined, (0.84, 0.92, 1.0),
+                             0.92, 2.0, left, top, plot_width, plot_height)
+        cr.restore()
+
+        # Band handles.
+        for index, x, y in self._handle_points():
+            selected = index == self._selected
+            radius = 10.0 if selected else 7.0
+            color = _hex_to_rgb(_eq_band_color(index))
+            if selected:
+                cr.set_source_rgba(*color, 0.20)
+                cr.arc(x, y, radius + 5.0, 0.0, 2.0 * math.pi)
+                cr.fill()
+            cr.set_source_rgba(*color, 1.0)
+            cr.arc(x, y, radius, 0.0, 2.0 * math.pi)
+            cr.fill_preserve()
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.88 if selected else 0.55)
+            cr.set_line_width(1.4 if selected else 1.0)
+            cr.stroke()
+            text = str(index + 1)
+            extents = cr.text_extents(text)
+            cr.set_source_rgba(0.02, 0.03, 0.05, 0.92)
+            cr.move_to(x - extents.width / 2.0,
+                       y + extents.height / 2.0 - 2.0)
+            cr.show_text(text)
+
+        cr.restore()
+
+        # Border.
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.12)
+        cr.set_line_width(1.0)
+        self._rounded_rect(cr, 0.5, 0.5, width - 1.0, height - 1.0, 10.0)
+        cr.stroke()
+
+    def _draw_curve(self, cr: Any, freqs: list[float],
+                    values: list[float], color: tuple[float, float, float],
+                    alpha: float, line_width: float,
+                    left: float, top: float,
+                    plot_width: float, plot_height: float) -> None:
+        cr.set_source_rgba(color[0], color[1], color[2], alpha)
+        cr.set_line_width(line_width)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        first = True
+        for freq, gain in zip(freqs, values):
+            x = self._freq_to_x(freq, left, plot_width)
+            y = self._gain_to_y(gain, top, plot_height)
+            if first:
+                cr.move_to(x, y)
+                first = False
+            else:
+                cr.line_to(x, y)
+        if not first:
+            cr.stroke()
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +1073,23 @@ class MainWindow(Adw.ApplicationWindow):
         self._param_dirty: set[str] = set()
         self._group_controls: dict[str, dict[str, Any]] = {}
         self._module_controls: dict[str, dict[str, Any]] = {}
+        self._global_eq_timers: dict[str, int] = {}
+        self._global_eq_dirty: set[str] = set()
+        self._global_eq_signature: tuple[Any, ...] | None = None
+        self._global_eq_placeholder: str | None = None
+        self._global_eq_on_path = stomp.GLOBAL_EQ_PATH + r"\on_off"
+        self._global_eq_on: bool | None = None
+        self._global_eq_selected = 0
+        self._global_eq_data: dict[str, Any] | None = None
+        self._global_eq_selector_buttons: dict[int, Gtk.ToggleButton] = {}
+        self._eq_dialog: Gtk.Window | None = None
+        self._eq_dialog_graph: EqCurveWidget | None = None
+        self._eq_dialog_controls: dict[str, dict[str, Any]] = {}
+        self._eq_dialog_band_grid: Gtk.Grid | None = None
+        self._eq_dialog_enable: Gtk.Switch | None = None
+        self._eq_dialog_status: Gtk.Label | None = None
+        self._eq_dialog_cards: dict[int, Gtk.Widget] = {}
+        self._eq_dialog_content: Gtk.Widget | None = None
 
         self._css_provider = Gtk.CssProvider()
         self._reload_css([])
@@ -951,6 +1559,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.details_stack.set_visible_child_name("empty")
         self._details_block_path: str | None = None
         self._details_dual_path: str | None = None
+        self._details_param_signature: tuple[Any, ...] | None = None
         self._dual_card: Gtk.Widget | None = None
         self._dual_expander: Gtk.Expander | None = None
         self._dual_switch: Gtk.Switch | None = None
@@ -1015,6 +1624,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.utility_stack.add_titled_with_icon(
             self._build_log_page(), "activity", "Activity",
             "utilities-terminal-symbolic")
+        self.utility_stack.add_titled_with_icon(
+            self._build_global_eq_page(), "global_eq", "Global EQ",
+            "audio-volume-high-symbolic")
 
         switcher = Adw.ViewSwitcher()
         switcher.set_stack(self.utility_stack)
@@ -1045,7 +1657,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.file_btn = Gtk.Button()
         self.file_btn.set_child(Adw.ButtonContent(
             icon_name="document-open-symbolic", label="Choose file"))
-        self.file_btn.set_tooltip_text("Choose a NAM model or IR WAV file")
+        self.file_btn.set_tooltip_text(
+            "Choose a NAM/PNAM model or IR WAV file")
         self._set_accessible_label(self.file_btn, "Choose file")
         self.file_btn.connect("clicked", lambda *_: self._choose_file())
 
@@ -1122,6 +1735,505 @@ class MainWindow(Adw.ApplicationWindow):
         overlay.set_vexpand(True)
         box.append(overlay)
         return box
+
+    def _build_global_eq_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+
+        caption = Gtk.Label(
+            label="Applies globally to every patch and output.", xalign=0)
+        caption.add_css_class("section-caption")
+        caption.set_wrap(True)
+        box.append(caption)
+
+        enable_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        enable_label = Gtk.Label(label="Enable", xalign=0)
+        enable_label.add_css_class("param-label")
+        enable_label.set_hexpand(True)
+        enable_row.append(enable_label)
+        self.global_eq_status = Gtk.Label(label="--")
+        self.global_eq_status.add_css_class("status-chip")
+        self._set_accessible_label(self.global_eq_status, "Global EQ state")
+        enable_row.append(self.global_eq_status)
+        self.global_eq_expand_btn = Gtk.Button(label="Expand")
+        self.global_eq_expand_btn.add_css_class("flat")
+        self.global_eq_expand_btn.set_tooltip_text("Open full EQ editor")
+        self._set_accessible_label(self.global_eq_expand_btn,
+                                   "Open full EQ editor")
+        self.global_eq_expand_btn.connect(
+            "clicked", lambda *_: self._open_global_eq_dialog())
+        enable_row.append(self.global_eq_expand_btn)
+        self.global_eq_switch = Gtk.Switch()
+        self.global_eq_switch.set_valign(Gtk.Align.CENTER)
+        self.global_eq_switch.set_tooltip_text(
+            "Enable or disable the global parametric EQ")
+        self._set_accessible_label(self.global_eq_switch,
+                                   "Enable global EQ")
+        self.global_eq_switch.connect("state-set", self._on_global_eq_switch)
+        enable_row.append(self.global_eq_switch)
+        box.append(enable_row)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_overlay_scrolling(False)
+        scrolled.set_vexpand(True)
+        self.global_eq_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                                     spacing=10)
+        self.global_eq_editor = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                                        spacing=8)
+        self.global_eq_graph = EqCurveWidget(
+            interactive=False, height=160,
+            on_select=self._select_global_eq_band)
+        self.global_eq_editor.append(self.global_eq_graph)
+        self.global_eq_selector = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                          spacing=6)
+        self.global_eq_selector.set_halign(Gtk.Align.START)
+        self.global_eq_editor.append(self.global_eq_selector)
+        hint = Gtk.Label(
+            label="Click a band to highlight it. Expand to edit all bands.",
+            xalign=0)
+        hint.add_css_class("empty-caption")
+        hint.set_wrap(True)
+        self.global_eq_editor.append(hint)
+        self.global_eq_box.append(self.global_eq_editor)
+
+        self.global_eq_placeholder_label = Gtk.Label(label="")
+        self.global_eq_placeholder_label.add_css_class("dim-label")
+        self.global_eq_placeholder_label.set_wrap(True)
+        self.global_eq_placeholder_label.set_margin_top(12)
+        self.global_eq_placeholder_label.set_margin_bottom(12)
+        self.global_eq_placeholder_label.set_margin_start(4)
+        self.global_eq_placeholder_label.set_margin_end(4)
+        self.global_eq_box.append(self.global_eq_placeholder_label)
+
+        scrolled.set_child(self.global_eq_box)
+        box.append(scrolled)
+        self._set_global_eq_placeholder(
+            "Connect to the pedal to edit the global EQ.")
+        return box
+
+    def _clear_global_eq_timers(self) -> None:
+        for timer in self._global_eq_timers.values():
+            try:
+                GLib.source_remove(timer)
+            except Exception:
+                pass
+        self._global_eq_timers.clear()
+
+    def _clear_global_eq_dialog_controls(self) -> None:
+        self._eq_dialog_controls.clear()
+        self._eq_dialog_cards.clear()
+        grid = self._eq_dialog_band_grid
+        if grid is None:
+            return
+        child = grid.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            grid.remove(child)
+            child = next_child
+
+    def _set_global_eq_placeholder(self, text: str) -> None:
+        self._global_eq_placeholder = text
+        self._global_eq_data = None
+        self.global_eq_editor.set_visible(False)
+        self.global_eq_placeholder_label.set_text(text)
+        self.global_eq_placeholder_label.set_visible(True)
+        self._clear_global_eq_dialog_controls()
+        self._clear_global_eq_timers()
+        self._global_eq_dirty.clear()
+        self._set_state_label(self.global_eq_status, None)
+        if self._eq_dialog_status is not None:
+            self._set_state_label(self._eq_dialog_status, None)
+        self._syncing = True
+        try:
+            self.global_eq_switch.set_active(False)
+            if self._eq_dialog_enable is not None:
+                self._eq_dialog_enable.set_active(False)
+        finally:
+            self._syncing = False
+        self.global_eq_expand_btn.set_sensitive(False)
+        self._close_global_eq_dialog()
+
+    def _show_global_eq_editor(self) -> None:
+        self._global_eq_placeholder = None
+        self.global_eq_editor.set_visible(True)
+        self.global_eq_placeholder_label.set_visible(False)
+        self.global_eq_expand_btn.set_sensitive(
+            self.device is not None and not self._busy)
+
+    def _make_global_eq_band_card(
+            self, band: dict[str, Any], *,
+            controls: dict[str, dict[str, Any]],
+            timers: dict[str, int],
+            dirty: set[str]) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.add_css_class("dual-card")
+        gain = band.get("gain") or {}
+        index = int(band.get("index", 0))
+        label_text = gain.get("desc") or "Band %d" % (index + 1)
+        title = Gtk.Label(xalign=0)
+        title.add_css_class("dual-card-title")
+        title.set_markup('<span foreground="%s">%s</span>' % (
+            _eq_band_color(index), GLib.markup_escape_text(label_text)))
+        card.append(title)
+        labels = {"type": "Type", "frequency": "Frequency",
+                  "gain": "Gain", "q": "Q"}
+        for key in ("type", "frequency", "gain", "q"):
+            param = band.get(key)
+            if param:
+                param = dict(param)
+                param["desc"] = labels[key]
+                card.append(self._make_param_row(
+                    param, controls=controls, dirty=dirty, timers=timers))
+        return card
+
+    def _build_global_eq_selector(self, bands: list[dict[str, Any]]) -> None:
+        child = self.global_eq_selector.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.global_eq_selector.remove(child)
+            child = next_child
+        self._global_eq_selector_buttons.clear()
+        for band in bands:
+            index = int(band.get("index", 0))
+            button = Gtk.ToggleButton(label=str(index + 1))
+            button.add_css_class("eq-band-button")
+            button.set_tooltip_text("Select band %d" % (index + 1))
+            self._set_accessible_label(button, "Select band %d" % (index + 1))
+            button.connect("toggled", self._on_global_eq_band_button, index)
+            self.global_eq_selector.append(button)
+            self._global_eq_selector_buttons[index] = button
+        self._update_global_eq_selector()
+
+    def _update_global_eq_selector(self) -> None:
+        self._syncing = True
+        try:
+            for index, button in self._global_eq_selector_buttons.items():
+                button.set_active(index == self._global_eq_selected)
+        finally:
+            self._syncing = False
+
+    def _on_global_eq_band_button(self, button: Gtk.ToggleButton,
+                                  index: int) -> None:
+        if self._syncing:
+            return
+        if button.get_active():
+            self._select_global_eq_band(index)
+        elif self._global_eq_selected == index:
+            self._syncing = True
+            try:
+                button.set_active(True)
+            finally:
+                self._syncing = False
+
+    def _select_global_eq_band(self, index: int) -> None:
+        index = int(index)
+        if index == self._global_eq_selected:
+            return
+        self._global_eq_selected = index
+        self.global_eq_graph.set_selected(index)
+        if self._eq_dialog_graph is not None:
+            self._eq_dialog_graph.set_selected(index)
+        self._update_global_eq_selector()
+        self._update_global_eq_dialog_selection()
+
+    def _merge_global_eq_data(self, data: dict[str, Any]) -> dict[str, Any]:
+        local = self._global_eq_data
+        if local is None:
+            return data
+        local_bands = {int(band.get("index", 0)): band
+                       for band in local.get("bands") or []}
+        for band in data.get("bands") or []:
+            old = local_bands.get(int(band.get("index", 0)))
+            if old is None:
+                continue
+            for key in ("gain", "frequency", "q", "type"):
+                param = band.get(key)
+                old_param = old.get(key)
+                if param and old_param and \
+                        param.get("path") in self._global_eq_dirty:
+                    band[key] = old_param
+        return data
+
+    @staticmethod
+    def _extract_eq_graph_bands(data: dict[str, Any]
+                                ) -> list[dict[str, Any]]:
+        bands: list[dict[str, Any]] = []
+        for band in data.get("bands") or []:
+            try:
+                bands.append({
+                    "index": int(band.get("index", 0)),
+                    "gain": float(band["gain"]["value"]),
+                    "frequency": float(band["frequency"]["value"]),
+                    "q": float(band["q"]["value"]),
+                    "type": str(band["type"]["value"]),
+                })
+            except (KeyError, TypeError, ValueError):
+                continue
+        return bands
+
+    def _update_global_eq_graphs(self, data: dict[str, Any]) -> None:
+        bands = self._extract_eq_graph_bands(data)
+        self.global_eq_graph.set_bands(bands, self._global_eq_selected)
+        if self._eq_dialog_graph is not None:
+            self._eq_dialog_graph.set_bands(bands, self._global_eq_selected)
+
+    def _render_global_eq(self) -> None:
+        device = self.device
+        data = None
+        if device is not None:
+            try:
+                data = device.get_global_eq()
+            except Exception:
+                data = None
+        if data is None:
+            message = ("Global EQ is not available on this device."
+                       if device is not None else
+                       "Connect to the pedal to edit the global EQ.")
+            if (self._global_eq_signature is not None or
+                    self._global_eq_placeholder != message or
+                    self._global_eq_data is not None):
+                self._global_eq_signature = None
+                self._set_global_eq_placeholder(message)
+            return
+
+        data = self._merge_global_eq_data(data)
+        self._global_eq_data = data
+        bands = data.get("bands") or []
+        if not bands:
+            if (self._global_eq_signature is not None or
+                    self._global_eq_placeholder !=
+                    "No global EQ bands were reported."):
+                self._global_eq_signature = None
+                self._set_global_eq_placeholder(
+                    "No global EQ bands were reported.")
+            return
+
+        signature = tuple(
+            (band.get("index"),
+             tuple(sorted((key, param["path"])
+                          for key, param in band.items()
+                          if isinstance(param, dict))))
+            for band in bands)
+        if signature != self._global_eq_signature:
+            self._global_eq_signature = signature
+            self._clear_global_eq_timers()
+            self._global_eq_dirty.clear()
+            indices = [int(band.get("index", 0)) for band in bands]
+            if self._global_eq_selected not in indices:
+                self._global_eq_selected = indices[0]
+            self._show_global_eq_editor()
+            self._build_global_eq_selector(bands)
+            self._clear_global_eq_dialog_controls()
+            if self._eq_dialog is not None:
+                self._build_global_eq_dialog_bands()
+        else:
+            self._show_global_eq_editor()
+            if not self._global_eq_selector_buttons:
+                self._build_global_eq_selector(bands)
+        self._update_global_eq_graphs(data)
+        self._update_global_eq_values(data)
+        self._update_global_eq_selector()
+
+    def _set_global_eq_enabled_ui(self, enabled: bool | None) -> None:
+        self._global_eq_on = enabled
+        self._set_state_label(self.global_eq_status, enabled)
+        if self._eq_dialog_status is not None:
+            self._set_state_label(self._eq_dialog_status, enabled)
+        for switch in (self.global_eq_switch, self._eq_dialog_enable):
+            if switch is None:
+                continue
+            self._syncing = True
+            try:
+                switch.set_active(bool(enabled))
+            finally:
+                self._syncing = False
+        for widget in (self.global_eq_box, self._eq_dialog_graph):
+            if widget is None:
+                continue
+            if enabled is False:
+                widget.add_css_class("global-eq-off")
+            else:
+                widget.remove_css_class("global-eq-off")
+
+    def _update_global_eq_values(self, data: dict[str, Any]) -> None:
+        params: list[dict[str, Any]] = []
+        for band in data.get("bands") or []:
+            for key in ("type", "frequency", "gain", "q", "slope"):
+                param = band.get(key)
+                if param:
+                    params.append(param)
+        by_path = {param["path"]: param for param in params}
+        for param_path, control in list(self._eq_dialog_controls.items()):
+            if param_path in self._global_eq_dirty:
+                continue
+            param = by_path.get(param_path)
+            if param is not None:
+                self._sync_param_control(param, control)
+
+        self._global_eq_on_path = (data.get("on_path") or
+                                   self._global_eq_on_path)
+        if self._global_eq_on_path not in self._global_eq_dirty:
+            self._set_global_eq_enabled_ui(data.get("enabled"))
+
+    def _on_global_eq_switch(self, switch: Gtk.Switch, state: bool) -> bool:
+        if self._syncing:
+            return False
+        if self.device is None or self._busy:
+            return True
+        self._global_eq_dirty.add(self._global_eq_on_path)
+        self._set_global_eq_enabled_ui(state)
+        self._write_param(self._global_eq_on_path,
+                          "ON" if state else "OFF",
+                          dirty=self._global_eq_dirty)
+        return False
+
+    def _on_eq_graph_changed(self, index: int, frequency: float,
+                             gain: float) -> None:
+        data = self._global_eq_data
+        if data is None:
+            return
+        band = next((candidate for candidate in data.get("bands") or []
+                     if int(candidate.get("index", -1)) == int(index)), None)
+        if band is None:
+            return
+        for key, value in (("frequency", frequency), ("gain", gain)):
+            param = band.get(key)
+            if not param:
+                continue
+            param["value"] = float(value)
+            path = param["path"]
+            self._global_eq_dirty.add(path)
+            self._schedule_param(path, int(round(value)),
+                                 dirty=self._global_eq_dirty,
+                                 timers=self._global_eq_timers,
+                                 delay=140)
+        self._update_global_eq_graphs(data)
+        for key in ("frequency", "gain"):
+            param = band.get(key)
+            control = self._eq_dialog_controls.get(param["path"]) if param else None
+            if control is not None:
+                self._sync_param_control(param, control)
+
+    def _open_global_eq_dialog(self) -> None:
+        if self.device is None or self._global_eq_data is None:
+            return
+        if self._eq_dialog is not None:
+            self._eq_dialog.present()
+            return
+
+        window = Adw.Window()
+        window.set_title("Global Parametric EQ")
+        window.set_default_size(980, 860)
+        window.set_size_request(760, 620)
+        window.set_transient_for(self)
+        window.set_modal(True)
+        self._eq_dialog = window
+
+        def on_close(_window: Adw.Window) -> bool:
+            self._clear_global_eq_dialog_controls()
+            self._eq_dialog = None
+            self._eq_dialog_graph = None
+            self._eq_dialog_enable = None
+            self._eq_dialog_status = None
+            self._eq_dialog_band_grid = None
+            self._eq_dialog_content = None
+            return False
+
+        window.connect("close-request", on_close)
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        title = Adw.WindowTitle(
+            title="Global Parametric EQ",
+            subtitle="Global \u00b7 all patches and outputs")
+        header.set_title_widget(title)
+        toolbar.add_top_bar(header)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        outer.set_margin_top(16)
+        outer.set_margin_bottom(16)
+        outer.set_margin_start(18)
+        outer.set_margin_end(18)
+
+        enable_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        enable_label = Gtk.Label(label="Enable", xalign=0)
+        enable_label.add_css_class("param-label")
+        enable_label.set_hexpand(True)
+        enable_row.append(enable_label)
+        self._eq_dialog_status = Gtk.Label(label="--")
+        self._eq_dialog_status.add_css_class("status-chip")
+        self._set_accessible_label(self._eq_dialog_status,
+                                   "Global EQ state")
+        enable_row.append(self._eq_dialog_status)
+        self._eq_dialog_enable = Gtk.Switch()
+        self._eq_dialog_enable.set_valign(Gtk.Align.CENTER)
+        self._eq_dialog_enable.set_tooltip_text(
+            "Enable or disable the global parametric EQ")
+        self._set_accessible_label(self._eq_dialog_enable,
+                                   "Enable global EQ")
+        self._eq_dialog_enable.connect("state-set", self._on_global_eq_switch)
+        enable_row.append(self._eq_dialog_enable)
+        outer.append(enable_row)
+
+        self._eq_dialog_graph = EqCurveWidget(
+            interactive=True, height=310,
+            on_select=self._select_global_eq_band,
+            on_change=self._on_eq_graph_changed)
+        outer.append(self._eq_dialog_graph)
+
+        self._eq_dialog_band_grid = Gtk.Grid()
+        self._eq_dialog_band_grid.set_column_spacing(12)
+        self._eq_dialog_band_grid.set_row_spacing(12)
+        self._eq_dialog_band_grid.set_column_homogeneous(True)
+        self._eq_dialog_band_grid.set_row_homogeneous(True)
+        outer.append(self._eq_dialog_band_grid)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_overlay_scrolling(False)
+        scrolled.set_vexpand(True)
+        scrolled.set_child(outer)
+        toolbar.set_content(scrolled)
+        window.set_content(toolbar)
+        self._eq_dialog_content = outer
+
+        self._build_global_eq_dialog_bands()
+        if self._global_eq_data is not None:
+            self._update_global_eq_graphs(self._global_eq_data)
+            self._update_global_eq_values(self._global_eq_data)
+        self._update_global_eq_dialog_selection()
+        self._update_sensitivity()
+        window.present()
+
+    def _build_global_eq_dialog_bands(self) -> None:
+        grid = self._eq_dialog_band_grid
+        if grid is None:
+            return
+        self._clear_global_eq_dialog_controls()
+        bands = (self._global_eq_data or {}).get("bands") or []
+        for position, band in enumerate(bands):
+            card = self._make_global_eq_band_card(
+                band, controls=self._eq_dialog_controls,
+                timers=self._global_eq_timers,
+                dirty=self._global_eq_dirty)
+            card.add_css_class("eq-dialog-band")
+            card.set_hexpand(True)
+            index = int(band.get("index", 0))
+            self._eq_dialog_cards[index] = card
+            grid.attach(card, position % 2, position // 2, 1, 1)
+        self._update_global_eq_dialog_selection()
+
+    def _update_global_eq_dialog_selection(self) -> None:
+        for index, card in self._eq_dialog_cards.items():
+            if index == self._global_eq_selected:
+                card.add_css_class("eq-band-selected")
+            else:
+                card.remove_css_class("eq-band-selected")
+
+    def _close_global_eq_dialog(self) -> None:
+        window = self._eq_dialog
+        if window is not None:
+            window.close()
 
     @staticmethod
     def _section(title: str) -> tuple[Gtk.Box, Gtk.Box, Gtk.Box]:
@@ -1236,6 +2348,14 @@ class MainWindow(Adw.ApplicationWindow):
             current_patch in self._patch_names)
         self.chain_box.set_sensitive(connected and idle)
         self._update_chain_edit_buttons()
+        self.global_eq_switch.set_sensitive(connected and idle)
+        self.global_eq_box.set_sensitive(connected and idle)
+        self.global_eq_expand_btn.set_sensitive(
+            connected and idle and self._global_eq_data is not None)
+        if self._eq_dialog_content is not None:
+            self._eq_dialog_content.set_sensitive(connected and idle)
+        if self._eq_dialog_enable is not None:
+            self._eq_dialog_enable.set_sensitive(connected and idle)
         self.volume_scale.set_sensitive(connected and idle)
         self.tempo_spin.set_sensitive(connected and idle)
         self.target_dd.set_sensitive(connected and idle)
@@ -1414,6 +2534,15 @@ class MainWindow(Adw.ApplicationWindow):
         self.progress.set_fraction(0.0)
         self.progress.set_text("Idle")
         self.progress.set_visible(False)
+        self._global_eq_signature = None
+        self._set_global_eq_placeholder(
+            "Connect to the pedal to edit the global EQ.")
+        self._set_state_label(self.global_eq_status, None)
+        self._syncing = True
+        try:
+            self.global_eq_switch.set_active(False)
+        finally:
+            self._syncing = False
         self._log("disconnected")
         self._update_sensitivity()
 
@@ -1514,6 +2643,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._render_presets(state.preset)
         self._render_chain(state.blocks, slots)
         self._render_master(state.volume, state.tempo)
+        self._render_global_eq()
         self._render_targets(state)
         self._update_details_switch(state)
         self._update_param_values()
@@ -2373,6 +3503,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._group_controls.clear()
         self._module_controls.clear()
         self._details_dual_path = None
+        self._details_param_signature = None
         self._dual_card = None
         self._dual_expander = None
         self._dual_switch = None
@@ -2417,6 +3548,11 @@ class MainWindow(Adw.ApplicationWindow):
                 params = self.device.get_block_parameters(path)
             except Exception:
                 params = []
+            # Track both halves for structural-change detection, but only give
+            # the primary parameters to the first card; the secondary card
+            # renders its own controls from dual_block["parameters"].
+            self._details_param_signature = self._param_structure(
+                params + list(dual_block.get("parameters") or []))
             self._render_dual_block(params, dual_block)
             return
         try:
@@ -2424,6 +3560,8 @@ class MainWindow(Adw.ApplicationWindow):
         except Exception:
             editor = {}
         items = editor.get("items") or []
+        self._details_param_signature = self._param_structure(
+            self._flatten_editor_parameters(editor))
         if not items:
             hint = Gtk.Label(label="No editable parameters for this block",
                              xalign=0)
@@ -2431,7 +3569,8 @@ class MainWindow(Adw.ApplicationWindow):
             self.params_box.append(hint)
             return
         for item in items:
-            self.params_box.append(self._make_editor_item(item))
+            if item.get("visible", True):
+                self.params_box.append(self._make_editor_item(item))
 
     def _make_editor_item(self, item: dict[str, Any]) -> Gtk.Widget:
         kind = item.get("kind")
@@ -2446,8 +3585,18 @@ class MainWindow(Adw.ApplicationWindow):
         order = {name: index for index, name in enumerate((
             "model", "ir", "gain", "lvl", "low", "mid", "treble",
             "locut", "hicut", "blend", "balance1", "balance2", "pan1", "pan2"))}
-        return sorted(params, key=lambda param: (
-            order.get(param["name"], len(order)), param["name"]))
+
+        def key(param: dict[str, Any]) -> tuple[int, int, str]:
+            name = str(param.get("name") or "")
+            if param.get("kind") == "pfloat":
+                match = re.match(r"^p(\d+)$", name)
+                return (1, int(match.group(1)) if match else 999, name)
+            rank = order.get(name)
+            if rank == 0:
+                return (0, 0, name)
+            return (2, rank if rank is not None else len(order), name)
+
+        return sorted(params, key=key)
 
     @staticmethod
     def _dual_ui_config(kind: str) -> dict[str, Any]:
@@ -2490,12 +3639,13 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _add_group_param_rows(self, body: Gtk.Box,
                               params: list[dict[str, Any]]) -> None:
-        if not params:
+        visible = [param for param in params if param.get("visible", True)]
+        if not visible:
             hint = Gtk.Label(label="No editable parameters", xalign=0)
             hint.add_css_class("dim-label")
             body.append(hint)
             return
-        for param in self._order_dual_params(params):
+        for param in self._order_dual_params(visible):
             body.append(self._make_param_row(param))
 
     def _make_dual_card(self, title: str, subtitle: str,
@@ -2531,7 +3681,8 @@ class MainWindow(Adw.ApplicationWindow):
 
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         body.add_css_class("dual-card-body")
-        params = list(dual_block["parameters"])
+        params = [param for param in dual_block["parameters"]
+                  if param.get("visible", True)]
         secondary_names = config["secondary_params"]
         tone_params = [param for param in params
                        if param["name"] not in secondary_names]
@@ -2561,6 +3712,11 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _render_dual_block(self, params: list[dict[str, Any]],
                            dual_block: dict[str, Any]) -> None:
+        """Render NAM/IR 1 from ``params`` and NAM/IR 2 from ``dual_block``.
+
+        ``params`` must contain only the primary half of the block; the
+        secondary card gets its own parameters from ``dual_block``.
+        """
         config = self._dual_ui_config(dual_block.get("kind", "nam"))
         self._details_dual_path = dual_block["path"]
         self.params_box.append(self._make_dual_card(
@@ -2661,7 +3817,13 @@ class MainWindow(Adw.ApplicationWindow):
     # Parameter editor
     # ------------------------------------------------------------------
 
-    def _make_param_row(self, param: dict[str, Any]) -> Gtk.Widget:
+    def _make_param_row(self, param: dict[str, Any], *,
+                        controls: dict[str, dict[str, Any]] | None = None,
+                        dirty: set[str] | None = None,
+                        timers: dict[str, int] | None = None) -> Gtk.Widget:
+        controls = self._param_controls if controls is None else controls
+        dirty = self._param_dirty if dirty is None else dirty
+        timers = self._param_timers if timers is None else timers
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         row.add_css_class("param-row")
         label_text = param.get("desc") or param["name"].replace("_", " ").title()
@@ -2675,6 +3837,65 @@ class MainWindow(Adw.ApplicationWindow):
         kind = param.get("kind")
         value = param.get("value")
         path = param["path"]
+
+        if kind == "pfloat":
+            options = [str(option) for option in param.get("options") or []]
+            vtype = str(param.get("vtype") or "")
+            if options and vtype not in ("", "continuous"):
+                index = _pfloat_option_index(param, value, len(options))
+                dd = Gtk.DropDown.new_from_strings(options)
+                dd.set_hexpand(True)
+                dd.set_tooltip_text(label_text)
+                self._set_accessible_label(dd, label_text)
+                self._syncing = True
+                try:
+                    dd.set_selected(index)
+                finally:
+                    self._syncing = False
+                dd.connect("notify::selected", self._on_pfloat_enum_changed,
+                           path, param, options, dirty)
+                row.append(dd)
+                controls[path] = {
+                    "kind": "pfloat_dropdown", "widget": dd,
+                    "options": options, "param": param,
+                }
+                return row
+
+            bounds = _pfloat_display_range(param)
+            if bounds is None:
+                try:
+                    bounds = (float(param["min"]), float(param["max"]))
+                except (KeyError, TypeError, ValueError):
+                    bounds = (0.0, 1.0)
+            decimals = _pfloat_decimals(param)
+            step = 10 ** -decimals if decimals else 1.0
+            scale = Gtk.Scale.new_with_range(
+                Gtk.Orientation.HORIZONTAL, bounds[0], bounds[1], step)
+            scale.set_round_digits(decimals)
+            scale.set_hexpand(True)
+            scale.set_draw_value(False)
+            scale.set_tooltip_text(label_text)
+            self._set_accessible_label(scale, label_text)
+            display_value = _pfloat_to_display(param, value)
+            self._syncing = True
+            try:
+                scale.set_value(display_value)
+            finally:
+                self._syncing = False
+            value_label = Gtk.Label(
+                label=_fmt_pfloat_value(param, display_value))
+            value_label.add_css_class("value-label")
+            value_label.set_size_request(56, -1)
+            value_label.set_xalign(1)
+            scale.connect("value-changed", self._on_pfloat_scale_changed,
+                          path, param, value_label, dirty, timers)
+            row.append(scale)
+            row.append(value_label)
+            controls[path] = {
+                "kind": "pfloat_scale", "widget": scale,
+                "value_label": value_label, "param": param,
+            }
+            return row
 
         if kind == "float" and isinstance(param.get("min"), (int, float)) and \
                 isinstance(param.get("max"), (int, float)):
@@ -2700,10 +3921,10 @@ class MainWindow(Adw.ApplicationWindow):
             value_label.set_size_request(46, -1)
             value_label.set_xalign(1)
             scale.connect("value-changed", self._on_param_scale_changed,
-                          path, value_label, factor)
+                          path, value_label, factor, dirty, timers)
             row.append(scale)
             row.append(value_label)
-            self._param_controls[path] = {
+            controls[path] = {
                 "kind": "scale", "widget": scale, "value_label": value_label,
                 "factor": factor,
             }
@@ -2721,9 +3942,10 @@ class MainWindow(Adw.ApplicationWindow):
                     dd.set_selected(options.index(value))
                 finally:
                     self._syncing = False
-            dd.connect("notify::selected", self._on_param_enum_changed, path, options)
+            dd.connect("notify::selected", self._on_param_enum_changed,
+                       path, options, dirty)
             row.append(dd)
-            self._param_controls[path] = {
+            controls[path] = {
                 "kind": "dropdown", "widget": dd, "options": options,
             }
             return row
@@ -2739,9 +3961,10 @@ class MainWindow(Adw.ApplicationWindow):
                 spin.set_value(float(round(float(value))))
             finally:
                 self._syncing = False
-            spin.connect("value-changed", self._on_param_spin_changed, path)
+            spin.connect("value-changed", self._on_param_spin_changed,
+                         path, dirty, timers)
             row.append(spin)
-            self._param_controls[path] = {"kind": "spin", "widget": spin}
+            controls[path] = {"kind": "spin", "widget": spin}
             return row
 
         if kind == "bool":
@@ -2758,9 +3981,9 @@ class MainWindow(Adw.ApplicationWindow):
                 switch.set_active(bool(value))
             finally:
                 self._syncing = False
-            switch.connect("state-set", self._on_param_bool, path)
+            switch.connect("state-set", self._on_param_bool, path, dirty)
             row.append(switch)
-            self._param_controls[path] = {"kind": "switch", "widget": switch}
+            controls[path] = {"kind": "switch", "widget": switch}
             return row
 
         entry = Gtk.Entry()
@@ -2768,9 +3991,10 @@ class MainWindow(Adw.ApplicationWindow):
         entry.set_text("" if value is None else str(value))
         entry.set_tooltip_text(label_text)
         self._set_accessible_label(entry, label_text)
-        entry.connect("activate", self._on_param_entry_activate, path, entry)
+        entry.connect("activate", self._on_param_entry_activate,
+                      path, entry, dirty)
         row.append(entry)
-        self._param_controls[path] = {"kind": "entry", "widget": entry}
+        controls[path] = {"kind": "entry", "widget": entry}
         return row
 
     def _make_group_card(self, group: dict[str, Any]) -> Gtk.Widget:
@@ -2810,7 +4034,8 @@ class MainWindow(Adw.ApplicationWindow):
 
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         body.add_css_class("dual-card-body")
-        items = group.get("items") or []
+        items = [item for item in (group.get("items") or [])
+                 if item.get("visible", True)]
         if items:
             for item in items:
                 body.append(self._make_editor_item(item))
@@ -2919,7 +4144,8 @@ class MainWindow(Adw.ApplicationWindow):
             if param:
                 card.append(self._make_param_row(param))
         for item in module.get("items") or []:
-            card.append(self._make_editor_item(item))
+            if item.get("visible", True):
+                card.append(self._make_editor_item(item))
         return card
 
     def _on_module_mode_changed(self, dropdown: Gtk.DropDown, _pspec,
@@ -2964,29 +4190,27 @@ class MainWindow(Adw.ApplicationWindow):
                     self._syncing = False
             control["value"] = value
 
-    @classmethod
-    def _flatten_editor_parameters(cls, node: dict[str, Any]
+    @staticmethod
+    def _flatten_editor_parameters(node: dict[str, Any]
                                    ) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for item in node.get("items") or []:
-            result.extend(cls._flatten_editor_item(item))
-        return result
+        return stomp.flatten_editor_parameters(node)
 
-    @classmethod
-    def _flatten_editor_item(cls, item: dict[str, Any]
-                             ) -> list[dict[str, Any]]:
-        kind = item.get("kind")
-        if kind == "time":
-            result: list[dict[str, Any]] = []
-            for key in ("rawdata", "subdivision", "lock"):
-                param = item.get(key)
-                if param:
-                    result.append(param)
-            result.extend(cls._flatten_editor_parameters(item))
-            return result
-        if kind == "group":
-            return cls._flatten_editor_parameters(item)
-        return [item]
+    @staticmethod
+    def _param_structure(params: list[dict[str, Any]]) -> tuple[Any, ...]:
+        """Return the non-value shape of the editor parameters.
+
+        Used to rebuild the editor when a model/type change alters control
+        visibility, labels, ranges or choices, without rebuilding it on every
+        ordinary value update.
+        """
+        return tuple(
+            (param.get("path"), param.get("kind"), param.get("desc"),
+             param.get("visible", True), param.get("min"),
+             param.get("max"), param.get("display_min"),
+             param.get("display_max"), param.get("vtype"),
+             tuple(param.get("options") or ()))
+            for param in params
+        )
 
     @staticmethod
     def _fmt_param_value(value: Any, factor: float = 1.0) -> str:
@@ -2996,63 +4220,119 @@ class MainWindow(Adw.ApplicationWindow):
             return str(value)
 
     def _on_param_scale_changed(self, scale: Gtk.Scale, path: str,
-                                label: Gtk.Label, factor: float) -> None:
+                                label: Gtk.Label, factor: float,
+                                dirty: set[str] | None = None,
+                                timers: dict[str, int] | None = None) -> None:
+        dirty = self._param_dirty if dirty is None else dirty
+        timers = self._param_timers if timers is None else timers
         try:
             label.set_text("%d" % round(scale.get_value()))
         except (TypeError, ValueError, OverflowError):
             pass
         if self._syncing or self.device is None:
             return
-        self._param_dirty.add(path)
-        self._schedule_param(path, _whole_device_value(scale.get_value(), factor))
+        dirty.add(path)
+        self._schedule_param(path, _whole_device_value(scale.get_value(), factor),
+                             dirty=dirty, timers=timers)
 
-    def _on_param_spin_changed(self, spin: Gtk.SpinButton, path: str) -> None:
+    def _on_pfloat_scale_changed(self, scale: Gtk.Scale, path: str,
+                                 param: dict[str, Any], label: Gtk.Label,
+                                 dirty: set[str] | None = None,
+                                 timers: dict[str, int] | None = None) -> None:
+        dirty = self._param_dirty if dirty is None else dirty
+        timers = self._param_timers if timers is None else timers
+        display_value = scale.get_value()
+        label.set_text(_fmt_pfloat_value(param, display_value))
         if self._syncing or self.device is None:
             return
-        self._param_dirty.add(path)
-        self._schedule_param(path, int(round(spin.get_value())))
+        dirty.add(path)
+        self._schedule_param(path, _pfloat_to_device(param, display_value),
+                             dirty=dirty, timers=timers)
+
+    def _on_pfloat_enum_changed(self, dropdown: Gtk.DropDown, _pspec,
+                                path: str, param: dict[str, Any],
+                                options: list[str],
+                                dirty: set[str] | None = None) -> None:
+        dirty = self._param_dirty if dirty is None else dirty
+        if self._syncing or self.device is None:
+            return
+        index = dropdown.get_selected()
+        if index == Gtk.INVALID_LIST_POSITION or index >= len(options):
+            return
+        dirty.add(path)
+        self._write_param(
+            path, _pfloat_option_value(param, index, len(options)), dirty=dirty)
+
+    def _on_param_spin_changed(self, spin: Gtk.SpinButton, path: str,
+                               dirty: set[str] | None = None,
+                               timers: dict[str, int] | None = None) -> None:
+        dirty = self._param_dirty if dirty is None else dirty
+        timers = self._param_timers if timers is None else timers
+        if self._syncing or self.device is None:
+            return
+        dirty.add(path)
+        self._schedule_param(path, int(round(spin.get_value())),
+                             dirty=dirty, timers=timers)
 
     def _on_param_enum_changed(self, dropdown: Gtk.DropDown, _pspec, path: str,
-                               options: list[str]) -> None:
+                               options: list[str],
+                               dirty: set[str] | None = None) -> None:
+        dirty = self._param_dirty if dirty is None else dirty
         if self._syncing or self.device is None:
             return
         idx = dropdown.get_selected()
         if idx == Gtk.INVALID_LIST_POSITION or idx >= len(options):
             return
-        self._param_dirty.add(path)
-        self._write_param(path, options[idx])
+        dirty.add(path)
+        self._write_param(path, options[idx], dirty=dirty)
 
-    def _on_param_bool(self, switch: Gtk.Switch, state: bool, path: str) -> bool:
+    def _on_param_bool(self, switch: Gtk.Switch, state: bool, path: str,
+                       dirty: set[str] | None = None) -> bool:
+        dirty = self._param_dirty if dirty is None else dirty
         if self._syncing:
             # Let programmatic set_active() update the switch's visual state.
             return False
         if self.device is None:
             return True
-        self._param_dirty.add(path)
-        self._write_param(path, state)
+        dirty.add(path)
+        self._write_param(path, state, dirty=dirty)
         return False
 
     def _on_param_entry_activate(self, entry: Gtk.Entry, path: str,
-                                 _entry: Gtk.Entry) -> None:
+                                 _entry: Gtk.Entry,
+                                 dirty: set[str] | None = None) -> None:
+        dirty = self._param_dirty if dirty is None else dirty
         if self.device is None:
             return
-        self._param_dirty.add(path)
-        self._write_param(path, entry.get_text())
+        dirty.add(path)
+        self._write_param(path, entry.get_text(), dirty=dirty)
 
-    def _schedule_param(self, path: str, value: Any) -> None:
-        if path in self._param_timers:
-            GLib.source_remove(self._param_timers[path])
-        self._param_timers[path] = GLib.timeout_add(350, self._apply_param, path, value)
+    def _schedule_param(self, path: str, value: Any, *,
+                        dirty: set[str] | None = None,
+                        timers: dict[str, int] | None = None,
+                        delay: int = 350) -> None:
+        dirty = self._param_dirty if dirty is None else dirty
+        timers = self._param_timers if timers is None else timers
+        if path in timers:
+            GLib.source_remove(timers[path])
+        timers[path] = GLib.timeout_add(
+            delay, self._apply_param, path, value, dirty, timers)
 
-    def _apply_param(self, path: str, value: Any) -> bool:
-        self._param_timers.pop(path, None)
-        self._write_param(path, value)
+    def _apply_param(self, path: str, value: Any,
+                     dirty: set[str] | None = None,
+                     timers: dict[str, int] | None = None) -> bool:
+        dirty = self._param_dirty if dirty is None else dirty
+        timers = self._param_timers if timers is None else timers
+        timers.pop(path, None)
+        self._write_param(path, value, dirty=dirty)
         return False
 
-    def _write_param(self, path: str, value: Any) -> None:
+    def _write_param(self, path: str, value: Any, *,
+                     dirty: set[str] | None = None) -> None:
         device = self.device
         if device is None:
             return
+        dirty = self._param_dirty if dirty is None else dirty
 
         def worker() -> None:
             try:
@@ -3061,12 +4341,18 @@ class MainWindow(Adw.ApplicationWindow):
                 self._post(self._log_threadsafe,
                            "parameter write failed: %s" % exc)
             finally:
-                self._post(self._param_written, path)
+                self._post(self._param_written, path, dirty)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _param_written(self, path: str) -> None:
-        self._param_dirty.discard(path)
+    def _param_written(self, path: str,
+                       dirty: set[str] | None = None) -> None:
+        dirty = self._param_dirty if dirty is None else dirty
+        dirty.discard(path)
+        # Model/type changes can swap the visible parameter set (for example
+        # NAM -> Parametric NAM), so refresh the tree promptly.
+        if path.rsplit("\\", 1)[-1] in ("model", "pmodel", "type"):
+            self._refresh_all_async()
 
     def _update_param_values(self) -> None:
         """Refresh the parameter controls from the device cache.
@@ -3088,6 +4374,15 @@ class MainWindow(Adw.ApplicationWindow):
                 params = self._flatten_editor_parameters(editor)
         except Exception:
             return
+
+        signature = self._param_structure(params)
+        if (self._details_param_signature is not None and
+                signature != self._details_param_signature):
+            # A model/type change altered control visibility or metadata;
+            # rebuild the editor so the new controls appear immediately.
+            self._render_details()
+            return
+
         by_path = {param["path"]: param for param in params}
 
         for param_path, control in list(self._param_controls.items()):
@@ -3096,54 +4391,79 @@ class MainWindow(Adw.ApplicationWindow):
             param = by_path.get(param_path)
             if param is None:
                 continue
-            value = param.get("value")
-            kind = control["kind"]
-            widget = control["widget"]
-
-            if kind == "dropdown":
-                options = control["options"]
-                index = (options.index(value) if value in options
-                         else Gtk.INVALID_LIST_POSITION)
-                if widget.get_selected() != index:
-                    self._syncing = True
-                    try:
-                        widget.set_selected(index)
-                    finally:
-                        self._syncing = False
-            elif kind in ("scale", "spin"):
-                if widget.has_focus():
-                    continue
-                try:
-                    float_value = float(value)
-                except (TypeError, ValueError):
-                    continue
-                factor = float(control.get("factor", 1.0))
-                self._syncing = True
-                try:
-                    widget.set_value(float(round(float_value * factor)))
-                finally:
-                    self._syncing = False
-                if kind == "scale" and "value_label" in control:
-                    control["value_label"].set_text(
-                        self._fmt_param_value(value, factor))
-            elif kind == "switch":
-                self._syncing = True
-                try:
-                    widget.set_active(bool(value))
-                finally:
-                    self._syncing = False
-            elif kind == "entry":
-                if widget.has_focus():
-                    continue
-                self._syncing = True
-                try:
-                    widget.set_text("" if value is None else str(value))
-                finally:
-                    self._syncing = False
+            self._sync_param_control(param, control)
 
         self._update_dual_state(device)
         self._update_group_states(device)
         self._update_module_modes(device)
+
+    def _sync_param_control(self, param: dict[str, Any],
+                            control: dict[str, Any]) -> None:
+        value = param.get("value")
+        kind = control["kind"]
+        widget = control["widget"]
+
+        if kind == "dropdown":
+            options = control["options"]
+            index = (options.index(value) if value in options
+                     else Gtk.INVALID_LIST_POSITION)
+            if widget.get_selected() != index:
+                self._syncing = True
+                try:
+                    widget.set_selected(index)
+                finally:
+                    self._syncing = False
+        elif kind == "pfloat_dropdown":
+            options = control["options"]
+            index = _pfloat_option_index(param, value, len(options))
+            if widget.get_selected() != index:
+                self._syncing = True
+                try:
+                    widget.set_selected(index)
+                finally:
+                    self._syncing = False
+        elif kind == "pfloat_scale":
+            if widget.has_focus():
+                return
+            display_value = _pfloat_to_display(param, value)
+            self._syncing = True
+            try:
+                widget.set_value(display_value)
+            finally:
+                self._syncing = False
+            if "value_label" in control:
+                control["value_label"].set_text(
+                    _fmt_pfloat_value(param, display_value))
+        elif kind in ("scale", "spin"):
+            if widget.has_focus():
+                return
+            try:
+                float_value = float(value)
+            except (TypeError, ValueError):
+                return
+            factor = float(control.get("factor", 1.0))
+            self._syncing = True
+            try:
+                widget.set_value(float(round(float_value * factor)))
+            finally:
+                self._syncing = False
+            if kind == "scale" and "value_label" in control:
+                control["value_label"].set_text(
+                    self._fmt_param_value(value, factor))
+        elif kind == "switch":
+            self._syncing = True
+            try:
+                widget.set_active(bool(value))
+            finally:
+                self._syncing = False
+        elif kind == "entry":
+            if widget.has_focus():
+                return
+            self._syncing = True
+            try:
+                widget.set_text("" if value is None else str(value))
+            finally:
+                self._syncing = False
 
     # ------------------------------------------------------------------
     # Master controls
@@ -3362,10 +4682,18 @@ class MainWindow(Adw.ApplicationWindow):
         if target is None:
             return
         dialog = Gtk.FileDialog()
-        dialog.set_title("Choose a NAM model" if target.kind == "nam"
-                         else "Choose an IR WAV file")
+        if target.kind == "pnam":
+            dialog.set_title("Choose a parametric NAM model")
+        elif target.kind == "nam":
+            dialog.set_title("Choose a NAM model")
+        else:
+            dialog.set_title("Choose an IR WAV file")
         file_filter = Gtk.FileFilter()
-        if target.kind == "nam":
+        if target.kind == "pnam":
+            file_filter.set_name("Parametric NAM models")
+            file_filter.add_pattern("*.pnam")
+            file_filter.add_pattern("*.PNAM")
+        elif target.kind == "nam":
             file_filter.set_name("NAM models")
             file_filter.add_pattern("*.nam")
             file_filter.add_pattern("*.NAM")
@@ -3408,6 +4736,10 @@ class MainWindow(Adw.ApplicationWindow):
         if target.kind == "nam" and not path.lower().endswith(".nam"):
             self._log("the selected file is not a .nam model")
             self._set_status("Choose a .nam file", error=True)
+            return
+        if target.kind == "pnam" and not path.lower().endswith(".pnam"):
+            self._log("the selected file is not a .pnam model")
+            self._set_status("Choose a .pnam file", error=True)
             return
         if target.kind == "ir" and not path.lower().endswith(".wav"):
             self._log("the selected file is not a .wav IR")
@@ -3462,6 +4794,10 @@ class MainWindow(Adw.ApplicationWindow):
             try:
                 if target.kind == "ir":
                     result = device.load_ir(path, slot=slot, progress=on_progress)
+                elif target.kind == "pnam":
+                    result = device.load_pnam(path, slot=slot,
+                                              target=target.path,
+                                              progress=on_progress)
                 else:
                     result = device.load_nam(path, slot=slot, target=target.path,
                                              progress=on_progress)
@@ -3535,6 +4871,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_close(self, *_args: Any) -> bool:
         self._alive = False
         self._close_add_block_popover()
+        self._close_global_eq_dialog()
         device, self.device = self.device, None
         if device is not None:
             try:

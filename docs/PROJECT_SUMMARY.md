@@ -1,6 +1,6 @@
 # StompStation Pro Control — Project Summary
 
-Last updated: 2026-11-07
+Last updated: 2026-11-11
 
 Working directory: `/home/conner/Documents/Code/stompstation`
 
@@ -194,6 +194,19 @@ for the device's next-chunk ACK before sending the next chunk.
 - Auto-detects amp vs drive from `metadata.gear_type` when the drive list
   exists; the UI also lets the user choose the target explicitly.
 
+### Parametric NAM (`.pnam`)
+
+- Firmware 2.4.4 exposes Parametric NAM libraries as 2 MiB gzip lists:
+  `root\pnam_list` (amps) and `root\pnam_drive` (drives), with
+  `item_type == "pnam"`.
+- Upload framing is the same as NAM, but the payload is zero-padded to the
+  list's `size` (2,097,152 bytes) and uses the same final `"gz"` marker.
+- The model's `config.params` metadata is also reflected in the drive/amp
+  block by `pfloat` nodes. Their normalized 0..1 value is mapped to the
+  user-facing `vmin`..`vmax` range from the `style` string, and controls with
+  `visible:false` are hidden. This is what replaces the old generic
+  "Parameter 1..12" rows with the actual knob names and ranges.
+
 ### IR
 
 - Reads WAV with the standard `wave` module.
@@ -209,8 +222,8 @@ Upload progress is reported to the UI. The slot list is refreshed after upload.
 The UI warns that some firmware rejects NAM uploads to empty slots and asks
 before overwriting an occupied slot.
 
-> NAM/IR uploads have been validated against an in-memory fake device and the
-> UI integration. They have **not** been run against the real pedal yet, to
+> NAM/PNAM/IR uploads have been validated against an in-memory fake device and
+> the UI integration. They have **not** been run against the real pedal yet, to
 > avoid altering the user's model/IR slots.
 
 ---
@@ -233,8 +246,10 @@ modelling software:
   - middle: the **selected-block editor** (enable switch + editable
     parameters — floats as sliders, enums as dropdowns, numbers as spin
     buttons, text as entries, and drive/amp **model** + cabinet **IR** shown as
-    dropdowns populated from `nam_drive` / `nam_amp` / `ir_list`, via
-    `Device.get_block_parameters()`). `Device.get_block_editor()` additionally
+    dropdowns populated from `nam_drive` / `nam_amp` / `pnam_drive` /
+    `pnam_list` / `ir_list`, via `Device.get_block_parameters()`).
+    Parametric NAM `pfloat` controls use their model-provided names/ranges and
+    hide `visible:false` legacy tone controls. `Device.get_block_editor()` additionally
     exposes nested `vfolder`/`vfolder_tc`/`module` groups (Tone and Character,
     Modulation, Pitch, Dual Delay, EQ bands, etc.). Time/rate modules render a
     Tempo Sync / Manual mode selector plus their `rawdata` value, subdivision,
@@ -244,7 +259,10 @@ modelling software:
     its own enable switch, controls, stereo mix/pan, and collapses while
     disabled.
   - right: master volume/tempo and a notebook with file upload
-    (target/slot/file/progress) and the activity log.
+    (target/slot/file/progress), the activity log, and a **Global EQ** tab.
+    The tab shows a live response-curve preview, band selector, and Expand
+    button; the full editor is a large draggable 4-band graph with numeric
+    gain/frequency/Q/type controls.
 - **Bottom, right-aligned** — the device selector (USB serial / mDNS / manual
   TCP) and the connect/disconnect button.
 - Same background-threading, external-change detection, and dirty-state
@@ -333,12 +351,13 @@ python3 -m unittest discover -s tests -v
 
 ### Automated tests
 
-`tests/test_stomp.py` contains **25 passing tests** covering:
+`tests/test_stomp.py` contains **30 passing tests** covering:
 
 - `path:json` parsing, including `dwrite` ACK prefixes and token lines.
 - Router flattening for matrix and flat formats.
 - Chain slot discovery including empty and fixed positions.
 - Nested block folders/modules and tempo/manual time controls.
+- Global parametric EQ discovery (bands, frequency, Q, type).
 - Adding, moving, and removing chain blocks; fixed blocks rejected.
 - Host/port parsing.
 - Connect + full state discovery from a synthetic `browse root`.
@@ -347,6 +366,8 @@ python3 -m unittest discover -s tests -v
 - Default-chain fallback.
 - NAM gzip/padding/name/final-marker round trip.
 - NAM full-tail marker-only chunk edge case.
+- Parametric NAM `pfloat` style metadata, visibility, and 0..1 display mapping.
+- Parametric NAM upload-target discovery and 2 MiB gzip round trip.
 - IR float conversion and 8192-byte payload.
 - Short-WAV padding.
 - DNS packet/name parsing.
@@ -355,7 +376,7 @@ python3 -m unittest discover -s tests -v
 Run result:
 
 ```
-Ran 25 tests in 5.909s
+Ran 27 tests in 5.910s
 OK
 ```
 
@@ -391,8 +412,10 @@ Against the real pedal over network at `192.168.1.97:8080`:
 - Chain editing verified on firmware 2.3.6: added an unused Chorus block,
   moved it (swapping with Pitch), removed it, and restored the original
   router and `on_off` state. Amp, Delay, and Reverb stayed fixed throughout.
+- Global EQ discovery and writes verified on firmware 2.3.6 (band gain,
+  frequency, Q, type, and enable toggle), with all original values restored.
 
-No real-hardware NAM/IR upload has been performed.
+No real-hardware NAM/PNAM/IR upload has been performed.
 
 ---
 
@@ -510,7 +533,9 @@ you probably updated the kernel and have not rebooted...
 | Block parameter editing | Implemented (floats/enums/numbers/text); smoke-tested |
 | Chain add/remove/reorder | Implemented; Amp/Delay/Reverb fixed positions respected |
 | Volume/tempo | Implemented; volume write verified on hardware |
+| Global parametric EQ | Implemented: tab preview + full draggable graph editor |
 | NAM upload | Implemented and tested against fake device |
+| Parametric NAM drives/amps | Control metadata + `.pnam` upload implemented; parsing verified against firmware 2.4.4 |
 | IR upload | Implemented and tested against fake device |
 | mDNS discovery | Working against real pedal |
 | Modern UI | Implemented and smoke-tested (network + USB) |
@@ -518,7 +543,7 @@ you probably updated the kernel and have not rebooted...
 | Password auth | Not implemented |
 | Chain editing | Add/remove/reorder implemented; fixed positions respected |
 | Patch import/export | Not implemented |
-| Automated tests | 25/25 passing |
+| Automated tests | 30/30 passing |
 
 ---
 
@@ -526,7 +551,7 @@ you probably updated the kernel and have not rebooted...
 
 1. **USB verification after reboot** — confirm `cdc_acm` binds and
    `/dev/ttyACM0` appears; then test the UI over USB.
-2. **Real NAM/IR uploads** — test uploads on the pedal with a harmless slot and
+2. **Real NAM/PNAM/IR uploads** — test uploads on the pedal with a harmless slot and
    confirm name/list updates and audio.
 3. **Password/token authentication** — the proprietary `hashString` algorithm
    (with the `"voidxdevteam"` salt) is not recovered.

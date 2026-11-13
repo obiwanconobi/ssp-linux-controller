@@ -584,6 +584,194 @@ class BlockEditorTests(unittest.TestCase):
         device.close()
 
 
+class GlobalEqTests(unittest.TestCase):
+    def _device(self, with_eq=True):
+        nodes = {
+            "root": {"type": "root", "value": ""},
+            "root\\app": {"type": "item", "item_type": "system",
+                           "value": ""},
+            "root\\app\\output": {"type": "item", "value": ""},
+        }
+        if with_eq:
+            nodes.update({
+                "root\\app\\output\\global_eq": {
+                    "type": "item", "item_type": "vfolder", "value": "",
+                    "desc": "Global EQ"},
+                "root\\app\\output\\global_eq\\on_off": {
+                    "type": "enum", "value": "ON",
+                    "options": ["ON", "OFF"]},
+                "root\\app\\output\\global_eq\\eq_par": {
+                    "type": "item", "item_type": "module",
+                    "value": "eq_par", "desc": "Parametric EQ"},
+                "root\\app\\output\\global_eq\\eq_par\\band_0": {
+                    "type": "float", "value": 3.0, "min": -15.0,
+                    "max": 15.0, "unit": "dB", "desc": "Band 1"},
+                "root\\app\\output\\global_eq\\eq_par\\freq_0": {
+                    "type": "float", "value": 100.0, "min": 50.0,
+                    "max": 20000.0, "unit": "Hz", "desc": "F1 Frequency"},
+                "root\\app\\output\\global_eq\\eq_par\\q_0": {
+                    "type": "float", "value": 0.7, "min": 0.1,
+                    "max": 10.0, "unit": "", "desc": "F1 Q"},
+                "root\\app\\output\\global_eq\\eq_par\\type_0": {
+                    "type": "enum", "value": "BP",
+                    "options": ["LPS", "LP", "BP", "HP", "HPS"],
+                    "desc": "F1 Type"},
+                "root\\app\\output\\global_eq\\eq_par\\slope_0": {
+                    "type": "enum", "value": "12dB/oct",
+                    "style": "visible:false;",
+                    "options": ["6dB/oct", "12dB/oct", "18dB/oct",
+                                "24dB/oct"],
+                    "desc": "F1 Slope"},
+            })
+        device = stomp.Device(FakeTransport(nodes),
+                              log=lambda _message: None)
+        device.connect()
+        return device
+
+    def test_global_eq_is_discovered(self):
+        device = self._device()
+        data = device.get_global_eq()
+        self.assertIsNotNone(data)
+        self.assertEqual(data["path"], r"root\app\output\global_eq")
+        self.assertEqual(data["on_path"],
+                         r"root\app\output\global_eq\on_off")
+        self.assertTrue(data["enabled"])
+        self.assertEqual(len(data["bands"]), 1)
+        band = data["bands"][0]
+        self.assertEqual(band["index"], 0)
+        self.assertEqual(band["gain"]["value"], 3.0)
+        self.assertEqual(band["frequency"]["value"], 100.0)
+        self.assertEqual(band["q"]["value"], 0.7)
+        self.assertEqual(band["type"]["value"], "BP")
+        self.assertEqual(band["slope"]["value"], "12dB/oct")
+        device.close()
+
+    def test_global_eq_absent(self):
+        device = self._device(with_eq=False)
+        self.assertIsNone(device.get_global_eq())
+        device.close()
+
+
+class ParametricNamTests(unittest.TestCase):
+    def _nodes(self):
+        return {
+            "root": {"type": "root", "value": ""},
+            "root\\app": {"type": "item", "item_type": "system", "value": ""},
+            "root\\app\\drive": {"type": "item", "item_type": "block",
+                                  "desc": "Drive"},
+            "root\\app\\drive\\on_off": {"type": "enum", "value": "ON",
+                                          "options": ["ON", "OFF"]},
+            "root\\app\\drive\\type": {
+                "type": "enum", "value": "Parametric NAM",
+                "desc": "Type", "options": ["NAM", "Parametric NAM"]},
+            "root\\app\\drive\\model": {
+                "type": "plist", "value": "Klone",
+                "desc": "Model", "style": "visible:false;",
+                "ref": "root\\nam_drive"},
+            "root\\app\\drive\\pmodel": {
+                "type": "plist", "value": "King Of Tone",
+                "desc": "Model", "style": "visible:true;",
+                "ref": "root\\pnam_drive"},
+            "root\\app\\drive\\gain": {
+                "type": "float", "value": 0.0, "min": -20.0, "max": 20.0,
+                "desc": "Gain", "style": "visible:false;"},
+            "root\\app\\drive\\lvl": {
+                "type": "float", "value": 50.0, "min": 0.0, "max": 100.0,
+                "desc": "Volume"},
+            "root\\app\\drive\\p1": {
+                "type": "pfloat", "value": 0.5, "min": 0.0, "max": 1.0,
+                "desc": "Parameter 1",
+                "style": ("vdef:5.000000;visible:true;vmax:10.000000;"
+                          "vmin:0.000000;vname:Drive;vtype:continuous;")},
+            "root\\app\\drive\\p2": {
+                "type": "pfloat", "value": 0.25, "min": 0.0, "max": 1.0,
+                "desc": "Parameter 2",
+                "style": ("vdef:5.000000;visible:true;vmax:10.000000;"
+                          "vmin:0.000000;vname:Tone;vtype:continuous;")},
+            "root\\app\\drive\\p3": {
+                "type": "pfloat", "value": 0.5, "min": 0.0, "max": 1.0,
+                "desc": "Parameter 3",
+                "style": ("vdef:0.500000;visible:false;vmax:1.000000;"
+                          "vmin:0.000000;vname:Parameter 3;"
+                          "vtype:continuous;")},
+            "root\\nam_drive": {
+                "type": "list", "item_type": "nam",
+                "value": ["Klone", ""]},
+            "root\\pnam_drive": {
+                "type": "list", "item_type": "pnam", "desc": "Parametric Drives",
+                "size": stomp.PNAM_SLOT_SIZE, "chunk": 1024, "gzip": True,
+                "value": ["King Of Tone", ""]},
+        }
+
+    def test_pfloat_controls_use_style_metadata(self):
+        nodes = self._nodes()
+        device = stomp.Device(FakeTransport(nodes),
+                              log=lambda _message: None)
+        device.nodes = dict(nodes)
+        params = {param["name"]: param
+                  for param in device.get_block_parameters(r"root\app\drive")}
+
+        self.assertEqual(params["p1"]["kind"], "pfloat")
+        self.assertEqual(params["p1"]["desc"], "Drive")
+        self.assertTrue(params["p1"]["visible"])
+        self.assertEqual(params["p1"]["min"], 0.0)
+        self.assertEqual(params["p1"]["max"], 1.0)
+        self.assertEqual(params["p1"]["display_min"], 0.0)
+        self.assertEqual(params["p1"]["display_max"], 10.0)
+        self.assertEqual(params["p2"]["desc"], "Tone")
+        self.assertFalse(params["p3"]["visible"])
+        self.assertFalse(params["gain"]["visible"])
+        self.assertTrue(params["lvl"]["visible"])
+        self.assertEqual(params["pmodel"]["item_type"], "pnam")
+        self.assertFalse(params["model"]["visible"])
+
+    def test_pnam_upload_target_is_discovered(self):
+        nodes = self._nodes()
+        device = stomp.Device(FakeTransport(nodes),
+                              log=lambda _message: None)
+        device.nodes = dict(nodes)
+        targets = {target.path: target for target in device.get_upload_targets()}
+        self.assertIn(r"root\pnam_drive", targets)
+        self.assertEqual(targets[r"root\pnam_drive"].kind, "pnam")
+        self.assertIn("Parametric drive", targets[r"root\pnam_drive"].label)
+
+    def test_pnam_upload_round_trip(self):
+        payload = json.dumps({
+            "metadata": {"name": "Parametric Drive", "gear_type": "drive"},
+            "config": {"params": [
+                {"name": "Drive", "min": 0, "max": 10, "default": 5},
+            ]},
+            "weights": [1, 2, 3],
+        }).encode("utf-8")
+        handle = tempfile.NamedTemporaryFile(suffix=".pnam", delete=False)
+        handle.write(payload)
+        handle.close()
+        self.addCleanup(lambda: os.unlink(handle.name))
+
+        nodes = self._nodes()
+        device = stomp.Device(FakeTransport(nodes),
+                              log=lambda _message: None)
+        device.connect()
+        result = device.load_pnam(handle.name, slot=1)
+        self.assertEqual(result["target"], r"root\pnam_drive")
+        self.assertEqual(result["slot"], 1)
+        self.assertEqual(result["name"], "Parametric Drive")
+
+        reassembled = bytearray()
+        for _path, obj in device.transport.dwrites[1:]:
+            value = obj["value"]
+            if "gz" in value:
+                value = value.split("gz", 1)[0]
+            reassembled.extend(bytes.fromhex(value))
+        unzipped = gzip.decompress(bytes(reassembled))
+        self.assertEqual(len(unzipped), stomp.PNAM_SLOT_SIZE)
+        self.assertTrue(unzipped.startswith(payload))
+        self.assertEqual(unzipped[len(payload):],
+                         b"\0" * (stomp.PNAM_SLOT_SIZE - len(payload)))
+        self.assertIn("gz", device.transport.dwrites[-1][1]["value"])
+        device.close()
+
+
 class UploadTests(unittest.TestCase):
     def _nam_file(self, name="Test Amp"):
         payload = json.dumps({

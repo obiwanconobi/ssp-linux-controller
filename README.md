@@ -7,7 +7,7 @@ modern desktop UI for:
 - changing patches,
 - enabling/disabling and editing the blocks in the signal chain,
 - changing drive/amp models and cabinet IRs,
-- uploading NAM amp/drive models and IR WAV files.
+- uploading NAM and parametric NAM (`.pnam`) amp/drive models and IR WAV files.
 
 It is built from the reverse-engineered VoidX node protocol — not from an
 official SDK — so use it at your own risk.
@@ -94,12 +94,22 @@ discovery is selected by default. If the pedal is not discovered, choose
 - **Dual-NAM Amp editing** on firmware 2.0.8+: separate NAM 1 and NAM 2 cards,
   independent model and tone controls, stereo pan per model, and a collapsible
   second-model section.
+- **Parametric NAM (`.pnam`) Drive/Amp models**: choose between standard NAM and
+  Parametric NAM, then edit the controls the loaded model actually exposes.
+  Parameter names, ranges and visibility come from the device's model metadata,
+  so hidden legacy tone controls are not shown for parametric models.
 - **Dual IR editing**: separate IR 1 and IR 2 cards, independent filter and
   blend controls, per-IR level and pan, and a collapsible second-IR section.
 - Patch list with single-click loading, rename, previous/next, reload, and
   save.
 - Master volume and tempo controls.
-- NAM and IR upload with slot selection, overwrite confirmation, and progress.
+- **Global parametric EQ** in its own tab beside Files/Activity: a live
+  frequency-response preview with band selector and an **Expand** button for a
+  full editor with a draggable 4-band graph, numeric controls for gain,
+  frequency, Q, and filter type, and a global enable switch. It applies
+  globally to every patch and output.
+- NAM, Parametric NAM (`.pnam`) and IR upload with slot selection, overwrite
+  confirmation, and progress.
 - Activity log.
 - Detects patch/chain changes made on the device itself and re-syncs; the
   selected block's parameters, model, and IR also live-update from the device.

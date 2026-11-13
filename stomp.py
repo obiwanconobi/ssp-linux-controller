@@ -16,8 +16,8 @@ What it supports
   ``read root``.
 * Block enable/disable via ``<block>\\on_off``.
 * Preset select/save.
-* ACK-driven NAM and IR uploads (chunk 0 = name, data chunks, ``gz`` marker on
-  the last NAM chunk).
+* ACK-driven NAM, Parametric NAM (``.pnam``) and IR uploads (chunk 0 = name,
+  data chunks, ``gz`` marker on the last model chunk).
 
 Running this file directly launches the GTK4 UI in ``stomp_ui.py``::
 
@@ -55,6 +55,7 @@ except Exception:  # pragma: no cover - exercised on systems without pyserial
 # ---------------------------------------------------------------------------
 
 NAM_SLOT_SIZE = 1024 * 1024          # NAM payloads are zero-padded to 1 MiB
+PNAM_SLOT_SIZE = 2 * 1024 * 1024     # Parametric NAM slots are 2 MiB
 CHUNK_SIZE = 1024
 NAME_SIZE = 128
 MAX_PRESET_NAME_BYTES = 63
@@ -74,16 +75,21 @@ PRESET_LIST_PATH = r"root\presets"
 ROUTER_PATH = r"root\app\router"
 NAM_PATH = r"root\nam_amp"
 NAM_DRIVE_PATH = r"root\nam_drive"
+PNAM_PATH = r"root\pnam_list"
+PNAM_DRIVE_PATH = r"root\pnam_drive"
 IR_PATH = r"root\ir_list"
 MASTER_PATH = r"root\app\output"
+GLOBAL_EQ_PATH = r"root\app\output\global_eq"
 
-KNOWN_LISTS = (NAM_PATH, NAM_DRIVE_PATH, IR_PATH)
+KNOWN_LISTS = (NAM_PATH, NAM_DRIVE_PATH, PNAM_PATH, PNAM_DRIVE_PATH, IR_PATH)
 OPTIONAL_STATE_PATHS = (
     PRESET_PATH,
     PRESET_LIST_PATH,
     ROUTER_PATH,
     NAM_PATH,
     NAM_DRIVE_PATH,
+    PNAM_PATH,
+    PNAM_DRIVE_PATH,
     IR_PATH,
     MASTER_PATH,
     r"root\sys\_name",
@@ -226,7 +232,7 @@ class ControlState:
 class UploadTarget:
     path: str
     label: str
-    kind: str          # "nam" or "ir"
+    kind: str          # "nam", "pnam" or "ir"
 
 
 @dataclass
@@ -397,6 +403,42 @@ def _router_cell_is_link(cell: Any) -> bool:
     """True for connector markers such as ``"s"``; empty cells are slots."""
     return (isinstance(cell, str) and cell.strip() != "" and
             cell.strip().lower() in _ROUTER_IGNORED_CELLS)
+
+
+def flatten_editor_parameters(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return every leaf parameter from a ``get_block_editor`` result."""
+    result: list[dict[str, Any]] = []
+    for item in node.get("items") or []:
+        kind = item.get("kind")
+        if kind == "time":
+            for key in ("rawdata", "subdivision", "lock"):
+                param = item.get(key)
+                if param:
+                    result.append(param)
+            result.extend(flatten_editor_parameters(item))
+        elif kind == "group":
+            result.extend(flatten_editor_parameters(item))
+        else:
+            result.append(item)
+    return result
+
+
+def parse_style(style: Any) -> dict[str, str]:
+    """Parse a firmware ``style`` string into a key/value mapping.
+
+    Styles look like ``"vname:Drive;vmin:0.000000;visible:true;"``.  Values can
+    themselves contain colons (for example ``color:#FF6600``), so only the
+    first colon separates the key from its value.
+    """
+    fields: dict[str, str] = {}
+    if not isinstance(style, str):
+        return fields
+    for part in style.split(";"):
+        key, sep, value = part.partition(":")
+        key = key.strip()
+        if key and sep:
+            fields[key] = value.strip()
+    return fields
 
 
 def block_label(path: str, node: dict | None = None) -> str:
@@ -1731,18 +1773,83 @@ class Device:
     def _parameter_from_node(self, path: str, node: dict[str, Any],
                              nodes: dict[str, dict[str, Any]]
                              ) -> dict[str, Any] | None:
-        """Build a UI parameter dict from one node, or ``None``."""
+        """Build a UI parameter dict from one node, or ``None``.
+
+        ``pfloat`` nodes are the controls of a parametric NAM (``.pnam``)
+        model.  Their device value is normalized (0..1), while the ``style``
+        string carries the user-facing name and range (``vname``/``vmin``/
+        ``vmax``/``vdef``).  They are returned as ``kind == "pfloat"`` with
+        both the raw and display ranges so the UI can map writes correctly.
+        """
         value = node.get("value")
         ntype = node.get("type")
         desc = node.get("desc") or ""
         name = path_name(path)
+        style = parse_style(node.get("style"))
+        visible = style.get("visible", "").strip().lower() not in (
+            "false", "0", "no", "off")
+
+        if ntype == "pfloat":
+            raw_min = _as_float(node.get("min"))
+            raw_max = _as_float(node.get("max"))
+            if raw_min is None:
+                raw_min = 0.0
+            if raw_max is None or raw_max <= raw_min:
+                raw_max = 1.0
+
+            display_min = _as_float(style.get("vmin"))
+            display_max = _as_float(style.get("vmax"))
+            display_default = _as_float(style.get("vdef"))
+            display_decimals = style.get("vdec")
+            try:
+                decimals = int(float(display_decimals))
+            except (TypeError, ValueError):
+                decimals = 1
+
+            # A switch control is exposed as a pfloat too.  Firmware embeds its
+            # choices in the style string when the pnam model defines one; the
+            # exact key differs between firmware builds, so accept the common
+            # spellings.
+            options: list[str] = []
+            for key in ("voptions", "vnames", "venums", "vvalues", "vitems",
+                        "vlist"):
+                raw_options = style.get(key)
+                if not raw_options:
+                    continue
+                parts = [part.strip() for part in
+                         re.split(r"[|,]", raw_options) if part.strip()]
+                if len(parts) > 1:
+                    options = parts
+                    break
+
+            param: dict[str, Any] = {
+                "path": path, "name": name, "kind": "pfloat",
+                "value": value,
+                "min": raw_min, "max": raw_max,
+                "desc": style.get("vname") or desc or name,
+                "visible": visible,
+                "pfloat": True,
+                "vtype": (style.get("vtype") or "continuous").lower(),
+                "unit": style.get("vunit") or node.get("unit") or "",
+                "display_decimals": max(0, min(6, decimals)),
+            }
+            if display_min is not None and display_max is not None and \
+                    display_max > display_min:
+                param["display_min"] = display_min
+                param["display_max"] = display_max
+                if display_default is not None:
+                    param["display_default"] = display_default
+            if options:
+                param["options"] = options
+            return param
+
         if ntype == "float":
             return {
                 "path": path, "name": name, "kind": "float",
                 "value": value,
                 "min": node.get("min"), "max": node.get("max"),
                 "unit": node.get("unit") or "", "dec": node.get("dec"),
-                "desc": desc,
+                "desc": desc, "visible": visible,
             }
         if ntype == "enum":
             options = node.get("options")
@@ -1751,7 +1858,7 @@ class Device:
                     "path": path, "name": name, "kind": "enum",
                     "value": value,
                     "options": [str(option) for option in options],
-                    "desc": desc,
+                    "desc": desc, "visible": visible,
                 }
             return None
         if ntype == "plist":
@@ -1760,24 +1867,27 @@ class Device:
             # as selectable options.
             ref = node.get("ref")
             options: list[str] = []
+            list_type = ""
             if isinstance(ref, str):
                 list_node = nodes.get(normalize_path(ref), {})
                 list_value = list_node.get("value")
+                list_type = str(list_node.get("item_type") or "")
                 if isinstance(list_value, list):
                     options = [str(item) for item in list_value if str(item)]
             return {
                 "path": path, "name": name, "kind": "choice",
                 "value": value, "options": options, "desc": desc,
+                "visible": visible, "item_type": list_type,
             }
         if isinstance(value, bool):
             return {"path": path, "name": name, "kind": "bool",
-                    "value": value, "desc": desc}
+                    "value": value, "desc": desc, "visible": visible}
         if isinstance(value, (int, float)):
             return {"path": path, "name": name, "kind": "number",
-                    "value": value, "desc": desc}
+                    "value": value, "desc": desc, "visible": visible}
         if isinstance(value, str) and value != "":
             return {"path": path, "name": name, "kind": "text",
-                    "value": value, "desc": desc}
+                    "value": value, "desc": desc, "visible": visible}
         return None
 
     def _group_from_node(self, path: str, node: dict[str, Any],
@@ -1796,6 +1906,7 @@ class Device:
                 enabled = False
             on_off = {"path": on_path, "value": enabled}
         params, groups, items = self._collect_control_children(path, nodes)
+        style = parse_style(node.get("style"))
         group: dict[str, Any] = {
             "kind": "group",
             "path": path,
@@ -1806,6 +1917,8 @@ class Device:
             "parameters": params,
             "groups": groups,
             "items": items,
+            "visible": style.get("visible", "").strip().lower() not in (
+                "false", "0", "no", "off"),
         }
         if item_type == "module":
             named = {param["name"]: param for param in params}
@@ -1899,6 +2012,53 @@ class Device:
         params.sort(key=lambda param: param["name"])
         return params
 
+    def get_global_eq(self) -> dict[str, Any] | None:
+        """Return the global parametric EQ controls, if the device has one.
+
+        The result contains ``path``, ``on_path``, ``enabled`` and a list of
+        ``bands``.  Each band has ``index`` plus whichever of ``gain``,
+        ``frequency``, ``q``, ``type`` and ``slope`` parameter dicts exist.
+        """
+        with self._cache_lock:
+            nodes = dict(self.nodes)
+        path = GLOBAL_EQ_PATH if GLOBAL_EQ_PATH in nodes else None
+        if path is None:
+            for candidate, node in nodes.items():
+                if (path_name(candidate) == "global_eq" and
+                        node.get("type") == "item"):
+                    path = candidate
+                    break
+        if path is None:
+            return None
+
+        on_path = path + r"\on_off"
+        on_value = nodes.get(on_path, {}).get("value")
+        if on_value == "ON":
+            enabled: bool | None = True
+        elif on_value == "OFF":
+            enabled = False
+        else:
+            enabled = None
+
+        editor = self.get_block_editor(path)
+        bands: dict[int, dict[str, Any]] = {}
+        keys = {"band": "gain", "freq": "frequency", "q": "q",
+                "type": "type", "slope": "slope"}
+        for param in flatten_editor_parameters(editor):
+            match = re.match(r"^(band|freq|q|type|slope)_(\d+)$",
+                             param["name"])
+            if not match:
+                continue
+            index = int(match.group(2))
+            band = bands.setdefault(index, {"index": index})
+            band[keys[match.group(1)]] = param
+        return {
+            "path": path,
+            "on_path": on_path,
+            "enabled": enabled,
+            "bands": [bands[index] for index in sorted(bands)],
+        }
+
     def _get_dual_group(self, block_path: str, folder: str, child: str,
                         kind: str) -> dict[str, Any] | None:
         block_path = normalize_path(block_path)
@@ -1949,6 +2109,32 @@ class Device:
             UploadTarget(IR_PATH, "IR / cabinet (.wav)", "ir"),
         ]
         present = [t for t in targets if t.path in nodes]
+
+        # Parametric NAM libraries are exposed as ordinary NodeLists with
+        # item_type "pnam" (2 MiB slots).  Prefer the known amp/drive paths,
+        # then include any additional pnam list the firmware exposes.
+        pnam_paths: list[str] = []
+        for path in (PNAM_PATH, PNAM_DRIVE_PATH):
+            node = nodes.get(path)
+            if node is not None and str(node.get("item_type", "")).lower() == "pnam":
+                pnam_paths.append(path)
+        for path, node in sorted(nodes.items()):
+            if path in pnam_paths:
+                continue
+            if (node.get("type") == "list" and
+                    str(node.get("item_type", "")).lower() == "pnam"):
+                pnam_paths.append(path)
+
+        for path in pnam_paths:
+            node = nodes.get(path, {})
+            haystack = ("%s %s" % (path, node.get("desc", ""))).lower()
+            label = ("Parametric drive (.pnam)" if "drive" in haystack
+                     else "Parametric amp (.pnam)")
+            present.append(UploadTarget(path, label, "pnam"))
+
+        order = {NAM_PATH: 0, PNAM_PATH: 1, NAM_DRIVE_PATH: 2,
+                 PNAM_DRIVE_PATH: 3, IR_PATH: 4}
+        present.sort(key=lambda target: order.get(target.path, 10))
         if present:
             return present
         # Before the first browse, show the common targets.
@@ -2125,38 +2311,40 @@ class Device:
             idx, ack = self._ack_for_chunk(
                 path, slot, marker_number, _nam_marker_value())
             if idx == -1:
-                raise UploadRejected("device rejected final NAM marker")
+                raise UploadRejected("device rejected final model marker")
             if ack != -1:
                 raise ProtocolError(
-                    "NAM upload did not finish (device asked for chunk %d)" % ack)
+                    "model upload did not finish (device asked for chunk %d)"
+                    % ack)
         elif last_ack != -1:
             raise ProtocolError(
                 "upload did not finish (device asked for chunk %r)" % last_ack)
 
-    def load_nam(self, filepath: str, slot: int | None = None,
-                 target: str | None = None, name: str | None = None,
-                 progress: Callable[[float, str], None] | None = None) -> dict[str, Any]:
-        with open(filepath, "rb") as f:
-            nam = f.read()
-        if len(nam) > NAM_SLOT_SIZE:
-            raise ValueError("NAM file is larger than the 1 MiB slot")
+    def _slot_size_for(self, target: str, default: int) -> int:
+        with self._cache_lock:
+            node = self.nodes.get(normalize_path(target), {})
+        try:
+            size = int(node.get("size"))
+        except (TypeError, ValueError):
+            size = 0
+        return size if size > 0 else default
+
+    def _load_model_bytes(self, data: bytes, filepath: str,
+                          slot: int | None, target: str, *,
+                          default_size: int, kind: str,
+                          name: str | None = None,
+                          progress: Callable[[float, str], None] | None = None
+                          ) -> dict[str, Any]:
+        target = normalize_path(target)
+        slot_size = self._slot_size_for(target, default_size)
+        if len(data) > slot_size:
+            raise ValueError("%s file is larger than the %d MiB slot"
+                             % (kind, slot_size // (1024 * 1024)))
 
         if name is None:
-            name = nan_name_from_nam(nam) or os.path.splitext(
+            name = nan_name_from_nam(data) or os.path.splitext(
                 os.path.basename(filepath))[0]
         name = name.strip()[:NAME_SIZE] or os.path.basename(filepath)
-
-        if target is None:
-            gear = nam_gear_type(nam)
-            drive_like = any(key in gear for key in
-                             ("drive", "pedal", "dist", "fuzz", "boost", "od"))
-            if drive_like:
-                with self._cache_lock:
-                    has_drive = NAM_DRIVE_PATH in self.nodes
-                target = NAM_DRIVE_PATH if has_drive else NAM_PATH
-            else:
-                target = NAM_PATH
-        target = normalize_path(target)
 
         if slot is None:
             free = [i for i, value in enumerate(self.get_list(target)) if not value]
@@ -2168,19 +2356,68 @@ class Device:
             raise ValueError("invalid slot")
 
         payload = gzip.compress(
-            nam + b"\x00" * (NAM_SLOT_SIZE - len(nam)), compresslevel=6)
-        self._log("uploading NAM %r (%d KiB -> %d KiB gzip) to %s slot %d"
-                  % (name, len(nam) // 1024, len(payload) // 1024, target, slot))
+            data + b"\x00" * (slot_size - len(data)), compresslevel=6)
+        self._log("uploading %s %r (%d KiB -> %d KiB gzip) to %s slot %d"
+                  % (kind, name, len(data) // 1024, len(payload) // 1024,
+                     target, slot))
         with self.pause_polling():
             self._upload(target, slot, name, payload, nam_final_marker=True,
                          progress=progress)
-        self._log("NAM upload complete: %r -> slot %d" % (name, slot))
+        self._log("%s upload complete: %r -> slot %d" % (kind, name, slot))
         try:
             time.sleep(0.15)
             self.read_path(target, timeout=3.0)
         except StompError:
             pass
         return {"target": target, "slot": slot, "name": name}
+
+    def load_nam(self, filepath: str, slot: int | None = None,
+                 target: str | None = None, name: str | None = None,
+                 progress: Callable[[float, str], None] | None = None) -> dict[str, Any]:
+        with open(filepath, "rb") as f:
+            nam = f.read()
+
+        if target is None:
+            gear = nam_gear_type(nam)
+            drive_like = any(key in gear for key in
+                             ("drive", "pedal", "dist", "fuzz", "boost", "od"))
+            if drive_like:
+                with self._cache_lock:
+                    has_drive = NAM_DRIVE_PATH in self.nodes
+                target = NAM_DRIVE_PATH if has_drive else NAM_PATH
+            else:
+                target = NAM_PATH
+        return self._load_model_bytes(
+            nam, filepath, slot, target, default_size=NAM_SLOT_SIZE,
+            kind="NAM", name=name, progress=progress)
+
+    def _pnam_target(self, gear: str = "") -> str:
+        with self._cache_lock:
+            nodes = dict(self.nodes)
+        drive_like = any(key in gear for key in
+                         ("drive", "pedal", "dist", "fuzz", "boost", "od"))
+        candidates = ((PNAM_DRIVE_PATH, PNAM_PATH) if drive_like
+                      else (PNAM_PATH, PNAM_DRIVE_PATH))
+        for path in candidates:
+            if path in nodes:
+                return path
+        for path, node in sorted(nodes.items()):
+            if (node.get("type") == "list" and
+                    str(node.get("item_type", "")).lower() == "pnam"):
+                return path
+        raise StompError("this firmware exposes no parametric NAM library")
+
+    def load_pnam(self, filepath: str, slot: int | None = None,
+                  target: str | None = None, name: str | None = None,
+                  progress: Callable[[float, str], None] | None = None
+                  ) -> dict[str, Any]:
+        with open(filepath, "rb") as f:
+            pnam = f.read()
+        if target is None:
+            target = self._pnam_target(nam_gear_type(pnam))
+        return self._load_model_bytes(
+            pnam, filepath, slot, target, default_size=PNAM_SLOT_SIZE,
+            kind="PNAM", name=name, progress=progress)
 
     def load_ir(self, filepath: str, slot: int | None = None,
                 name: str | None = None,
