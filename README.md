@@ -183,8 +183,19 @@ manual validation and are listed in
 
 ## Install locally
 
-Build the production UI, embed it in the release binary, and install it for the
-current user:
+Install Rust (stable), Node 22+, pnpm, and the Tauri system dependencies first.
+On Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+  libgtk-3-dev libudev-dev libssl-dev libxdo-dev pkg-config
+```
+
+`libudev-dev` is required by the Rust `serialport` crate used for USB pedal
+access. Then build the production UI, embed it in the release binary, and
+install it for the current user:
 
 ```bash
 ./scripts/install-local.sh
