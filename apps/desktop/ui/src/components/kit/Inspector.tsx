@@ -45,14 +45,16 @@ const Segmented = ({
   options,
   pending,
   onChange,
+  className = '',
 }: {
   label: string;
   value: string;
   options: string[];
   pending: boolean;
   onChange: (value: string) => void;
+  className?: string;
 }) => (
-  <div className="inspector__type">
+  <div className={`inspector__type${className ? ` ${className}` : ''}`}>
     <span className="field-label">{label}</span>
     <div className="segmented segmented--fill" role="group" aria-label={label}>
       {options.map((option) => (
@@ -145,66 +147,110 @@ const GroupSection = ({
   pending: Set<string>;
   onChange: (id: string, value: number | string | boolean) => void;
   onToggle: (id: string, value: boolean) => void;
-}) => (
-  <section className="inspector-group">
-    <header className="inspector-group__head">
-      <div>
-        <span className="section-title">{group.label}</span>
-        <span className="inspector-group__kind mono">
-          {group.itemType === 'module' ? 'tempo module' : group.itemType === 'vfolder_tc' ? 'switchable group' : 'group'}
-        </span>
-      </div>
-      {group.onOffId && (
-        <button
-          type="button"
-          className="switch"
-          aria-checked={Boolean(group.enabled)}
-          onClick={() => onToggle(group.onOffId!, !group.enabled)}
-        >
-          <span className="switch__track">
-            <span className="switch__thumb" />
+}) => {
+  const typeControl = group.controls.find(
+    (control) => control.name === 'type' && control.visible !== false,
+  );
+  const modelControl = group.controls.find(
+    (control) =>
+      (control.name === 'model' || control.name === 'pmodel') &&
+      control.visible !== false,
+  );
+  const specialIds = new Set(
+    [typeControl?.id, modelControl?.id].filter((id): id is string => Boolean(id)),
+  );
+  const controls = group.controls.filter((control) => !specialIds.has(control.id));
+
+  return (
+    <section className="inspector-group">
+      <header className="inspector-group__head">
+        <div>
+          <span className="section-title">{group.label}</span>
+          <span className="inspector-group__kind mono">
+            {group.itemType === 'module' ? 'tempo module' : group.itemType === 'vfolder_tc' ? 'switchable group' : 'group'}
           </span>
-          <span>{group.enabled ? 'On' : 'Off'}</span>
-        </button>
+        </div>
+        {group.onOffId && (
+          <button
+            type="button"
+            className="switch"
+            aria-checked={Boolean(group.enabled)}
+            onClick={() => onToggle(group.onOffId!, !group.enabled)}
+          >
+            <span className="switch__track">
+              <span className="switch__thumb" />
+            </span>
+            <span>{group.enabled ? 'On' : 'Off'}</span>
+          </button>
+        )}
+      </header>
+      {typeControl && modelControl && (typeControl.options?.length ?? 0) > 1 && (
+        <div className="inspector-group__model">
+          <Segmented
+            label={typeControl.label}
+            value={String(typeControl.value)}
+            options={typeControl.options ?? []}
+            pending={pending.has(typeControl.id)}
+            onChange={(value) => onChange(typeControl.id, value)}
+            className="inspector__type--group"
+          />
+          <label className="control-select inspector__model inspector__model--group">
+            <span className="field-label">
+              Model
+              <span className="mono">{(modelControl.options ?? []).length} loaded</span>
+            </span>
+            <select
+              className="select inspector__model-select"
+              value={String(modelControl.value ?? '')}
+              onChange={(event) => onChange(modelControl.id, event.target.value)}
+            >
+              {(modelControl.options ?? []).map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       )}
-    </header>
-    {group.modeOptions && group.modePath && (
-      <label className="control-select inspector-group__mode">
-        <span className="field-label">Mode</span>
-        <select
-          className="select"
-          value={group.modeValue ?? group.modeOptions[0]?.value}
-          onChange={(event) => onChange(group.modePath!, event.target.value)}
-        >
-          {group.modeOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-    )}
-    <div className="control-grid control-grid--group">
-      {group.controls.map((control) => (
-        <ControlField
-          key={control.id}
-          control={control}
-          pending={pending.has(control.id)}
-          onChange={(value) => onChange(control.id, value)}
+      {group.modeOptions && group.modePath && (
+        <label className="control-select inspector-group__mode">
+          <span className="field-label">Mode</span>
+          <select
+            className="select"
+            value={group.modeValue ?? group.modeOptions[0]?.value}
+            onChange={(event) => onChange(group.modePath!, event.target.value)}
+          >
+            {group.modeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="control-grid control-grid--group">
+        {controls.map((control) => (
+          <ControlField
+            key={control.id}
+            control={control}
+            pending={pending.has(control.id)}
+            onChange={(value) => onChange(control.id, value)}
+          />
+        ))}
+      </div>
+      {group.groups?.map((nested) => (
+        <GroupSection
+          key={nested.id}
+          group={nested}
+          pending={pending}
+          onChange={onChange}
+          onToggle={onToggle}
         />
       ))}
-    </div>
-    {group.groups?.map((nested) => (
-      <GroupSection
-        key={nested.id}
-        group={nested}
-        pending={pending}
-        onChange={onChange}
-        onToggle={onToggle}
-      />
-    ))}
-  </section>
-);
+    </section>
+  );
+};
 
 export const Inspector = () => {
   const block = useAppStore((state) => state.blocks.find((item) => item.id === state.selectedBlockId));

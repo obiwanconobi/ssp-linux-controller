@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   applyDemoBlockType,
+  applyDemoLaneType,
   AVAILABLE_BLOCKS,
   cloneBlocks,
   INITIAL_ACTIVITY,
@@ -629,6 +630,9 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       .map((block) => ({ block, control: blockControl(block, controlId) }))
       .find((entry) => entry.control);
     const isTypeChange = target?.control?.name === 'type';
+    const isLaneTypeChange =
+      isTypeChange &&
+      Boolean(target?.block.secondLane?.controls.some((control) => control.id === controlId));
     const apply = <T extends { id: string; value: number | string | boolean }>(control: T): T =>
       control.id === controlId ? { ...control, value } : control;
     const updateGroup = (group: ControlGroup): ControlGroup => ({
@@ -651,11 +655,41 @@ export const useAppStore = create<AppStore>()((set, get) => ({
             ? { ...block.secondLane, controls: block.secondLane.controls.map(apply) }
             : undefined,
         };
-        return isTypeChange &&
-          block.id === target?.block.id &&
-          state.connection.mode === 'demo'
-          ? applyDemoBlockType(updated, String(value))
-          : updated;
+        if (
+          !isTypeChange ||
+          block.id !== target?.block.id ||
+          state.connection.mode !== 'demo'
+        ) {
+          return updated;
+        }
+        if (isLaneTypeChange && updated.secondLane) {
+          const nextLane = applyDemoLaneType(updated.secondLane, String(value));
+          return {
+            ...updated,
+            secondLane: nextLane,
+            groups: updated.groups.map((group) =>
+              group.id === nextLane.id
+                ? {
+                    ...group,
+                    controls: group.controls.map((control) => {
+                      if (control.name === 'type') {
+                        return { ...control, value };
+                      }
+                      if (control.name === 'model') {
+                        return {
+                          ...control,
+                          value: nextLane.model,
+                          options: nextLane.modelOptions,
+                        };
+                      }
+                      return control;
+                    }),
+                  }
+                : group,
+            ),
+          };
+        }
+        return applyDemoBlockType(updated, String(value));
       }),
       undoStack: firstInGroup
         ? [...state.undoStack, before].slice(-40)
@@ -690,6 +724,18 @@ export const useAppStore = create<AppStore>()((set, get) => ({
               return;
             }
             const updatedBlock = get().blocks.find((item) => item.id === blockId);
+            if (isLaneTypeChange) {
+              const lane = updatedBlock?.secondLane;
+              if (
+                updatedBlock &&
+                lane?.modelControlId?.endsWith('\\pmodel') &&
+                !lane.model &&
+                lane.modelOptions?.length
+              ) {
+                get().setLaneModel(updatedBlock.id, lane.modelOptions[0]);
+              }
+              return;
+            }
             if (
               updatedBlock?.modelControlId?.endsWith('\\pmodel') &&
               !updatedBlock.model &&

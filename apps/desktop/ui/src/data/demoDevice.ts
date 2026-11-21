@@ -248,6 +248,8 @@ const PNAM_AMP_CONTROLS: Control[] = [
 ];
 
 export const AMP_LANE_2: Control[] = [
+  typeControl('amp.nam2'),
+  choice('amp.nam2.model', 'model', 'Model', '64 Vibroverb D 2', AMP_MODELS),
   float('amp.nam2.gain', 'gain', 'Gain', 4.0, 0, 10, '', 0.1),
   float('amp.nam2.bass', 'low', 'Bass', 5.2, 0, 10, '', 0.1),
   float('amp.nam2.mid', 'mid', 'Mid', 5.0, 0, 10, '', 0.1),
@@ -367,12 +369,13 @@ export const INITIAL_BLOCKS: Block[] = [
     modelControlId: 'amp.model',
     footswitch: 5,
     controls: AMP_LANE_1,
-    groups: [],
+    groups: [group('amp.nam2', 'Dual Amp', AMP_LANE_2)],
     secondLane: {
       id: 'amp.nam2',
       label: 'NAM 2',
       model: '64 Vibroverb D 2',
-      modelOptions: ['64 Vibroverb D 2', 'Match Brave Hi D 3', 'Dumble Pack A'],
+      modelOptions: AMP_MODELS,
+      modelControlId: 'amp.nam2.model',
       enabled: true,
       controls: AMP_LANE_2,
     },
@@ -626,6 +629,21 @@ export const applyDemoBlockType = (block: Block, type: string): Block => {
     };
   }
   return block;
+};
+
+export const applyDemoLaneType = (
+  lane: NonNullable<Block['secondLane']>,
+  type: string,
+): NonNullable<Block['secondLane']> => {
+  const parametric = type === 'Parametric NAM';
+  return {
+    ...lane,
+    model: parametric ? PNAM_AMP_MODELS[0] : '64 Vibroverb D 2',
+    modelOptions: parametric ? PNAM_AMP_MODELS : AMP_MODELS,
+    controls: lane.controls.map((control) =>
+      control.name === 'type' ? { ...control, value: type } : control,
+    ),
+  };
 };
 
 export const formatBytes = (bytes: number): string => {

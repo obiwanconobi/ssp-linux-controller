@@ -72,7 +72,7 @@ const Lane = ({
   lane?: Block['secondLane'];
   controls: Control[];
   panControl?: Control;
-  onControl: (id: string, value: number) => void;
+  onControl: (id: string, value: number | string) => void;
   onModel: (model: string) => void;
   onEnable?: (enabled: boolean) => void;
 }) => {
@@ -80,6 +80,12 @@ const Lane = ({
   const model = laneIndex === 1 ? block.model : lane?.model;
   const options = laneIndex === 1 ? block.modelOptions ?? [] : lane?.modelOptions ?? [];
   const enabled = laneIndex === 1 ? block.on : Boolean(lane?.enabled);
+  const typeControl = controls.find(
+    (control) =>
+      control.name === 'type' &&
+      (control.kind === 'enum' || control.kind === 'choice'),
+  );
+  const typeOptions = typeControl?.options ?? [];
   const toneControls = controls.filter(
     (control) =>
       !control.name.startsWith('pan') &&
@@ -129,6 +135,28 @@ const Lane = ({
             </span>
             <span className="amp-lane__face-meta">48 kHz · LANE {laneIndex}</span>
           </div>
+
+          {typeControl && typeOptions.length > 1 && (
+            <div className="amp-lane__type">
+              <span className="eyebrow">{typeControl.label}</span>
+              <div
+                className="segmented segmented--fill"
+                role="group"
+                aria-label={`NAM ${laneIndex} type`}
+              >
+                {typeOptions.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={String(typeControl.value) === option}
+                    onClick={() => onControl(typeControl.id, option)}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <label className="amp-lane__model">
             <span className="eyebrow">Model</span>

@@ -158,6 +158,36 @@ try {
   await page.waitForSelector('.amp-lane');
   assert((await page.locator('.amp-lane').count()) === 2, 'amp room did not show two lanes');
   assert((await page.locator('.amp-lane__face').count()) === 2, 'amp face plates are missing');
+  assert(
+    (await page.locator('.amp-lane__type').count()) === 2,
+    'both amp lanes should show a Type toggle',
+  );
+  const lane2Type = page.locator('.amp-lane--2 .amp-lane__type .segmented');
+  await lane2Type.getByRole('button', { name: 'Parametric NAM' }).click();
+  await page.waitForTimeout(150);
+  assert(
+    (await page.locator('.amp-lane--2 .amp-lane__model select option').allTextContents()).some(
+      (option) => option.includes('PNAM'),
+    ),
+    'dual amp did not switch to the Parametric NAM model list',
+  );
+  await lane2Type.getByRole('button', { name: 'NAM', exact: true }).click();
+  await page.waitForTimeout(150);
+
+  await page.locator('.nav-tab', { hasText: 'Board' }).click();
+  await page.locator('.signal-chain .pedal', { hasText: 'AMP / NAM' }).click();
+  await page.waitForSelector('.inspector-group__model');
+  await page.locator('.inspector').evaluate((element) => element.scrollTo(0, element.scrollHeight));
+  const dualType = page.locator('.inspector-group__model .segmented');
+  await dualType.getByRole('button', { name: 'Parametric NAM' }).click();
+  await page.waitForTimeout(150);
+  assert(
+    (await page.locator('.inspector-group__model .inspector__model-select option').allTextContents()).some(
+      (option) => option.includes('PNAM'),
+    ),
+    'Dual Amp inspector did not switch to the Parametric NAM model list',
+  );
+  await dualType.getByRole('button', { name: 'NAM', exact: true }).click();
 
   await page.locator('.nav-tab', { hasText: 'Global EQ' }).click();
   await page.waitForSelector('.eq-band-card');
