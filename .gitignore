@@ -1,6 +1,27 @@
+# Rust / Tauri
+target/
+node_modules/
+dist/
+*.tsbuildinfo
+playwright-report/
+test-results/
+.DS_Store
+*.log
+
+# Android generated build outputs
+.gradle/
+**/.cxx/
+**/build/
+apps/desktop/src-tauri/gen/android/local.properties
+
+# Legacy Python client
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 venv/
 dev/
+
+# Local firmware update images and reverse-engineering captures
+*.upd
+Legacy/firmware/

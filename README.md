@@ -1,193 +1,428 @@
-# StompStation Pro Control
+# StompStation
 
-An unofficial, Linux client for the **Sonulab StompStation PRO** guitar
-multi-effects pedal. It connects over USB or the network and gives you a
-modern desktop UI for:
+[![Build desktop](https://github.com/obiwanconobi/ssp-linux-controller/actions/workflows/build.yml/badge.svg)](https://github.com/obiwanconobi/ssp-linux-controller/actions/workflows/build.yml)
 
-- changing patches,
-- enabling/disabling and editing the blocks in the signal chain,
-- changing drive/amp models and cabinet IRs,
-- uploading NAM and parametric NAM (`.pnam`) amp/drive models and IR WAV files.
+Pedalboard-first desktop controller for the **Sonulab StompStation PRO** guitar
+multi-effects pedal, built with Rust, Tauri, React, and TypeScript. It connects
+over Wi-Fi or USB, edits the signal chain and block parameters, uploads NAM,
+Parametric NAM (`.pnam`), and IR files, and keeps a live view of the pedal.
 
-It is built from the reverse-engineered VoidX node protocol — not from an
-official SDK — so use it at your own risk.
+The original Python GTK client has moved to [`Legacy/`](Legacy/README.md), where
+it remains available as the protocol reference and fallback. This README
+describes the primary Tauri application.
 
-![Screenshot of the main window with the dual NAM editor open](docs/screenshot.png)
+The project is deliberately split into two worlds:
 
-## Install
+- **Rust core** — framing, node cache, router, presets, editor derivation,
+  upload codecs, EQ math, transports, simulator, and tests.
+- **React + Tauri shell** — a pedalboard-first interface that consumes typed
+  view models and never owns a socket.
 
-This is a Linux desktop application. You do not need to be a programmer;
-copy and paste the commands below.
+## Status
 
-### 1. Install the required packages
+| Area | State |
+| --- | --- |
+| Phase 0 — protocol freeze | Core ported and tested; simulator + hardware fixtures; Python/Rust differential is clean on 2.4.4 and live 2.5.3 |
+| Phase 1 — walking skeleton | Tauri commands, USB/TCP transports, browse, writes, presets, chain edits, snapshot mapping, real connect path; interim poller emits live snapshots and pauses during uploads; reversible gate write/readback/restore passed on hardware; launch discovery is Wi-Fi → USB with an explicit no-device state |
+| Phase 2 — design system & board | Design tokens, three themes, component kit, Board, Amp room, Global EQ, Library, Settings, Stage mode, command palette, tuner deck, responsive layouts |
+| Phase 3 — deep parity | Upload UI is previewed; ACK upload code exists in Rust + CLI, file-picker wiring is next. Preset save, chain add/remove, Wi-Fi discovery, and the Parametric NAM editor are hardware-validated on 2.4.4; 2.5.3 PNAM switches and multi-client Wi-Fi were verified live |
+| Live updates | Interim Tauri poller emits snapshots every 500 ms, with a 2 s browse on TCP; uploads pause polling |
+| Local library | Recursive `.nam`/`.pnam`/`.wav` folder indexing in Rust, browser directory picker, and preflight from local files |
+| Chain editing | Remove and replace use one router write per action; add/remove/replace/move/link are covered by the simulator smoke. The chain write payload is wrapped as `{"value": ...}` so the firmware accepts it |
+| Preset save | Saves the live chain and parameter edits; JSON field order matches the device (`value` before `save`), coalesced writes flush first, and router edits keep the preset dirty until saved |
+| Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, and the PNAM drive editor have been exercised on firmware 2.4.4. Firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, and simultaneous Wi-Fi clients. Chain move/link, EQ writes, uploads, and long idle polling remain open |
+| Android | Wi-Fi/TCP-only Tauri app; arm64/x86_64 release APKs build, and the x86_64 release runs in an API 37 emulator. USB serial and Play Store signing are not implemented; see [`docs/ANDROID.md`](docs/ANDROID.md) |
+| Local install | `scripts/install-local.sh` installs the release binary, desktop entry, and icons; rerun to update |
+| Phase 4–5 — hardening/release | Not started |
 
-**Debian / Ubuntu**
+The browser build runs against a deterministic demo device so every surface is
+inspectable without hardware. The Tauri shell starts disconnected: it scans
+mDNS `_http._tcp` for a VoidX device first, then probes USB serial ports, and
+opens the connection sheet with a clear error if neither finds a pedal. The
+demo board in the Tauri shell is opt-in with `--demo` (or
+`STOMPSTATION_DEMO=1`); manual Wi-Fi/TCP and USB remain available in the sheet.
 
-```bash
-sudo apt update
-sudo apt install git python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-serial
+The board is live: parameter and router writes change the pedal immediately.
+**Save** persists that live state into the current preset. The Save button stays
+disabled until something is dirty; a refresh never clears the dirty flag, and
+pending coalesced knob/model writes are flushed before the save command.
+
+Hardware notes, the differential results, and the remaining hardware checklist
+live in [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md). Firmware
+2.5.3 verification and the client-side changes it required are in
+[`docs/FIRMWARE_2.5.3.md`](docs/FIRMWARE_2.5.3.md).
+
+## Downloads and CI
+
+GitHub Actions builds the desktop app on every push and pull request:
+
+- **Windows x64** — NSIS installer (`.exe`) and MSI (`.msi`)
+- **Linux x64** — Debian package (`.deb`) and AppImage
+
+The workflow lives in [`.github/workflows/build.yml`](.github/workflows/build.yml).
+Each run uploads the installers and raw desktop binary as downloadable workflow
+artifacts. The same workflow runs for `v*` tags.
+
+## Screenshots
+
+Captured at 1440 × 900. Demo surfaces use the deterministic simulator;
+screenshots labelled “hardware” use the real 2.4.4 fixture.
+
+| | |
+| --- | --- |
+| ![Board](docs/screenshots/board.png) | ![Amp room](docs/screenshots/amp-room.png) |
+| **Board** — preset rail, full-width chain, focused inspector, pinned master. | **Amp room** — dual NAM lanes, cabinet, EQ preview, A/B compare. |
+| ![Global EQ](docs/screenshots/global-eq.png) | ![Library](docs/screenshots/library.png) |
+| **Global EQ** — direct-manipulation curve + four numeric band cards. | **Library** — models, IRs, preflight, and the visible upload queue. |
+| ![Stage](docs/screenshots/stage.png) | ![Tuner](docs/screenshots/tuner-deck.png) |
+| **Stage mode** — glanceable preset, bypass tiles, master, tempo, tuner. | **Tuner deck** — note, cents, frequency, reference, input level. |
+| ![Settings](docs/screenshots/settings-appearance.png) | ![Cream theme](docs/screenshots/board-cream.png) |
+| **Appearance** — validated theme tokens, density, motion. | **Cream Tolex** — the same layout, a different finish. |
+| ![Hardware board](docs/screenshots/board-hardware.png) | ![Hardware amp room](docs/screenshots/amp-room-hardware.png) |
+| **Real 2.4.4 hardware** — 12 blocks, 60 patch slots, 36 named patches. | **Real NAM lanes** — lane 2 off, real model names, pan and IR. |
+| ![Hardware EQ](docs/screenshots/global-eq-hardware.png) | ![Hardware library](docs/screenshots/library-hardware.png) |
+| **Real global EQ** — 0-based device bands normalized to 1–4, bypassed. | **Real capture lists** — 60/10/60/10/50 slots across five lists. |
+| ![Local files](docs/screenshots/local-files.png) | ![Type switch](docs/screenshots/parametric-nam.png) |
+| **Local files** — recursively indexes a chosen folder and preflights captures. | **Parametric NAM** — the active PNAM loader and model-dependent controls. |
+
+## Workspace
+
+```text
+.
+├─ .github/workflows/build.yml # Windows + Linux release builds
+├─ Cargo.toml                 # Rust workspace
+├─ crates/
+│  ├─ stomp-protocol/         # frame parsing, commands, NodeStore, router,
+│  │                          # presets, editor derivation, pfloat, labels
+│  ├─ stomp-transport/        # Transport trait, serialport, TCP, scripted replay
+│  ├─ stomp-device/           # single-owner Device core, view models, uploads
+│  ├─ stomp-upload/           # NAM/PNAM/IR codecs + ACK state machine
+│  ├─ stomp-eq/               # RBJ biquads + response evaluation at 48 kHz
+│  ├─ stomp-sim/              # deterministic fake pedal over TCP
+│  └─ stomp-cli/              # probe, dump, fixture, replay, upload, bench
+├─ apps/desktop/
+│  ├─ src-tauri/              # Tauri 2 app, typed commands, state
+│  │  └─ gen/android/         # Tauri Android project (source; build outputs ignored)
+│  └─ ui/                     # React 19 + TypeScript + Vite, design system
+├─ docs/                      # hardware validation, Android, screenshots
+├─ fixtures/
+│  └─ snapshots/              # generated snapshot + block editors
+├─ Legacy/                    # original Python GTK client and protocol notes
+├─ packaging/                 # Linux desktop entry and udev rule
+└─ scripts/
+   ├─ smoke.sh                # simulator -> core -> assertions
+   ├─ build-android.sh        # APK build + zipalign + sign
+   ├─ install-local.sh        # desktop release install/update
+   └─ dev.sh                  # Vite + Tauri dev shell
 ```
 
-**Arch / CachyOS**
+## Run the UI
 
 ```bash
-sudo pacman -S --needed git python-gobject gtk4 libadwaita python-pyserial
+cd apps/desktop/ui
+pnpm install
+pnpm dev          # http://127.0.0.1:1420
+pnpm build        # production bundle (required before the Playwright smokes)
+pnpm lint         # TypeScript project check
+pnpm test         # unit + mapping tests (Vitest)
+pnpm test:ui      # Playwright interaction smoke against the built bundle
+pnpm test:startup # Playwright startup smoke: Wi-Fi/USB failure, --demo, USB success
 ```
 
-On other distributions, install Python 3.10+, GTK 4, libadwaita, PyGObject,
-and `pyserial` using your package manager.
+The Playwright smokes start their own Vite preview server. Override the default
+ports with `UI_SMOKE_PORT=…` / `STARTUP_SMOKE_PORT=…` if they are already in
+use.
 
-### 2. Download the app
+The browser preview starts on the simulated board. Press `Ctrl/⌘+K` for the
+command palette, `1`–`6` for views, `T` for the tuner, and `Space` to bypass the
+selected block.
+
+## Test matrix
+
+Run the fast, hardware-free suite from the repository root:
 
 ```bash
-git clone https://github.com/obiwanconobi/ssp-linux-controller.git
-cd ssp-linux-controller
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace          # 43 Rust tests
+./scripts/smoke.sh              # simulator -> core -> chain/save/preset/upload assertions
+
+cd apps/desktop/ui
+pnpm lint
+pnpm test                       # 28 Vitest tests
+pnpm build
+pnpm test:ui                    # interaction smoke
+pnpm test:startup               # no-device / --demo / Wi-Fi-or-USB startup smoke
 ```
 
-You can also download the repository as a ZIP from GitHub, extract it, and
-open a terminal in that folder.
-
-### 3. Connect the pedal
-
-- **Network (default):** connect the pedal and computer to the same Wi-Fi or
-  local network.
-- **USB:** connect the pedal with a data-capable USB cable. If USB does not
-  appear, allow your user to access the serial port:
-  - Debian / Ubuntu: `sudo usermod -aG dialout "$USER"`
-  - Arch / CachyOS: `sudo usermod -aG uucp "$USER"`
-
-  Log out and back in after changing the group.
-
-Close any other app already connected to the pedal, including the official
-VoidX-Control app, before starting this one.
-
-### 4. Start the app
+Android packaging is checked separately:
 
 ```bash
+./scripts/build-android.sh aarch64 release
+```
+
+The automated suites never write to hardware. Hardware writes are only part of
+manual validation and are listed in
+[`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md).
+
+### Protocol invariants worth preserving
+
+- Router writes are an object: `write root\app\router:{"value":[[...]]}`.
+  A bare matrix is rejected by the firmware and never ACKs.
+- Preset saves must serialize `value` **before** `save`:
+  `write root\app\preset:{"value":"Name","save":"save"}`. The firmware
+  applies fields in order; reversing them reloads the stored preset and
+  discards unsaved chain/parameter changes. `serde_json` uses
+  `preserve_order` for this reason.
+- Editor visibility is type-aware. `model` is the NAM loader, `pmodel` is the
+  Parametric NAM loader, and `p1..pN` pfloat controls belong to the active
+  PNAM model. The UI must prefer the visible loader, not always `model`.
+- Firmware 2.5.3 exposes PNAM switch positions as pfloat nodes whose `vtype`
+  style is a JSON array such as `["ON","OFF"]`. The node value is the option
+  index normalized to `index / (count - 1)`, not a 0–1 continuous knob.
+
+## Install locally
+
+Build the production UI, embed it in the release binary, and install it for the
+current user:
+
+```bash
+./scripts/install-local.sh
+```
+
+That installs:
+
+- `~/.local/bin/stompstation`
+- `~/.local/share/applications/stompstation.desktop`
+- hicolor icons under `~/.local/share/icons/hicolor/`
+
+Launch **StompStation** from the application menu or run
+`~/.local/bin/stompstation`. It searches Wi-Fi first, then USB. Run
+`~/.local/bin/stompstation --demo` to open the simulator board without hardware.
+Re-run the same script after any change to rebuild and replace the installed
+app. The release build uses Tauri's `custom-protocol` feature, so it loads the
+embedded UI with no Vite server.
+
+## Android APK
+
+The Android build uses the same Rust core and React UI. It is **Wi-Fi/TCP only**:
+Android has no usable USB CDC-ACM path here, so the mobile connection sheet
+hides USB and defaults to Wi-Fi/manual TCP.
+
+```bash
+export JAVA_HOME=/opt/android-studio/jbr
+export ANDROID_HOME="$HOME/Android/Sdk"
+export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+
+./scripts/build-android.sh aarch64 release   # phone
+./scripts/build-android.sh x86_64 release   # emulator
+```
+
+Outputs land in `dist/android/` (gitignored). Release APKs are signed
+with the local Android debug key for sideloading; set `STOMPSTATION_KEYSTORE`
+and related variables for a real upload key. The generated project lives in
+`apps/desktop/src-tauri/gen/android`, and `MainActivity` holds a Wi-Fi
+`MulticastLock` for mDNS.
+
+Tested with a Pixel 10 Pro API 37 x86_64 emulator over `adb reverse` to the
+simulator. A physical phone has not been tested yet. Full prerequisites,
+signing, install, and troubleshooting notes are in
+[`docs/ANDROID.md`](docs/ANDROID.md).
+
+## Run the desktop shell in development
+
+The shortest route (starts Vite and the Tauri dev window, from the repository root):
+
+```bash
+./scripts/dev.sh          # auto-discover Wi-Fi, then USB
+./scripts/dev.sh --demo   # force the demo board, no hardware search
+./scripts/dev.sh --sim    # also start the simulator on 127.0.0.1:45678
+```
+
+The connection pill opens the transport sheet: USB `/dev/ttyACM0` for the
+pedal, or Network `127.0.0.1:45678` for the simulator.
+
+With the Tauri CLI instead:
+
+```bash
+# one-time: install the Tauri CLI
+cargo install tauri-cli --version '^2'
+
+cd apps/desktop/ui
+pnpm install
+cd ..
+cargo tauri dev          # starts Vite on 127.0.0.1:1420 automatically
+```
+
+Without the Tauri CLI, start the frontend yourself:
+
+```bash
+# terminal 1, from the repository root
+cd apps/desktop/ui && pnpm dev
+
+# terminal 2, from the repository root
+cargo run -p stompstation-desktop
+```
+
+A debug `cargo run` uses the Vite dev URL. For a production-like run:
+
+```bash
+cd apps/desktop/ui && pnpm build
+cd ../../..
+cargo build --release -p stompstation-desktop
+./target/release/stompstation-desktop
+```
+
+In the connection sheet:
+
+- **USB** — pick `/dev/ttyACM0` (or the enumerated port).
+- **Network** — enter `127.0.0.1:45678` to talk to the bundled simulator, or the
+   pedal's `host:port`.
+- **Use simulator** — in the browser preview, or in Tauri when launched with
+  `--demo` / `STOMPSTATION_DEMO=1`.
+
+## Troubleshooting
+
+- **No device found on launch.** The app tries mDNS first, then USB. Check that
+  the pedal and computer are on the same network, or open the connection sheet
+  and pick the USB port. `/dev/ttyACM0` needs the udev rule in
+  `packaging/linux/70-stompstation.rules` if access is denied.
+- **Wi-Fi connects but commands time out.** Firmware 2.5.3 allows several
+  simultaneous network readers, but writes are not coordinated between clients.
+  On older firmware close other clients before reconnecting; USB serial still
+  supports one client at a time.
+- **Save is disabled.** It enables only when the preset is dirty. Chain edits,
+  bypasses, model changes, and knob changes all mark it dirty; a board refresh
+  does not clear it.
+- **Parametric NAM looks empty.** A PNAM block needs an active `pmodel`. The app
+  selects the first available model when switching type; changing the model
+  rebrowses the editor so `p1..pN` labels and ranges appear.
+- **Remove/replace is disabled.** Fixed slots (amp, delay, reverb on 2.4.4) are
+  protected. Replacement also requires at least one unused block.
+- **Simulator connection.** Start `cargo run -p stomp-sim -- --port 45678` and
+  connect to `127.0.0.1:45678` in the Network tab, or use `--demo` for the
+  in-process browser board.
+
+## Run the core + simulator
+
+```bash
+# start the fake device (one per command is fine)
+cargo run -p stomp-sim -- --port 45678
+
+# another terminal: snapshot, toggle a block, load a preset, upload
+cargo run -p stomp-cli --bin stomp -- dump tcp:127.0.0.1:45678
+cargo run -p stomp-cli --bin stomp -- set-block tcp:127.0.0.1:45678 'root\app\amp' off
+cargo run -p stomp-cli --bin stomp -- set-control tcp:127.0.0.1:45678 \
+  'root\app\drive\gain' 2.5
+cargo run -p stomp-cli --bin stomp -- editor tcp:127.0.0.1:45678 'root\app\drive'
+cargo run -p stomp-cli --bin stomp -- remove-block tcp:127.0.0.1:45678 0 2
+cargo run -p stomp-cli --bin stomp -- add-block tcp:127.0.0.1:45678 0 2 'root\app\pitch'
+cargo run -p stomp-cli --bin stomp -- replace-block tcp:127.0.0.1:45678 0 0 'root\app\chorus'
+cargo run -p stomp-cli --bin stomp -- preset tcp:127.0.0.1:45678 'Dumble Clean'
+cargo run -p stomp-cli --bin stomp -- save-preset tcp:127.0.0.1:45678
+cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
+  fixtures/snapshots/simulator-2.4.4.json
+
+# the complete simulator smoke
+./scripts/smoke.sh
+```
+
+`stomp-cli` also supports `move-block <addr> <from-row> <from-col> <to-row>
+<to-col>`, `upload <addr> nam|pnam|ir <file> <slot|-> <target>`, and
+`replay <fixture.json>`. `fixture` and `editor` are read-only.
+
+## What is ported
+
+- `<command>\r\n\0` framing, NUL and idle-timeout responses, persistent RX
+  buffer, first-colon response split, token detection.
+- `browse root` replacement snapshots, `read root` deltas, unknown-field
+  preservation, double-escaped path normalization.
+- Router discovery, 2-D and flat matrices, link markers, fixed positions,
+  add/remove/move/link edits, ancestor enabling.
+- Preset discovery from `plist` refs, list fallbacks, 63-byte name rules,
+  128-byte padded rename chunks.
+- Preset save with firmware-sensitive field order (`value` before `save`),
+  coalesced-write flush, and a dirty flag that survives board refreshes.
+- Block editor derivation: nested folders, modules, tempo-sync groups, model/IR
+  selectors, pfloat metadata and display ranges, type-aware NAM/PNAM visibility,
+  active `model`/`pmodel` loader selection, dual `nam2`/`ir2` groups.
+- NAM/PNAM 1/2 MiB padding + gzip level 6, 128-byte name chunk, 2048-character
+  final marker, full-tail marker edge case, IR 2048-sample float32 conversion,
+  ACK slot/chunk validation and polling-pause semantics.
+- Four-band RBJ EQ response at 48 kHz.
+- USB CDC-ACM, TCP, and scripted transports; serial port enumeration.
+- Shell knob auto-assignment (priority, aliases, three-knob cap, no phantom
+  knobs), theme tokens, and the view models the UI consumes.
+
+## Known gaps / next steps
+
+1. **Full actor + patch stream.** The interim poller now emits
+   `device://snapshot` events and pauses during uploads, but Tauri commands still
+   guard a single `Device` behind a mutex. The dossier's dedicated actor thread,
+   revisioned `device://patch` events, reconnect backoff, and pending-write
+   reconciliation remain the next structural step.
+2. **Upload picker.** The Rust ACK upload state machine and `begin_upload`
+   command exist; the UI queue is still a preview. Wire the file dialog, real
+   preflight, progress events, cancellation boundary, and list refresh.
+3. **Settings discovery panel.** Launch/manual discovery works (Wi-Fi → USB,
+   mDNS list); an explicit Settings scan/manage surface is still optional.
+4. **Save As.** Only save-current exists in the desktop UI. The core supports
+   `save_preset(name)` and the Python client has the dialog flow.
+5. **Device-mode undo/redo.** Undo currently restores the local UI snapshot; it
+   does not replay writes to the device yet.
+6. **Hardware validation.** Uploads still need a scratch-slot pass; move/link,
+   EQ writes, external-change handling, tuner restore, unplug/replug, and
+   ten-minute polling remain open. See the hardware checklist.
+7. **Android release.** Physical-phone Wi-Fi/mDNS validation, USB-OTG serial
+   (optional), Play Store AAB/upload-key signing, tablet layout, and
+   reconnect-on-resume remain open.
+8. **Packaging.** GitHub Actions builds Windows NSIS/MSI and Linux
+   deb/AppImage artifacts. macOS signing/notarization, an updater, crash-report
+   opt-in, and visual regression baselines remain.
+9. **Accessibility audit.** Knobs expose the ARIA slider contract, LEDs have
+   text labels, graphs have numeric cards, and focus order follows the chain.
+   Still required: axe-core in CI and a keyboard-only pass on every surface.
+
+## Design notes
+
+- Default theme **Studio Black**; **Cream Tolex** and **British Green** are
+  token-only variants. Themes are validated token files in the real app; this
+  build ships the three built-ins as CSS token sets.
+- DOM + CSS + SVG only. No canvas. Meters use a small `requestAnimationFrame`
+  loop outside React state; knobs write local state immediately and coalesce
+  device writes at 50 ms in the typed IPC client.
+- Every fixed slot has a lock; every LED has ON/OFF text; every EQ graph has
+  four numeric band cards; every pointer gesture has a keyboard path.
+- `prefers-reduced-motion` and the Appearance → Motion switch remove
+  non-essential animation.
+
+## Legacy Python client
+
+The original GTK4/libadwaita client is preserved under [`Legacy/`](Legacy/README.md):
+
+- `Legacy/stomp.py` — protocol client and library
+- `Legacy/stomp_ui.py` — modern GTK4 UI
+- `Legacy/stomp_ui_legacy.py` — older debug UI
+- `Legacy/tests/` — protocol, preset, editor, and upload tests
+- `Legacy/docs/` — older protocol notes and reverse-engineering reports
+
+Run it from the legacy folder:
+
+```bash
+cd Legacy
 python3 stomp.py
-```
 
-In the bottom-right corner, select your pedal and click **Connect**. Network
-discovery is selected by default. If the pedal is not discovered, choose
-**Manual TCP** and enter its address (for example `192.168.1.97:8080`), or run
-`python3 stomp.py --diagnose` for USB diagnostics.
-
-## Features
-
-- **USB serial or network** connection:
-  - auto-detected CDC-ACM serial ports (`/dev/ttyACM*`),
-  - TCP devices discovered with mDNS (`_http._tcp`, `id` containing `voidx`),
-  - manual `host:port` entry.
-- Reads the full node tree with `browse root`, then polls `read root` deltas.
-- Discovers the patch list, current patch, signal-chain router, block states,
-  master volume, and tempo from the device.
-- **Signal chain as a horizontal row of colour-coded blocks** — bypassed
-  blocks are dimmed; click a block to select and edit it, or right-click it
-  to enable/disable it. Empty slot cards add a block; blocks can be dragged
-  (or moved with the editor arrows) to reorder them. Amp, Delay, and Reverb
-  are fixed in place by the device and cannot be moved or removed.
-- Selected-block editor: enable switch plus editable parameters (floats as
-  sliders, enums and model/IR lists as dropdowns, numbers as spin buttons,
-  text as entries). Nested folders are shown as collapsible sections
-  (Tone and Character, Modulation, Pitch, Dual Delay, EQ bands, etc.), and
-  time/rate controls offer tempo-synced subdivisions or a manual ms/Hz value.
-- **Dual-NAM Amp editing** on firmware 2.0.8+: separate NAM 1 and NAM 2 cards,
-  independent model and tone controls, stereo pan per model, and a collapsible
-  second-model section.
-- **Parametric NAM (`.pnam`) Drive/Amp models**: choose between standard NAM and
-  Parametric NAM, then edit the controls the loaded model actually exposes.
-  Parameter names, ranges and visibility come from the device's model metadata,
-  so hidden legacy tone controls are not shown for parametric models.
-- **Dual IR editing**: separate IR 1 and IR 2 cards, independent filter and
-  blend controls, per-IR level and pan, and a collapsible second-IR section.
-- Patch list with single-click loading, rename, previous/next, reload, and
-  save.
-- Master volume and tempo controls.
-- **Global parametric EQ** in its own tab beside Files/Activity: a live
-  frequency-response preview with band selector and an **Expand** button for a
-  full editor with a draggable 4-band graph, numeric controls for gain,
-  frequency, Q, and filter type, and a global enable switch. It applies
-  globally to every patch and output.
-- NAM, Parametric NAM (`.pnam`) and IR upload with slot selection, overwrite
-  confirmation, and progress.
-- Activity log.
-- Detects patch/chain changes made on the device itself and re-syncs; the
-  selected block's parameters, model, and IR also live-update from the device.
-
-Two interfaces are included:
-
-- `stomp_ui.py` — the modern GTK4/libadwaita interface (default).
-- `stomp_ui_legacy.py` — the earlier, simpler interface, kept for debugging.
-
-## Advanced running options
-
-Preselect a transport:
-
-```bash
-python3 stomp.py --serial /dev/ttyACM0
-python3 stomp.py --tcp 192.168.1.97:8080
-python3 stomp.py --legacy        # launch the legacy/debug UI
-python3 stomp.py --diagnose      # print USB/kernel diagnosis without the UI
-```
-
-The UI defaults to network (mDNS) discovery; use the transport dropdown in
-the bottom-right corner to switch to USB serial or a manual TCP address.
-
-## Tests
-
-```bash
+# protocol tests
 python3 -m unittest discover -s tests -v
 ```
 
-The tests use an in-memory fake device and cover protocol parsing,
-preset/router discovery, block-parameter extraction, and NAM/IR upload
-framing.
+## Source of truth
 
-## Repository layout
+- Python protocol: `Legacy/stomp.py`
+- Python UI behaviour inventory: `Legacy/stomp_ui.py`, `Legacy/stomp_ui_legacy.py`
+- Tests to mirror: `Legacy/tests/test_stomp.py`
+- Protocol notes: `Legacy/docs/stompstation-pro-protocol.md`
+- Design dossier: `Legacy/docs/tauri-rebuild-report.html`
 
-```
-stomp.py               Protocol client / library + entry point
-stomp_ui.py            Modern GTK4/libadwaita UI
-stomp_ui_legacy.py     Legacy GTK4 UI (debugging backup)
-tests/                 Unit tests
-docs/
-  PROTOCOL.md          Older USB-capture protocol notes
-  stompstation-pro-protocol.md  Static reverse-engineering notes (VoidX node protocol)
-  PROJECT_SUMMARY.md   Development summary / status
-  screenshot.png       UI screenshot
-dev/                   Reverse-engineering artifacts (captures, logs, firmware,
-                       sample NAM/IR, the Frida sniff script) — gitignored
-```
-
-## Protocol summary
-
-Commands are line-oriented text terminated with `\r\n\0`:
-
-```text
-read root                      # poll (delta)
-browse root                    # full node-tree snapshot
-write <path>:{"value":<v>}     # set a value
-write <block>\on_off:{"value":"ON"|"OFF"}
-dwrite <list>:{"index":N,"chunk":M,"value":"<hex>"}   # chunked upload
-```
-
-A patch is the `value` of the `preset` node; its `ref` points at the patch
-list. The signal chain is a `router` node whose non-empty cells are block
-paths. See `docs/stompstation-pro-protocol.md` for details.
-
-## Known limitations
-
-- Password/token authentication is not implemented (the proprietary hash is
-  not documented).
-- Chain editing follows the device's fixed positions: Amp, Delay, and Reverb
-  cannot be moved or removed.
-- Patch import/export bundles are not implemented.
-- IR conversion uses the first channel and first 2048 samples, with no
-  resampling (matching the official app's observed behaviour).
-- Running this client and the official app at the same time makes them steal
-  each other's `read root` deltas.
-
-## Disclaimer
-
-This project is not affiliated with or endorsed by Sonulab. It is the result
-of independent reverse engineering of the pedal's network/serial protocol.
+Nothing in the desktop app requires Python at runtime. The Python client is kept
+as a reference implementation and a fallback during the port.
