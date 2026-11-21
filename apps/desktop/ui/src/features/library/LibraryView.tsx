@@ -18,20 +18,71 @@ import { useAppStore } from '../../stores/useAppStore';
 import type { LibraryList, UploadTask } from '../../types';
 
 type Tab = 'library' | 'presets' | 'local' | 'uploads' | 'activity';
-type KindFilter = 'all' | 'nam' | 'pnam' | 'ir';
+type CaptureKind = 'nam' | 'pnam' | 'ir';
+type CategoryId = 'amps' | 'drives' | 'irs';
+type SubId = 'nam' | 'pnam' | 'ir';
+
+interface TargetDef {
+  id: string;
+  label: string;
+  kind: CaptureKind;
+  category: CategoryId;
+  sub: SubId;
+}
+
+interface CategoryDef {
+  id: CategoryId;
+  label: string;
+  subs: Array<{ id: SubId; label: string; target: string; kind: CaptureKind }>;
+}
 
 const KIND_LABEL: Record<string, string> = { nam: 'NAM', pnam: 'PNAM', ir: 'IR' };
 
-const TARGETS: Record<'nam' | 'pnam' | 'ir', string[]> = {
-  nam: ['nam_amp', 'nam_drive'],
-  pnam: ['pnam_list'],
-  ir: ['ir_list'],
+const TARGETS: TargetDef[] = [
+  { id: 'nam_amp', label: 'Amps — NAM', kind: 'nam', category: 'amps', sub: 'nam' },
+  { id: 'pnam_list', label: 'Amps — Parametric NAM', kind: 'pnam', category: 'amps', sub: 'pnam' },
+  { id: 'nam_drive', label: 'Drives — NAM', kind: 'nam', category: 'drives', sub: 'nam' },
+  { id: 'pnam_drive', label: 'Drives — Parametric NAM', kind: 'pnam', category: 'drives', sub: 'pnam' },
+  { id: 'ir_list', label: 'IRs', kind: 'ir', category: 'irs', sub: 'ir' },
+];
+
+const CATEGORIES: CategoryDef[] = [
+  {
+    id: 'amps',
+    label: 'Amps',
+    subs: [
+      { id: 'nam', label: 'NAM', target: 'nam_amp', kind: 'nam' },
+      { id: 'pnam', label: 'Parametric NAM', target: 'pnam_list', kind: 'pnam' },
+    ],
+  },
+  {
+    id: 'drives',
+    label: 'Drives',
+    subs: [
+      { id: 'nam', label: 'NAM', target: 'nam_drive', kind: 'nam' },
+      { id: 'pnam', label: 'Parametric NAM', target: 'pnam_drive', kind: 'pnam' },
+    ],
+  },
+  {
+    id: 'irs',
+    label: 'IRs',
+    subs: [{ id: 'ir', label: 'Cabinet IRs', target: 'ir_list', kind: 'ir' }],
+  },
+];
+
+const KIND_HINT: Record<CaptureKind, string> = {
+  nam: 'Amps → NAM or Drives → NAM',
+  pnam: 'Amps → Parametric NAM or Drives → Parametric NAM',
+  ir: 'IRs',
 };
+
+const targetDef = (id: string): TargetDef | undefined =>
+  TARGETS.find((target) => target.id === id);
 
 interface PendingFile {
   name: string;
   size: number;
-  kind: 'nam' | 'pnam' | 'ir';
+  kind: CaptureKind;
   target: string;
   slot: number;
   warnings: string[];
@@ -44,12 +95,12 @@ interface LocalEntry {
   path: string;
   name: string;
   relative: string;
-  kind: 'nam' | 'pnam' | 'ir';
+  kind: CaptureKind;
   size: number;
   file?: File;
 }
 
-const kindFor = (name: string): 'nam' | 'pnam' | 'ir' | null => {
+const kindFor = (name: string): CaptureKind | null => {
   const lower = name.toLowerCase();
   if (lower.endsWith('.pnam')) return 'pnam';
   if (lower.endsWith('.nam')) return 'nam';
@@ -86,23 +137,24 @@ const UploadCard = ({ upload }: { upload: UploadTask }) => (
 );
 
 const LibraryTable = ({
-  lists,
+  list,
   query,
-  kindFilter,
 }: {
-  lists: LibraryList[];
+  list?: LibraryList;
   query: string;
-  kindFilter: KindFilter;
 }) => {
-  const rows = lists
-    .filter((list) => kindFilter === 'all' || list.kind === kindFilter)
-    .flatMap((list) =>
-      list.slots.map((slot) => ({
-        list,
-        slot,
-      })),
-    )
-    .filter(({ slot }) => !query || slot.name.toLowerCase().includes(query.toLowerCase()));
+  if (!list) {
+    return (
+      <div className="library-empty">
+        <HardDrive size={18} />
+        <p>This firmware does not expose this capture list.</p>
+      </div>
+    );
+  }
+
+  const rows = list.slots.filter(
+    ({ name }) => !query || name.toLowerCase().includes(query.toLowerCase()),
+  );
 
   return (
     <div className="library-table-wrap">
@@ -117,7 +169,7 @@ const LibraryTable = ({
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ list, slot }) => (
+          {rows.map((slot) => (
             <tr key={`${list.id}-${slot.index}`} className={slot.active ? 'library-row--active' : ''}>
               <td>
                 <span className="library-name">
@@ -131,7 +183,7 @@ const LibraryTable = ({
               <td>
                 <span className={`type-badge type-badge--${list.kind}`}>{KIND_LABEL[list.kind]}</span>
               </td>
-              <td>{list.label}</td>
+              <td>{targetDef(list.id)?.label ?? list.label}</td>
               <td className="mono">{String(slot.index + 1).padStart(2, '0')}</td>
               <td>
                 {slot.active ? (
@@ -166,7 +218,8 @@ export const LibraryView = () => {
   const deviceMode = useAppStore((state) => state.connection.mode === 'device');
   const [tab, setTab] = useState<Tab>('library');
   const [query, setQuery] = useState('');
-  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
+  const [category, setCategory] = useState<CategoryId>('amps');
+  const [sub, setSub] = useState<SubId>('nam');
   const [pending, setPending] = useState<PendingFile | null>(null);
   const [dragging, setDragging] = useState(false);
   const [localEntries, setLocalEntries] = useState<LocalEntry[]>([]);
@@ -178,23 +231,70 @@ export const LibraryView = () => {
   const dirInputRef = useRef<HTMLInputElement>(null);
   const tauri = isTauriRuntime();
 
+  const activeCategory = CATEGORIES.find((item) => item.id === category) ?? CATEGORIES[0];
+  const activeSub =
+    activeCategory.subs.find((item) => item.id === sub) ?? activeCategory.subs[0];
+  const activeTarget = targetDef(activeSub.target);
+  const activeList = lists.find((list) => list.id === activeSub.target);
+  const activeKind = activeSub.kind;
+  const activeAccept = activeKind === 'ir' ? '.wav' : `.${activeKind}`;
+
+  const listStats = (target: string) => {
+    const list = lists.find((item) => item.id === target);
+    if (!list) return '—';
+    return `${list.slots.filter((slot) => slot.used).length}/${list.slots.length}`;
+  };
+
+  const selectCategory = (next: CategoryId) => {
+    setCategory(next);
+    setPending(null);
+    setQuery('');
+  };
+
+  const selectSub = (next: SubId) => {
+    setSub(next);
+    setPending(null);
+    setQuery('');
+  };
+
+  const focusTarget = (targetId: string) => {
+    const target = targetDef(targetId);
+    if (!target) return;
+    setCategory(target.category);
+    setSub(target.sub);
+  };
+
+  const compatibleTargets = (kind: CaptureKind) =>
+    TARGETS.filter(
+      (target) =>
+        target.kind === kind && lists.some((list) => list.id === target.id),
+    );
+
   const slotsUsed = lists.reduce(
     (sum, list) => sum + list.slots.filter((slot) => slot.used).length,
     0,
   );
   const slotsTotal = lists.reduce((sum, list) => sum + list.slots.length, 0);
+  const pendingTargets = pending ? compatibleTargets(pending.kind) : [];
+  const activeTargetLabel = activeTarget?.label ?? activeSub.target;
 
   const preparePending = (
     name: string,
     size: number,
-    kind: 'nam' | 'pnam' | 'ir',
+    kind: CaptureKind,
+    target: string,
     source: { file?: File; path?: string },
   ) => {
-    const target = TARGETS[kind][0];
+    const targetInfo = targetDef(target);
     const list = lists.find((item) => item.id === target);
     const slot = list?.slots.find((item) => !item.used)?.index ?? 0;
     const warnings: string[] = [];
     let error: string | undefined;
+    if (!targetInfo) {
+      error = 'This upload target is not known to the app.';
+    } else if (!list) {
+      error = `This firmware does not expose the ${targetInfo.label} list.`;
+    }
     if (kind === 'nam' && size > 1024 * 1024) error = 'NAM files must be ≤ 1 MiB.';
     if (kind === 'pnam' && size > 2 * 1024 * 1024) error = 'PNAM files must be ≤ 2 MiB.';
     if (kind === 'ir' && size > 64 * 1024) warnings.push('IR will be reduced to the first 2048 samples.');
@@ -203,29 +303,59 @@ export const LibraryView = () => {
     setPending({ name, size, kind, target, slot, warnings, error, ...source });
   };
 
+  const setSectionError = (
+    file: File,
+    kind: CaptureKind,
+    error: string,
+  ) => {
+    setPending({
+      name: file.name,
+      size: file.size,
+      kind,
+      target: activeSub.target,
+      slot: 0,
+      warnings: [],
+      error,
+      file,
+    });
+  };
+
   const inspectFile = (file: File) => {
     const kind = kindFor(file.name);
     if (!kind) {
-      setPending({
-        name: file.name,
-        size: file.size,
-        kind: 'nam',
-        target: 'nam_amp',
-        slot: 0,
-        warnings: [],
-        error: 'Unsupported file. Choose a .nam, .pnam, or .wav capture.',
+      setSectionError(
         file,
-      });
+        activeKind,
+        'Unsupported file. Choose a .nam, .pnam, or .wav capture.',
+      );
       return;
     }
-    preparePending(file.name, file.size, kind, { file });
+    if (kind !== activeKind) {
+      setSectionError(
+        file,
+        kind,
+        `${KIND_LABEL[kind]} captures cannot be uploaded to ${activeCategory.label}. Use ${KIND_HINT[kind]}.`,
+      );
+      return;
+    }
+    preparePending(file.name, file.size, kind, activeSub.target, { file });
   };
 
   const inspectLocal = (entry: LocalEntry) => {
-    preparePending(entry.name, entry.size, entry.kind, {
+    const available = compatibleTargets(entry.kind);
+    const sameCategory = available.find((target) => target.category === category);
+    const preferred =
+      available.find((target) => target.id === activeSub.target) ??
+      sameCategory ??
+      available[0];
+    const target =
+      preferred?.id ??
+      (entry.kind === 'ir' ? 'ir_list' : entry.kind === 'pnam' ? 'pnam_list' : 'nam_amp');
+    preparePending(entry.name, entry.size, entry.kind, target, {
       file: entry.file,
       path: entry.path,
     });
+    focusTarget(target);
     setTab('library');
   };
 
@@ -377,32 +507,67 @@ export const LibraryView = () => {
       {tab === 'library' && (
         <div className="library-view__grid">
           <section className="library-main panel">
+            <div className="library-scope">
+              <div className="library-scope__categories" role="group" aria-label="Library category">
+                {CATEGORIES.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`library-scope__category${category === item.id ? ' library-scope__category--active' : ''}`}
+                    aria-pressed={category === item.id}
+                    onClick={() => selectCategory(item.id)}
+                  >
+                    <span className="library-scope__label">{item.label}</span>
+                    <span className="library-scope__meta mono">
+                      {item.subs
+                        .map((entry) => `${entry.label} ${listStats(entry.target)}`)
+                        .join(' · ')}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {activeCategory.id !== 'irs' && (
+                <div
+                  className="library-scope__subs"
+                  role="group"
+                  aria-label={`${activeCategory.label} capture type`}
+                >
+                  {activeCategory.subs.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`library-scope__sub${activeSub.id === item.id ? ' library-scope__sub--active' : ''}`}
+                      aria-pressed={activeSub.id === item.id}
+                      onClick={() => selectSub(item.id)}
+                    >
+                      <span>{item.label}</span>
+                      <span className="mono">{listStats(item.target)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="library-toolbar">
               <label className="search-field">
                 <Search size={13} aria-hidden="true" />
                 <span className="sr-only">Search captures</span>
                 <input
                   className="input input--mono"
-                  placeholder="Search captures"
+                  placeholder={`Search ${activeCategory.label.toLowerCase()}`}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </label>
-              <select
-                className="select"
-                aria-label="Filter capture type"
-                value={kindFilter}
-                onChange={(event) => setKindFilter(event.target.value as KindFilter)}
-              >
-                <option value="all">All types</option>
-                <option value="nam">NAM</option>
-                <option value="pnam">PNAM</option>
-                <option value="ir">IR</option>
-              </select>
               <span className="library-toolbar__spacer" />
-              <span className="chip">{lists.length} lists</span>
+              <span className="chip">{activeTargetLabel}</span>
+              <span className="chip">
+                {activeList
+                  ? `${activeList.slots.filter((slot) => slot.used).length}/${activeList.slots.length} used`
+                  : 'list unavailable'}
+              </span>
             </div>
-            <LibraryTable lists={lists} query={query} kindFilter={kindFilter} />
+            <LibraryTable list={activeList} query={query} />
           </section>
 
           <aside className="library-side">
@@ -421,12 +586,23 @@ export const LibraryView = () => {
               }}
             >
               <UploadCloud size={25} aria-hidden="true" />
-              <strong>Drop a .nam, .pnam, or .wav</strong>
-              <p>or choose a file · NAM ≤ 1 MiB · PNAM ≤ 2 MiB · IR = first 2048 samples</p>
+              <strong>Drop a {activeAccept}</strong>
+              <p>
+                Uploads to {activeTargetLabel} ·{' '}
+                {activeKind === 'ir'
+                  ? 'WAV is reduced to the first 2048 samples'
+                  : `${KIND_LABEL[activeKind]} slot limits apply`}
+              </p>
+              {!activeList && (
+                <p className="preflight__warning preflight__warning--error">
+                  <AlertTriangle size={12} /> This firmware does not expose the{' '}
+                  {activeTargetLabel} list.
+                </p>
+              )}
               <input
                 ref={inputRef}
                 type="file"
-                accept=".nam,.pnam,.wav"
+                accept={activeAccept}
                 className="sr-only"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
@@ -434,7 +610,12 @@ export const LibraryView = () => {
                   event.target.value = '';
                 }}
               />
-              <button type="button" className="btn btn--sm" onClick={() => inputRef.current?.click()}>
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={!activeList}
+                onClick={() => inputRef.current?.click()}
+              >
                 Choose a file
               </button>
             </section>
@@ -463,22 +644,35 @@ export const LibraryView = () => {
                   <div>
                     <dt>Target</dt>
                     <dd>
-                      <select
-                        className="select"
-                        value={pending.target}
-                        onChange={(event) => {
-                          const target = event.target.value;
-                          const list = lists.find((item) => item.id === target);
-                          const slot = list?.slots.find((item) => !item.used)?.index ?? 0;
-                          setPending((current) => current && { ...current, target, slot });
-                        }}
-                      >
-                        {TARGETS[pending.kind].map((target) => (
-                          <option key={target} value={target}>
-                            {lists.find((item) => item.id === target)?.label ?? target}
-                          </option>
-                        ))}
-                      </select>
+                      {pendingTargets.length > 1 ||
+                      !pendingTargets.some((target) => target.id === pending.target) ? (
+                        <select
+                          className="select"
+                          value={pending.target}
+                          onChange={(event) => {
+                            const target = event.target.value;
+                            if (!pending) return;
+                            preparePending(pending.name, pending.size, pending.kind, target, {
+                              file: pending.file,
+                              path: pending.path,
+                            });
+                            focusTarget(target);
+                          }}
+                        >
+                          {!pendingTargets.some((target) => target.id === pending.target) && (
+                            <option value={pending.target} disabled>
+                              Choose a target
+                            </option>
+                          )}
+                          {pendingTargets.map((target) => (
+                            <option key={target.id} value={target.id}>
+                              {target.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span>{targetDef(pending.target)?.label ?? pending.target}</span>
+                      )}
                     </dd>
                   </div>
                   <div>

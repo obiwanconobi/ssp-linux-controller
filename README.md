@@ -27,7 +27,7 @@ The project is deliberately split into two worlds:
 | Phase 2 — design system & board | Design tokens, three themes, component kit, Board, Amp room, Global EQ, Library, Settings, Stage mode, command palette, tuner deck, responsive layouts |
 | Phase 3 — deep parity | Upload UI is previewed; ACK upload code exists in Rust + CLI, file-picker wiring is next. Preset save, chain add/remove, Wi-Fi discovery, and the Parametric NAM editor are hardware-validated on 2.4.4; 2.5.3 PNAM switches and multi-client Wi-Fi were verified live |
 | Live updates | Interim Tauri poller emits snapshots every 500 ms, with a 2 s browse on TCP; uploads pause polling |
-| Local library | Recursive `.nam`/`.pnam`/`.wav` folder indexing in Rust, browser directory picker, and preflight from local files |
+| Local library | Sectioned Amps/Drives/IRs browser with NAM/Parametric NAM subsections, recursive `.nam`/`.pnam`/`.wav` folder indexing, preflight, and target/format validation |
 | Chain editing | Remove and replace use one router write per action; add/remove/replace/move/link are covered by the simulator smoke. The chain write payload is wrapped as `{"value": ...}` so the firmware accepts it |
 | Preset save | Saves the live chain and parameter edits; JSON field order matches the device (`value` before `save`), coalesced writes flush first, and router edits keep the preset dirty until saved |
 | Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, and the PNAM drive editor have been exercised on firmware 2.4.4. Firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, and simultaneous Wi-Fi clients. Chain move/link, EQ writes, uploads, and long idle polling remain open |
@@ -60,8 +60,16 @@ GitHub Actions builds the desktop app on every push and pull request:
 - **Linux x64** — Debian package (`.deb`) and AppImage
 
 The workflow lives in [`.github/workflows/build.yml`](.github/workflows/build.yml).
-Each run uploads the installers and raw desktop binary as downloadable workflow
-artifacts. The same workflow runs for `v*` tags.
+Each run uploads the installers/packages as downloadable workflow artifacts.
+Pushing a `v*` tag also publishes a GitHub Release with the installers attached:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The Linux AppImage is larger than the Windows bundle because it embeds
+GTK/WebKitGTK, while Windows uses the system WebView2 runtime.
 
 ## Screenshots
 

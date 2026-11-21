@@ -2151,6 +2151,96 @@
   overflow: hidden;
 }
 
+.library-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+.library-scope__categories {
+  display: flex;
+  gap: 6px;
+}
+
+.library-scope__category {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--canvas) 55%, var(--surface));
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.library-scope__category:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline));
+  color: var(--text-2);
+}
+
+.library-scope__category--active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--hairline));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--text);
+}
+
+.library-scope__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.library-scope__meta {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-scope__subs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.library-scope__sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.library-scope__sub .mono {
+  color: var(--muted-2);
+  font-size: 8px;
+}
+
+.library-scope__sub:hover {
+  background: color-mix(in srgb, var(--raised) 55%, transparent);
+  color: var(--text-2);
+}
+
+.library-scope__sub--active {
+  border-color: var(--hairline);
+  background: var(--raised-2);
+  color: var(--text);
+}
+
 .library-toolbar {
   display: flex;
   align-items: center;

@@ -174,8 +174,46 @@ try {
   );
 
   await page.locator('.nav-tab', { hasText: 'Library' }).click();
-  await page.waitForSelector('.library-table tbody tr');
-  assert((await page.locator('.library-table tbody tr').count()) > 8, 'library table is empty');
+  await page.waitForSelector('.library-scope');
+  assert(
+    (await page.locator('.library-scope__category').count()) === 3,
+    'library should show Amps, Drives, and IRs',
+  );
+  assert(
+    (await page.locator('.library-scope__sub').count()) === 2,
+    'Amps should show NAM and Parametric NAM subsections',
+  );
+  assert(
+    (await page.locator('.library-table tbody tr').count()) === 8,
+    'Amps > NAM should show its own slot list',
+  );
+
+  const libraryUpload = page.locator('.drop-zone input[type=file]');
+  await page.locator('.library-scope__category', { hasText: 'IRs' }).click();
+  await libraryUpload.setInputFiles(join(localCaptures, 'Amp.nam'));
+  await page.waitForTimeout(150);
+  assert(
+    (await page.locator('.preflight').innerText()).includes('cannot be uploaded to IRs'),
+    'wrong-kind upload did not show an error',
+  );
+
+  await page.locator('.library-scope__category', { hasText: 'Drives' }).click();
+  await page.locator('.library-scope__sub', { hasText: 'Parametric NAM' }).click();
+  await libraryUpload.setInputFiles(join(localCaptures, 'Drive.pnam'));
+  await page.waitForTimeout(150);
+  const targetSelect = page.locator('.preflight__list select');
+  const targetOptions = await targetSelect.locator('option').allTextContents();
+  assert(
+    targetOptions.includes('Amps — Parametric NAM') &&
+      targetOptions.includes('Drives — Parametric NAM'),
+    'PNAM preflight should offer both amp and drive targets',
+  );
+  await targetSelect.selectOption({ label: 'Amps — Parametric NAM' });
+  await page.waitForTimeout(100);
+  assert(
+    (await page.locator('.library-scope__category--active').innerText()).includes('Amps'),
+    'changing the preflight target did not move the library section',
+  );
 
   await page.locator('.segmented button', { hasText: 'Local files' }).click();
   await page.locator('input[webkitdirectory]').setInputFiles(localCaptures);

@@ -529,6 +529,19 @@ export const INITIAL_LISTS: LibraryList[] = [
     ],
   },
   {
+    id: 'pnam_drive',
+    label: 'Parametric drive models',
+    kind: 'pnam',
+    slotSize: 2 * 1024 * 1024,
+    activeSlot: 0,
+    slots: [
+      { index: 0, name: 'ZenDrive', used: true, active: true },
+      { index: 1, name: 'Klon Centaur', used: true, active: false },
+      { index: 2, name: '', used: false, active: false },
+      { index: 3, name: '', used: false, active: false },
+    ],
+  },
+  {
     id: 'ir_list',
     label: 'Cabinet IRs',
     kind: 'ir',

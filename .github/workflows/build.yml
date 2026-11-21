@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -24,13 +24,11 @@ jobs:
             platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             bundles: deb,appimage
-            binary: stompstation-desktop
             artifact: linux-x64
           - name: Windows x64
             platform: windows-latest
             target: x86_64-pc-windows-msvc
             bundles: nsis,msi
-            binary: stompstation-desktop.exe
             artifact: windows-x64
 
     steps:
@@ -87,12 +85,34 @@ jobs:
         with:
           projectPath: apps/desktop
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && format('StompStation {0}', github.ref_name) || '' }}
+          releaseBody: 'Windows and Linux desktop builds for StompStation.'
+          releaseDraft: false
+          prerelease: false
+          generateReleaseNotes: true
+          retryAttempts: 2
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          if [ "${{ matrix.platform }}" = "ubuntu-22.04" ]; then
+            ls target/${{ matrix.target }}/release/bundle/deb/*.deb
+            ls target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          else
+            ls target/${{ matrix.target }}/release/bundle/msi/*.msi
+            ls target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+          fi
+          cp target/${{ matrix.target }}/release/bundle/deb/*.deb artifacts/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/bundle/msi/*.msi artifacts/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe artifacts/ 2>/dev/null || true
+          ls -lh artifacts
 
       - name: Upload executable and bundles
         uses: actions/upload-artifact@v4
         with:
           name: stompstation-${{ matrix.artifact }}
           if-no-files-found: error
-          path: |
-            target/${{ matrix.target }}/release/${{ matrix.binary }}
-            target/${{ matrix.target }}/release/bundle/**
+          path: artifacts/
