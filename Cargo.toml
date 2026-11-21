@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/stomp-protocol",
+    "crates/stomp-transport",
+    "crates/stomp-device",
+    "crates/stomp-upload",
+    "crates/stomp-eq",
+    "crates/stomp-sim",
+    "crates/stomp-cli",
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+indexmap = { version = "2", features = ["serde"] }
+flate2 = "1"
+hound = "3.5"
+serialport = "4.7"
+mdns-sd = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

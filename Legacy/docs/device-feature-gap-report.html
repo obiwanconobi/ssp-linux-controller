@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StompStation PRO — Device Feature Gap Audit</title>
+<style>
+  :root {
+    --bg: #0d1015;
+    --panel: #151922;
+    --panel-2: #1b202b;
+    --panel-3: #222835;
+    --text: #e7ebf2;
+    --muted: #99a3b3;
+    --faint: #6d7787;
+    --border: #2a3140;
+    --accent: #7dd3fc;
+    --accent-2: #a7f3d0;
+    --good: #34d399;
+    --warn: #fbbf24;
+    --bad: #fb7185;
+    --violet: #c4b5fd;
+    --code: #0a0d12;
+    --shadow: 0 18px 50px rgba(0,0,0,.35);
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 700px at 15% -10%, rgba(125,211,252,.12), transparent 60%),
+      radial-gradient(900px 600px at 95% 0%, rgba(167,243,208,.07), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 15px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: .88em;
+  }
+  code {
+    background: var(--code);
+    border: 1px solid #222a38;
+    color: #cfe8ff;
+    padding: .12em .38em;
+    border-radius: 5px;
+    white-space: nowrap;
+  }
+  .page { max-width: 1220px; margin: 0 auto; padding: 28px 22px 80px; }
+
+  /* Hero */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(21,25,34,.98), rgba(14,18,25,.98));
+    box-shadow: var(--shadow);
+    padding: 40px 38px 34px;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: -40% -20% auto auto;
+    width: 520px; height: 520px;
+    background: radial-gradient(circle, rgba(125,211,252,.20), transparent 64%);
+    pointer-events: none;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    color: var(--accent-2);
+    font-size: 12px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 14px var(--good); }
+  h1 { font-size: clamp(30px, 4.2vw, 50px); line-height: 1.06; margin: 0 0 14px; letter-spacing: -.03em; }
+  h1 .sub { color: var(--muted); font-weight: 500; }
+  .lede { max-width: 900px; color: #c3cbd8; font-size: 17px; margin: 0 0 24px; }
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+    margin-top: 22px;
+  }
+  .meta div {
+    background: rgba(255,255,255,.035);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 10px;
+    padding: 10px 13px;
+  }
+  .meta .k { display: block; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .09em; font-weight: 700; }
+  .meta .v { display: block; margin-top: 3px; color: #dce3ee; font-size: 13px; }
+
+  /* KPI */
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin: 18px 0 0;
+  }
+  .kpi {
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 15px 16px;
+  }
+  .kpi .n { font-size: 26px; font-weight: 800; letter-spacing: -.02em; color: #fff; }
+  .kpi .l { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 245px minmax(0, 1fr); gap: 26px; margin-top: 26px; }
+  nav.toc {
+    position: sticky; top: 18px; align-self: start;
+    background: rgba(21,25,34,.72);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 14px;
+    backdrop-filter: blur(10px);
+  }
+  nav.toc h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; }
+  nav.toc a { display: block; color: var(--muted); font-size: 13px; padding: 5px 8px; border-radius: 7px; }
+  nav.toc a:hover { background: rgba(255,255,255,.05); color: #dfe7f3; text-decoration: none; }
+  nav.toc .group { margin-top: 12px; color: var(--faint); font-size: 10px; letter-spacing: .11em; text-transform: uppercase; padding: 4px 8px 2px; }
+  main { min-width: 0; }
+
+  section { margin: 0 0 34px; }
+  h2 {
+    font-size: 25px; letter-spacing: -.02em; margin: 0 0 8px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2 .num {
+    display: inline-grid; place-items: center;
+    min-width: 30px; height: 30px; padding: 0 8px;
+    border-radius: 9px;
+    background: rgba(125,211,252,.10);
+    border: 1px solid rgba(125,211,252,.28);
+    color: var(--accent);
+    font-size: 13px; font-weight: 800;
+  }
+  h3 { font-size: 18px; letter-spacing: -.01em; margin: 0 0 6px; }
+  .section-lede { color: var(--muted); max-width: 900px; margin: 0 0 18px; }
+
+  /* Cards */
+  .card {
+    background: linear-gradient(180deg, rgba(27,32,43,.92), rgba(21,25,34,.92));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 21px;
+    margin: 0 0 14px;
+  }
+  .feature { border-left: 4px solid var(--border); }
+  .feature.p0 { border-left-color: var(--bad); }
+  .feature.p1 { border-left-color: var(--warn); }
+  .feature.p2 { border-left-color: var(--accent); }
+  .feature .top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .feature h3 { margin: 0; flex: 1 1 260px; }
+  .feature .paths { margin: 10px 0 0; }
+  .feature .paths code { white-space: normal; overflow-wrap: anywhere; }
+  .feature ul { margin: 8px 0 0 18px; padding: 0; }
+  .feature li { margin: 3px 0; color: #c9d2e0; }
+  .feature .label { color: var(--faint); font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+
+  /* Badges */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; font-weight: 800; letter-spacing: .05em;
+    text-transform: uppercase;
+    padding: 3px 8px; border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .badge.ok { color: #bbf7d0; background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.35); }
+  .badge.partial { color: #fde68a; background: rgba(251,191,36,.10); border-color: rgba(251,191,36,.32); }
+  .badge.missing { color: #fecdd3; background: rgba(251,113,133,.10); border-color: rgba(251,113,133,.34); }
+  .badge.excluded { color: #cbd5e1; background: rgba(148,163,184,.10); border-color: rgba(148,163,184,.28); }
+  .badge.p0 { color: #fecdd3; background: rgba(251,113,133,.12); border-color: rgba(251,113,133,.35); }
+  .badge.p1 { color: #fde68a; background: rgba(251,191,36,.10); border-color: rgba(251,191,36,.32); }
+  .badge.p2 { color: #bae6fd; background: rgba(125,211,252,.10); border-color: rgba(125,211,252,.30); }
+  .badge.effort { color: #ddd6fe; background: rgba(196,181,253,.10); border-color: rgba(196,181,253,.30); }
+  .badge.conf { color: #cbd5e1; background: rgba(148,163,184,.09); border-color: rgba(148,163,184,.26); }
+
+  /* Callouts */
+  .callout {
+    border-radius: 12px;
+    padding: 13px 15px;
+    margin: 12px 0;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,.025);
+    color: #cbd5e1;
+  }
+  .callout strong { color: #fff; }
+  .callout.warn { border-color: rgba(251,191,36,.32); background: rgba(251,191,36,.055); }
+  .callout.bad { border-color: rgba(251,113,133,.34); background: rgba(251,113,133,.055); }
+  .callout.good { border-color: rgba(52,211,153,.30); background: rgba(52,211,153,.045); }
+  .callout.info { border-color: rgba(125,211,252,.30); background: rgba(125,211,252,.045); }
+  .callout .t { display: block; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+  .callout.warn .t { color: var(--warn); }
+  .callout.bad .t { color: var(--bad); }
+  .callout.good .t { color: var(--good); }
+  .callout.info .t { color: var(--accent); }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.2px; min-width: 720px; }
+  thead th {
+    text-align: left; padding: 11px 12px;
+    background: #1a202b;
+    color: #b9c4d4;
+    font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid rgba(42,49,64,.62); vertical-align: top; color: #cbd5e1; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:nth-child(even) td { background: rgba(255,255,255,.017); }
+  td code { white-space: normal; overflow-wrap: anywhere; }
+  .nowrap { white-space: nowrap; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12.3px; }
+
+  /* Roadmap */
+  .roadmap { display: grid; gap: 12px; }
+  .phase {
+    display: grid; grid-template-columns: 64px minmax(0,1fr); gap: 14px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .phase .pnum {
+    display: grid; place-items: center;
+    width: 52px; height: 52px; border-radius: 14px;
+    background: rgba(125,211,252,.09);
+    border: 1px solid rgba(125,211,252,.28);
+    color: var(--accent); font-weight: 900; font-size: 18px;
+  }
+  .phase h3 { margin: 0 0 4px; }
+  .phase .when { color: var(--faint); font-size: 12px; margin-bottom: 6px; }
+  .phase ul { margin: 6px 0 0 18px; padding: 0; color: #cbd5e1; }
+  .phase li { margin: 3px 0; }
+
+  /* Misc */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+  .rule { height: 1px; background: var(--border); margin: 18px 0; border: 0; }
+  .foot { color: var(--faint); font-size: 12px; border-top: 1px solid var(--border); padding-top: 16px; margin-top: 30px; }
+  .toplink { font-size: 12px; color: var(--faint); }
+  details { border: 1px solid var(--border); border-radius: 10px; padding: 10px 13px; margin-top: 10px; background: rgba(0,0,0,.12); }
+  details summary { cursor: pointer; color: #cfe8ff; font-weight: 650; }
+  details[open] summary { margin-bottom: 8px; }
+  .bar { height: 7px; border-radius: 99px; background: #242b38; overflow: hidden; display: flex; }
+  .bar span { display: block; height: 100%; }
+  .bar .done { background: var(--good); }
+  .bar .part { background: var(--warn); }
+  .bar .miss { background: var(--bad); }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+
+  @media (max-width: 980px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.toc { position: static; display: none; }
+    .two-col { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .hero { padding: 28px 20px; }
+    .page { padding: 16px 12px 60px; }
+    .phase { grid-template-columns: 1fr; }
+    .phase .pnum { width: 44px; height: 44px; }
+  }
+  @media print {
+    body { background: #fff; color: #111; }
+    .page { max-width: none; padding: 0; }
+    .hero, .card, .phase, nav.toc { box-shadow: none; background: #fff; border-color: #ccc; }
+    nav.toc { display: none; }
+    .layout { display: block; }
+    a { color: #0b5cad; }
+    code { background: #f1f5f9; color: #0f172a; border-color: #d8dee9; }
+    .badge { border-color: #bbb; }
+    .kpi .n, h1, h2, h3 { color: #111; }
+    tbody tr:nth-child(even) td { background: #f7f8fa; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="hero">
+    <div class="eyebrow"><span class="dot"></span> Device audit · read-only inspection</div>
+    <h1>StompStation PRO<br><span class="sub">Feature gap audit for the Linux client</span></h1>
+    <p class="lede">
+      The current app covers the core tone-shaping workflow well. This audit maps every
+      feature the pedal exposes over its node protocol against what the Linux client
+      implements today, with exact node paths, suggested UI placement, effort estimates,
+      and the write semantics that still need hardware verification.
+    </p>
+    <div class="meta">
+      <div><span class="k">Device</span><span class="v">Sonulab StompStation PRO</span></div>
+      <div><span class="k">Firmware</span><span class="v">2.4.4</span></div>
+      <div><span class="k">Transport used</span><span class="v">USB CDC-ACM <code>/dev/ttyACM0</code></span></div>
+      <div><span class="k">Node tree</span><span class="v">688 nodes from <code>browse root</code></span></div>
+      <div><span class="k">Audit date</span><span class="v">17 November 2026</span></div>
+      <div><span class="k">Scope</span><span class="v">Everything except firmware update</span></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="n">688</div><div class="l">live nodes browsed</div></div>
+      <div class="kpi"><div class="n">26</div><div class="l">block definitions exposed</div></div>
+      <div class="kpi"><div class="n">60</div><div class="l">preset slots (20 banks × 3)</div></div>
+      <div class="kpi"><div class="n">33</div><div class="l">unit tests passing</div></div>
+      <div class="kpi"><div class="n">0</div><div class="l">device writes made during audit</div></div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" aria-label="Contents">
+      <h2>Contents</h2>
+      <a href="#summary">Executive summary</a>
+      <a href="#coverage">Coverage at a glance</a>
+      <a href="#differences">Why this matters</a>
+      <div class="group">Detailed findings</div>
+      <a href="#system">1. System, setup &amp; monitoring</a>
+      <a href="#presets">2. Presets &amp; performance</a>
+      <a href="#library">3. Model / IR libraries</a>
+      <a href="#midi">4. MIDI &amp; controllers</a>
+      <a href="#connectivity">5. Connectivity</a>
+      <a href="#polish">6. UI polish &amp; protocol</a>
+      <div class="group">Delivery</div>
+      <a href="#implemented">Already implemented</a>
+      <a href="#roadmap">Suggested roadmap</a>
+      <a href="#implementation">Implementation map</a>
+      <a href="#security">Security &amp; privacy</a>
+      <a href="#method">Method &amp; confidence</a>
+      <a href="#appendix">Appendix: node reference</a>
+    </nav>
+
+    <main>
+
+      <div class="callout good" id="implementation-status">
+        <span class="t">Implementation note — Phase 1 complete</span>
+        The following roadmap Phase 1 items are now implemented in the client:
+        tuner window, VU meters, input gains and connection state, preset
+        level/colour/tempo with Tap Tempo, Save As, USB audio setup,
+        clear/default chain, MIDI channel, expression-pedal calibration,
+        encoder/headphone/ground-lift toggles, device alias/About information,
+        and a confirmed factory reset. The detailed findings below remain the
+        original audit and are still useful for Phases 2–4.
+      </div>
+
+      <!-- ============================================================ -->
+      <section id="summary">
+        <h2><span class="num">01</span> Executive summary</h2>
+        <p class="section-lede">
+          The client is already a capable editor: connection, chain editing, block
+          parameters, dual NAM/IR, global EQ, and uploads are in place. The gaps are
+          concentrated in the <strong>performance layer</strong> and the
+          <strong>management layer</strong> — the parts of the official workflow that live
+          outside the signal chain.
+        </p>
+
+        <div class="two-col">
+          <div class="card feature p0">
+            <div class="top"><h3>Highest-value quick wins</h3><span class="badge p0">Start here</span></div>
+            <ul>
+              <li><strong>Tuner</strong> — live frequency/cents from <code>root\settings\tuner</code>.</li>
+              <li><strong>VU meters</strong> — the data is already read by <code>Device.state()</code>; the modern UI simply never shows it.</li>
+              <li><strong>Input gains</strong> and connected-input indicators.</li>
+              <li><strong>Preset level, colour, tempo</strong> and a <strong>Tap Tempo</strong> button.</li>
+              <li><strong>Save As…</strong> — <code>save_preset(name)</code> already exists; only the dialog is missing.</li>
+              <li><strong>USB audio</strong> mode/status/volume.</li>
+              <li><strong>Clear chain / Load default chain</strong> actions.</li>
+            </ul>
+          </div>
+          <div class="card feature p1">
+            <div class="top"><h3>Larger projects</h3><span class="badge p1">Plan next</span></div>
+            <ul>
+              <li><strong>Preset library</strong>: delete, reorder, bank view, import/export, backup/restore.</li>
+              <li><strong>NAM/PNAM/IR library</strong>: rename, delete, reorder, download, dependency checks.</li>
+              <li><strong>MIDI PC map + controllers</strong>: channel, PC table, global/preset controllers, learn, Assign 1–4.</li>
+              <li><strong>Connectivity</strong>: Wi-Fi configuration, BLE transport, password authentication.</li>
+              <li><strong>Native bundles</strong>: preset import/export with dependencies.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout info">
+          <span class="t">The short version</span>
+          A focused <strong>“Performance &amp; Setup”</strong> release (tuner, meters, input,
+          preset extras, USB, chain actions) would close most of the everyday-user gaps with
+          relatively little new protocol work. The library and MIDI/controller work is larger,
+          but the node model is already there — it is mostly client-side plumbing and UI.
+        </div>
+
+        <div class="callout warn">
+          <span class="t">Important</span>
+          No writes were made to the pedal during this audit. Everything below was verified by
+          reading <code>browse root</code>/<code>read root</code>, inspecting the official 2.4.4
+          firmware strings, and reading the client source. Items marked
+          <span class="badge conf">needs hardware check</span> have known node shapes but
+          unverified write/trigger semantics.
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="coverage">
+        <h2><span class="num">02</span> Coverage at a glance</h2>
+        <p class="section-lede">
+          Status is relative to the <em>device</em> feature set, not to the code quality.
+          “Partial” means the client exposes some of the feature but not its management or
+          settings surface.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Area</th><th>Status</th><th>What exists today</th><th>Main gap</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Connection &amp; discovery</td>
+                <td><span class="badge partial">Partial</span></td>
+                <td>USB CDC-ACM, TCP, mDNS, manual host:port, polling, external-change detection.</td>
+                <td>No BLE transport; no password authentication.</td>
+              </tr>
+              <tr>
+                <td>Signal chain &amp; blocks</td>
+                <td><span class="badge ok">Strong</span></td>
+                <td>All exposed blocks, add/remove/reorder, fixed slots, bypass, nested groups, dual NAM/IR, parameter NAM.</td>
+                <td>No parallel-routing visualisation; block EQ has sliders, not a response graph.</td>
+              </tr>
+              <tr>
+                <td>Preset basics</td>
+                <td><span class="badge partial">Partial</span></td>
+                <td>List, select, previous/next, search, rename, save current, live sync.</td>
+                <td>No Save As, delete, reorder, bank view, level, colour, preset tempo, or per-preset controllers.</td>
+              </tr>
+              <tr>
+                <td>Preset library / backup</td>
+                <td><span class="badge missing">Missing</span></td>
+                <td>Only the name list is read.</td>
+                <td>No import/export, backup/restore, native bundles, or chunked download.</td>
+              </tr>
+              <tr>
+                <td>NAM / PNAM / IR uploads</td>
+                <td><span class="badge ok">Strong</span></td>
+                <td>Slot picker, overwrite warning, progress, gzip/padding framing, PNAM metadata. Tested against the fake device; not re-tested on hardware in this audit.</td>
+                <td>No library management: rename, delete, reorder, export, or used-by checks.</td>
+              </tr>
+              <tr>
+                <td>Global EQ</td>
+                <td><span class="badge ok">Strong</span></td>
+                <td>Preview curve, band selector, draggable 4-band editor, enable switch.</td>
+                <td>Block EQ and parametric EQ blocks do not reuse the graph.</td>
+              </tr>
+              <tr>
+                <td>Setup / system</td>
+                <td><span class="badge missing">Missing</span></td>
+                <td>Nothing beyond device name/firmware in the status area.</td>
+                <td>Tuner, input gain, Ctrl calibration, MIDI channel, encoder/headphone/ground lift, factory reset, alias, Wi-Fi, USB audio.</td>
+              </tr>
+              <tr>
+                <td>Monitoring</td>
+                <td><span class="badge partial">Partial</span></td>
+                <td><code>Device.state()</code> reads input/output meters; legacy UI printed them.</td>
+                <td>Modern UI shows no meters and no tuner.</td>
+              </tr>
+              <tr>
+                <td>MIDI &amp; controllers</td>
+                <td><span class="badge missing">Missing</span></td>
+                <td>Fixed CC map is readable in the tree; preset/tempo actions exist.</td>
+                <td>No MIDI PC map, channel setting, controller assignment, learn, or Assign 1–4.</td>
+              </tr>
+              <tr>
+                <td>Firmware update</td>
+                <td><span class="badge excluded">Excluded</span></td>
+                <td>Not part of this audit, per request.</td>
+                <td>—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="legend">
+          <span><i style="background:var(--good)"></i>Strong / implemented</span>
+          <span><i style="background:var(--warn)"></i>Partial</span>
+          <span><i style="background:var(--bad)"></i>Missing</span>
+          <span><i style="background:#64748b"></i>Excluded</span>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h3 style="margin-bottom:8px">How to read the finding cards</h3>
+          <div class="two-col small muted">
+            <div>
+              <p><span class="badge p0">P0</span> do next · <span class="badge p1">P1</span> important · <span class="badge p2">P2</span> later.</p>
+              <p><span class="badge effort">Effort S</span> under a day · <span class="badge effort">M</span> a few days · <span class="badge effort">L</span> one to two weeks · <span class="badge effort">XL</span> a separate project. These are indicative, not calendar promises.</p>
+            </div>
+            <div>
+              <p><span class="badge conf">Verified live</span> path/type/range/value seen on the pedal · <span class="badge conf">Documented</span> described in protocol notes or the manual.</p>
+              <p><span class="badge conf">Needs hardware check</span> node shape known, write/trigger semantics not exercised (to avoid changing user data).</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="differences">
+        <h2><span class="num">03</span> Why this matters</h2>
+        <p class="section-lede">
+          These are not obscure protocol corners. They are the features the official app and
+          the pedal’s own screen treat as first-class:
+        </p>
+        <div class="two-col">
+          <div class="card">
+            <h3>Live performance</h3>
+            <p class="muted small">The tuner, tap tempo, preset level/colour, VU meters and controller assignments are the things a player touches between songs. Without them the Linux client is a studio editor, not a live controller.</p>
+          </div>
+          <div class="card">
+            <h3>Library ownership</h3>
+            <p class="muted small">On this unit the pedal exposes 60 presets, 60 NAM amps, 60 NAM drives, 10 PNAM amps, 10 PNAM drives, 50 IRs and 16 VxAmp slots. Uploading is supported, but organising, renaming, deleting and backing up is not — so the library is effectively write-only from the client.</p>
+          </div>
+          <div class="card">
+            <h3>Rig integration</h3>
+            <p class="muted small">MIDI PC/CC, MIDI clock, the global and per-preset controllers, and Assign 1–4 are how the pedal fits a pedalboard. The nodes are already in the cache; only the UI and a few writes are missing.</p>
+          </div>
+          <div class="card">
+            <h3>System setup</h3>
+            <p class="muted small">Input gain, Ctrl toe/heel calibration, headphones, ground lift, encoder direction, Wi-Fi and USB audio mode are all exposed as simple float/enum/string nodes. Most are tiny additions with high user value.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="system">
+        <h2><span class="num">04</span> System, setup &amp; monitoring</h2>
+        <p class="section-lede">
+          The entire <code>root\settings</code> subtree, plus <code>root\usb</code> and the
+          live meters, is absent from the modern UI. These are ordinary nodes and can be read
+          from the existing cache; most writes use the existing <code>Device.write()</code>.
+        </p>
+
+        <article class="card feature p0">
+          <div class="top">
+            <h3>Tuner</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p0">P0</span>
+            <span class="badge effort">Effort S–M</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">The pedal has a chromatic tuner with selectable A4 reference and a live detected frequency. The client has no tuner UI at all.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\settings\tuner\on_off</code> · enum <code>ON</code>/<code>OFF</code><br>
+            <code>root\settings\tuner\tuner\ref</code> · enum <code>432</code> … <code>448</code> Hz<br>
+            <code>root\settings\tuner\tuner\lvl</code> · float, −60…0 dB<br>
+            <code>root\settings\tuner\tuner\_freq</code> · float, 0…2000 Hz (detected pitch)
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> a Tuner button in the header or Master panel; a popover with note name, cents deviation, frequency, reference dropdown, input level and an enable switch. Auto-enable while open, restore the previous state on close.</li>
+            <li><strong>Implementation:</strong> poll <code>_freq</code> and <code>lvl</code> at ~20–30 Hz on a dedicated reader; do not wait for the 2 s full browse on TCP. Compute the nearest note and cents from the selected reference. <code>_freq</code> is currently skipped by the generic editor because its name starts with <code>_</code>.</li>
+            <li><strong>Caution:</strong> verify whether <code>on_off</code> mutes the main output on this firmware; the manual describes tuner activation from footswitch C.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p0">
+          <div class="top">
+            <h3>Input gains &amp; connection state</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p0">P0</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">Two independent inputs with digital gain and automatic mono duplication when only one jack is connected.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\settings\input\gain1</code> · float, −15…+15 dB<br>
+            <code>root\settings\input\gain2</code> · float, −15…+15 dB<br>
+            <code>root\settings\input\_connected1</code> · enum <code>NO</code>/<code>YES</code><br>
+            <code>root\settings\input\_connected2</code> · enum <code>NO</code>/<code>YES</code>
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> Settings → Input, with two sliders and “Input 1 connected / Input 2 not connected” badges. Show a hint that a single input is duplicated to both channels.</li>
+            <li><strong>Implementation:</strong> the <code>_connected*</code> names are hidden by the generic editor’s underscore rule; use a dedicated settings reader or explicitly include them.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Expression pedal calibration</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">The CTRL input has toe/heel calibration points and a live position readout.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\settings\ctrl\hlv</code> · float, 0…100 % (heel)<br>
+            <code>root\settings\ctrl\tev</code> · float, 0…100 % (toe)<br>
+            <code>root\settings\ctrl\_clvl</code> · float, 0…100 % (current position)
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> a calibration wizard — move the pedal to heel, capture <code>hlv</code>; move to toe, capture <code>tev</code>; show <code>_clvl</code> live. Include a “Reset to 0/100” button.</li>
+            <li><strong>Implementation:</strong> a dedicated reader for <code>_clvl</code>; the generic editor hides it.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Misc setup</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\settings\misc\midi_a</code> · enum MIDI channel <code>0</code>…<code>15</code><br>
+            <code>root\settings\misc\encoder</code> · enum <code>CW</code>/<code>CCW</code><br>
+            <code>root\settings\misc\headp</code> · enum <code>STEREO</code>/<code>MONO/L</code><br>
+            <code>root\settings\misc\lift</code> · enum <code>ON</code>/<code>OFF</code><br>
+            <code>root\settings\misc\factory</code> · action, <code>smp_cfm</code> (factory reset)
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> Settings → Misc with four compact selectors and a destructive “Factory reset” button.</li>
+            <li><strong>Factory reset</strong> clears the NAM, IR and preset lists. Require typed confirmation and offer a backup first. The device action type <code>smp_cfm</code> means “confirm on device”; the client should mirror that confirmation.</li>
+            <li><strong>Action trigger:</strong> firmware analysis shows <code>NodeAction::edit()</code> writes <code>run</code> and <code>exec()</code> handles <code>smp</code>/<code>smp_cfm</code>. A likely command is <code>write &lt;path&gt;:{"value":"run"}</code> — verify on hardware before shipping.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Global controllers 1–3</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">Three global “mctrl” modules, each with a source, MIDI address, learn toggle, and three parameter links with min/max ranges.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\settings\misc\ctl3</code> · Global Controller 1<br>
+            <code>root\settings\misc\ctl4</code> · Global Controller 2<br>
+            <code>root\settings\misc\ctl5</code> · Global Controller 3<br>
+            per controller: <code>src</code> (<code>Ctrl</code>/<code>MIDI CC</code>), <code>opt1_address</code> (32…127), <code>lrn</code> (<code>ON</code>/<code>OFF</code>), <code>lnk1..3\lnk</code> (parameter path), <code>min</code>/<code>max</code> (0…100 %)
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> a controller matrix — one row per controller; source/address/learn; three link rows with a searchable parameter picker and min/max sliders.</li>
+            <li><strong>Implementation:</strong> the generic editor currently skips <code>item_type=link</code> nodes, so the link target is invisible. Add a dedicated link picker that walks the block tree and writes the parameter path.</li>
+            <li><strong>Learn:</strong> set <code>lrn</code> to <code>ON</code>, send MIDI CC to the pedal, then set it back to <code>OFF</code>. The client does not receive MIDI itself; the pedal performs the learn.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p0">
+          <div class="top">
+            <h3>VU meters</h3>
+            <span class="badge partial">Partial</span>
+            <span class="badge p0">P0</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">The data is already read into <code>Device.state()</code> as <code>meter_in</code>/<code>meter_out</code>, but the modern UI never renders it. The legacy UI printed text meters.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\sys\_meters\_in0</code> · In 1 peak, −110…0 dB<br>
+            <code>root\sys\_meters\_in1</code> · In 2 peak, −110…0 dB<br>
+            <code>root\sys\_meters\_out0</code> · Out 1 peak, −110…0 dB<br>
+            <code>root\sys\_meters\_out1</code> · Out 2 peak, −110…0 dB
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> four compact meters in the header or Master panel, with peak hold and green/yellow/red zones. The existing <code>meter_in</code>/<code>meter_out</code> can be replaced by all four values.</li>
+            <li><strong>Note:</strong> the firmware description for <code>_out0</code> says “Out 2 Peak” — likely a copy/paste typo; treat <code>_out0/_out1</code> as Out 1/Out 2.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>USB audio control</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">The pedal exposes a USB audio interface with a data/audio mode, a connection status, and a monitor volume. The client already stores <code>usb_status</code> but never shows it.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\usb\mode</code> · enum <code>STANDARD</code>/<code>MONITOR</code><br>
+            <code>root\usb\_status</code> · enum <code>OFF</code>/<code>ON</code>/<code>SYNC</code><br>
+            <code>root\usb\_volume</code> · float, −50…0 dB
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> Settings → USB Audio, with mode selector, status badge and monitor volume slider.</li>
+            <li><strong>Caution:</strong> changing <code>mode</code> may re-enumerate the USB audio gadget. Test over TCP or with a second serial connection, and warn before switching.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Identity, alias, Wi-Fi &amp; security fields</h3>
+            <span class="badge partial">Partial</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort S–M</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\sys\alias</code> · string (device alias)<br>
+            <code>root\sys\wifi\ssid</code> · string<br>
+            <code>root\sys\wifi\password</code> · string<br>
+            <code>root\sys\wifi\state</code> · string (<code>CONNECTED</code>, <code>DISCONNECTED</code>, <code>CONNECTING</code>, <code>DISABLED</code>)<br>
+            <code>root\sys\pwd</code> · string (device password)<br>
+            <code>root\sys\key</code> · string (security key)<br>
+            <code>root\sys\_arch</code>, <code>_author</code>, <code>_license</code>, <code>_logo</code> · read-only info
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> an About dialog with model, firmware, architecture, author, license and logo; a Network card with SSID/password/state; an alias field; a read-only security-key field.</li>
+            <li><strong>Wi-Fi:</strong> there is no scan API in the node tree — only manual SSID/password + state. Writing credentials over Wi-Fi will disconnect the current session; require USB or warn clearly.</li>
+            <li><strong>Password:</strong> do not offer changing <code>root\sys\pwd</code> until token authentication is implemented, or the client will lock itself out.</li>
+          </ul>
+        </article>
+
+        <div class="callout bad">
+          <span class="t">Security observation — read before adding Wi-Fi UI</span>
+          <code>browse root</code> returns the Wi-Fi SSID and password in plaintext, along with
+          <code>root\sys\pwd</code> and <code>root\sys\key</code>. Values are intentionally
+          omitted from this report. Any unauthenticated USB/TCP client can read them. Do not
+          log these nodes, do not include them in screenshots, and keep secrets masked behind a
+          “reveal” control in any future Network panel.
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="presets">
+        <h2><span class="num">05</span> Presets &amp; performance</h2>
+        <p class="section-lede">
+          The client can select, rename and save the current preset, but the per-preset
+          performance fields and the preset library are not exposed.
+        </p>
+
+        <article class="card feature p0">
+          <div class="top">
+            <h3>Preset level, colour &amp; tempo</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p0">P0</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">These are per-preset values under <code>root\app\output\pst</code>. The current Master panel edits global volume and global tempo only, and its tempo tooltip says “Patch tempo” — a label/behaviour mismatch.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\app\output\pst\level</code> · float, −20…+20 dB (per-preset level)<br>
+            <code>root\app\output\pst\tmp</code> · float, 30…240 BPM (per-preset tempo)<br>
+            <code>root\app\output\pst\color</code> · hex string, e.g. <code>001cff</code> (footswitch LED colour)<br>
+            <code>root\app\output\tempo_bpm</code> · float, 30…240 BPM (global tempo)<br>
+            <code>root\app\output\vol</code> · float, 0…100 % (global master)
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> a “Preset” inspector beside the master controls: level slider, colour swatch/picker, tempo field with a <strong>Preset / Global</strong> selector, and a <strong>Tap</strong> button. Show both tempos when they differ.</li>
+            <li><strong>Live example:</strong> on this pedal the global tempo is 92 BPM while the preset tempo is ~118.5 BPM. The current UI shows only 92 and writes only the global value.</li>
+            <li><strong>Tap tempo:</strong> collect 4+ taps client-side, average the interval, then write <code>pst\tmp</code> (or <code>tempo_bpm</code> in Global mode). No device-side tap command is needed.</li>
+            <li><strong>Colour:</strong> <code>item_type=color</code> currently renders as a plain text entry under the generic editor; add a colour button/picker that writes six hex digits.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p0">
+          <div class="top">
+            <h3>Save As…</h3>
+            <span class="badge partial">Partial</span>
+            <span class="badge p0">P0</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Code + firmware</span>
+          </div>
+          <p class="muted small"><code>Device.save_preset(name)</code> already supports a target name and sends <code>{"value": name, "save": "save"}</code>. The UI calls it with no name, so only “save current” exists.</p>
+          <ul>
+            <li><strong>Suggested UI:</strong> a “Save As…” action in the preset context menu / header, with overwrite warning and the same 63-byte name validation used by rename.</li>
+            <li><strong>Implementation:</strong> add a dialog, call <code>save_preset(new_name)</code>, refresh the list. Warn when the target slot is occupied.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p0">
+          <div class="top">
+            <h3>Clear chain / Load default chain</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p0">P0</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live + firmware</span>
+          </div>
+          <p class="muted small">The device exposes two per-preset chain actions next to the master output.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\app\output\c_chain</code> · action <code>smp_cfm</code> — “Clear Chain”<br>
+            <code>root\app\output\d_chain</code> · action <code>smp_cfm</code> — “Load Default Chain”
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> a “…” menu on the signal-chain header with both actions, behind a confirmation dialog.</li>
+            <li><strong>Implementation:</strong> likely <code>write &lt;path&gt;:{"value":"run"}</code> (firmware <code>NodeAction::edit</code> writes <code>run</code>); verify on hardware. The default matrix is the router’s <code>def</code> field, so the client can preview it.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Preset delete, reorder &amp; bank view</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Protocol + live list</span>
+          </div>
+          <div class="paths"><span class="label">Device data</span><br>
+            <code>root\presets</code> · 60 slots, <code>item_type=pst_pst</code>, <code>move=true</code>, <code>size=32768</code><br>
+            reorder: <code>dmove root\presets:{"index":N,"index2":M}</code><br>
+            delete: <code>dwrite root\presets:{"index":N,"chunk":-1,"value":"&lt;128 zero bytes as hex&gt;"}</code><br>
+            <code>dswap</code> is also present in firmware strings (swap semantics need checking)
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> right-click context menu with Rename, Save As / Duplicate, Delete, Move Up, Move Down, Export. Group the flat list into 20 banks of 3 (A/B/C) and show the preset colour dot so the footswitch LEDs are understandable.</li>
+            <li><strong>Delete caution:</strong> the documented delete is a zero-filled name chunk; verify on a disposable slot before shipping. Always confirm and offer a backup.</li>
+            <li><strong>Bank layout:</strong> the bank/ABC assignment follows list order (3 presets per bank); there is no separate bank node in the PRO tree.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Per-preset controllers 1–3</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">Each preset has three “mctrl” controllers, each with a source, MIDI address, learn and three parameter links. These are separate from the three global controllers.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\app\output\pst\ctl1</code>, <code>ctl2</code>, <code>ctl3</code><br>
+            same shape as the global controllers: <code>src</code>, <code>opt1_address</code>, <code>lrn</code>, three <code>lnk</code>/<code>min</code>/<code>max</code> groups
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> a “Controllers” section in the preset inspector, reusing the global controller matrix component.</li>
+            <li><strong>Note:</strong> the firmware also refers to these as <code>multi1</code>/<code>multi2</code>/<code>multi4</code>; the live tree names them <code>ctl1..3</code>.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>Preset import / export / backup</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort L</span>
+            <span class="badge conf">Documented</span>
+          </div>
+          <p class="muted small">The protocol docs describe native preset bundles with <code>bdinfo.json</code>, <code>dependencies/</code>, <code>preset/</code>, NAM/IR payloads and optional gzip. The client has no chunked download at all.</p>
+          <ul>
+            <li><strong>Prerequisite:</strong> implement <code>dread</code> (chunked read) and <code>dwrite</code> list import. <code>parse_message()</code> already recognises the <code>dread</code> command prefix.</li>
+            <li><strong>Suggested UI:</strong> Backup all / Restore backup / Export preset / Import preset, with progress and dependency validation.</li>
+            <li><strong>Alternative:</strong> a client-side JSON snapshot of parameter values is much easier but is not compatible with the official app; label it clearly as a client snapshot.</li>
+          </ul>
+        </article>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="library">
+        <h2><span class="num">06</span> Model &amp; IR libraries</h2>
+        <p class="section-lede">
+          Uploads are solid, but the lists are write-only from the client’s point of view.
+          Every list is <code>move=true</code> and most are gzip payloads, so the same
+          rename/delete/reorder/read primitives apply to all of them.
+        </p>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>NAM / PNAM / IR library management</h3>
+            <span class="badge partial">Partial</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <div class="paths"><span class="label">Device lists (live sizes)</span><br>
+            <code>root\nam_amp</code> · 60 slots · 1 MiB · gzip<br>
+            <code>root\nam_drive</code> · 60 slots · 1 MiB · gzip<br>
+            <code>root\pnam_list</code> · 10 slots · 2 MiB · gzip<br>
+            <code>root\pnam_drive</code> · 10 slots · 2 MiB · gzip<br>
+            <code>root\ir_list</code> · 50 slots · 8192 B · no gzip<br>
+            <code>root\vxamp_list</code> · 16 slots · 12288 B · no gzip
+          </div>
+          <ul>
+            <li><strong>Missing operations:</strong> rename (same 128-byte name chunk as preset rename), delete (zero-fill), reorder (<code>dmove</code>/<code>dswap</code>), download/export (<code>dread</code> + gunzip when <code>gzip=true</code>), import (already have <code>dwrite</code> framing), and used-by checks.</li>
+            <li><strong>Dependency data:</strong> <code>root\presets.used</code> maps parameter paths (amp model, drive model, IR, PNAM) to model names. Use it to show “used by N presets” before delete/overwrite. The live map covers <code>root\app\amp\model</code>, <code>amp\nam2\model</code>, <code>amp\pmodel</code>, <code>drive\model</code>, <code>ir\ir</code>, <code>ir2\ir</code>, etc.</li>
+            <li><strong>Suggested UI:</strong> a Library page with tabs Amps / Drives / Impulses / PNAM; list rows with name, used-by count, rename/delete/export actions, drag reorder, and an Import button.</li>
+            <li><strong>Note:</strong> exported IRs will be the stored 8192-byte 2048-sample payload, not the original WAV. Exported NAM/PNAM data is the gzipped stored payload; gunzip if you want the original model bytes.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>VxAmp library (legacy / secondary engine)</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Needs format check</span>
+          </div>
+          <p class="muted small">The tree exposes a VxAmp block and a 16-slot VxAmp list, but all slots are empty on this unit. The PRO normally uses native NAM/PNAM; VxAmp is the proprietary Sonulab/MagicMatch format used by the older StompStation and Amp Studio.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\app\vxamp</code> · block with <code>model</code> plist → <code>root\vxamp_list</code><br>
+            <code>root\vxamp_list</code> · 16 slots · 12288 B · <code>item_type=vxamp</code>
+          </div>
+          <ul>
+            <li><strong>Recommendation:</strong> do not prioritise until the <code>.vxamp</code> upload format is confirmed. At minimum, show a clear empty-state when the block is added.</li>
+            <li><strong>If implemented:</strong> likely the same <code>dwrite</code> list path with 12288-byte payloads and no gzip; verify with a harmless slot.</li>
+          </ul>
+        </article>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="midi">
+        <h2><span class="num">07</span> MIDI &amp; controllers</h2>
+        <p class="section-lede">
+          The pedal has a full MIDI implementation (PC, CC, clock) plus three global and
+          three per-preset assignable controllers. The client exposes none of the configuration.
+        </p>
+
+        <article class="card feature p0">
+          <div class="top">
+            <h3>MIDI channel</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p0">P0</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <div class="paths"><code>root\settings\misc\midi_a</code> · enum <code>0</code>…<code>15</code></div>
+          <p class="muted small">A single selector belongs in the same Misc settings card as encoder direction, headphones and ground lift.</p>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>MIDI PC map</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Needs write check</span>
+          </div>
+          <p class="muted small">A 60-entry array maps MIDI Program Change numbers to preset indices. On this unit PC 0–29 map 1:1 to the first 30 presets; the rest map to 0.</p>
+          <div class="paths"><span class="label">Device node</span><br>
+            <code>root\cpst</code> · type <code>ctrl</code>, <code>src=midipc</code>, <code>ref=root\app\preset</code>, value = 60-element integer array
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> a table with PC #, target preset, and a “learn” / “set to current” action; show duplicates and unmapped rows.</li>
+            <li><strong>Implementation:</strong> likely <code>write root\cpst:{"value":[...]}</code>; verify on hardware before exposing. Do not ship a partial array — read-modify-write the full 60 elements.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Global &amp; preset controllers + learn</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">Six controllers total: three global (<code>settings\misc\ctl3..5</code>) and three per-preset (<code>app\output\pst\ctl1..3</code>). Each has source, address, learn, and three links.</p>
+          <ul>
+            <li><strong>Suggested UI:</strong> a shared controller matrix component, used in both Settings (global) and the preset inspector (per-preset).</li>
+            <li><strong>Link picker:</strong> the hard part is choosing a parameter path. Walk <code>root\app</code>, show a searchable tree of block/parameter labels, and write the selected path into <code>lnk</code>. Link values in the live tree are double-backslash-escaped (for example <code>root\\app\\drive\\on_off</code>); <code>normalize_path()</code> already collapses doubles, so use it before matching or writing.</li>
+            <li><strong>Learn:</strong> toggle <code>lrn=ON</code>, let the user send a CC from their controller, then toggle off. Show <code>_st</code> as live position.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Assign 1–4 (Home F1–F4 quick controls)</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Needs semantics check</span>
+          </div>
+          <p class="muted small">The root exposes four assign items; the firmware has <code>Home::showAssign</code>/<code>editAssign</code>, and the manual describes assigning up to four block parameters to the F1–F4 knobs in Home view.</p>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\assign1</code> · <code>item_type=assign</code>, value <code>root\app\amp</code><br>
+            <code>root\assign2</code> · value <code>root\app\mod</code><br>
+            <code>root\assign3</code> · value <code>root\app\delay</code><br>
+            <code>root\assign4</code> · value <code>root\app\reverb</code>
+          </div>
+          <ul>
+            <li><strong>Open question:</strong> the value is a block path, not a parameter path. The parameter-level mapping is likely stored inside the block or the device UI. Verify how <code>editAssign</code> stores the chosen parameter before building a full picker.</li>
+            <li><strong>Minimum viable UI:</strong> show/edit the four block targets and document that parameter selection is on-device.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>MIDI CC reference &amp; clock status</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <div class="paths"><span class="label">Device nodes</span><br>
+            <code>root\_cc1</code> … <code>root\_cc22</code> · <code>ctrl</code>, <code>src=midicc</code>, <code>ref</code> = target parameter<br>
+            <code>root\midi_tempo</code> · <code>ctrl</code>, <code>src=midick</code>, <code>ref=root\app\output\tempo_bpm</code>
+          </div>
+          <ul>
+            <li><strong>Suggested UI:</strong> a read-only “Fixed MIDI CC” reference table (CC 1 drive, CC 2 mod-pre, CC 3 amp, CC 4 IR, CC 5 reverb, CC 6 mod, CC 7 tremolo, CC 8 comp, CC 9 gate, CC 10 delay, CC 11 tuner, CC 20 volume, CC 21 preset up, CC 22 preset down). Add a small “MIDI clock: locked/free” indicator from <code>midi_tempo</code>.</li>
+            <li><strong>Note:</strong> the CC refs are ordinary ctrl nodes; editing them may or may not be supported. Treat them as read-only until verified.</li>
+          </ul>
+        </article>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="connectivity">
+        <h2><span class="num">08</span> Connectivity</h2>
+        <p class="section-lede">
+          USB serial, TCP and mDNS are covered. The official app also supports Bluetooth LE,
+          Wi-Fi configuration and password-protected devices.
+        </p>
+
+        <article class="card feature p1">
+          <div class="top">
+            <h3>Wi-Fi configuration</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p1">P1</span>
+            <span class="badge effort">Effort S–M</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">The node tree exposes SSID, password and state, but no scan results. The device uses <code>nmcli</code> internally to connect.</p>
+          <ul>
+            <li><strong>Suggested UI:</strong> Settings → Network with SSID/password fields, state badge and a “Connect” button. No network picker unless a scan API is found.</li>
+            <li><strong>Caution:</strong> changing Wi-Fi while connected over Wi-Fi disconnects the client. Require USB or show a strong warning; keep the old credentials available for rollback.</li>
+            <li><strong>Security:</strong> credentials are returned in plaintext by <code>browse root</code>; mask them by default and never log them.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>Bluetooth LE transport</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort XL</span>
+            <span class="badge conf">Documented</span>
+          </div>
+          <p class="muted small">The official app supports BLE; the firmware uses BlueZ GATT and the same node protocol. The protocol notes report a 1024-byte atomic packet size for BLE.</p>
+          <ul>
+            <li><strong>Implementation:</strong> add a <code>BleakTransport</code> implementing the existing <code>Transport</code> interface. Keep the framing identical (<code>command\r\n\0</code>) and packetise writes to the negotiated MTU or 1024 bytes.</li>
+            <li><strong>Unknowns:</strong> GATT service/characteristic UUIDs and the advertising name/TXT payload need a BLE scan or a capture of the official app. Plan a discovery step before promising a timeline.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>Password / token authentication</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort L–XL</span>
+            <span class="badge conf">Documented + symbol evidence</span>
+          </div>
+          <p class="muted small">The client currently raises <code>AuthenticationRequired</code> when the device asks for a token. The device password field is <code>root\sys\pwd</code>; the security key is <code>root\sys\key</code>.</p>
+          <ul>
+            <li><strong>Algorithm:</strong> the protocol notes describe a proprietary 64-entry permutation hash with the salt <code>voidxdevteam</code>. The 2.4.4 ELF exports <code>Security::generateHash</code>, <code>generateToken</code> and <code>checkToken</code>, so the algorithm is recoverable by static analysis if password support is wanted.</li>
+            <li><strong>Until then:</strong> do not offer setting a password from the client; it would lock the client out.</li>
+          </ul>
+        </article>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="polish">
+        <h2><span class="num">09</span> UI polish &amp; protocol primitives</h2>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>Block EQ response graphs</h3>
+            <span class="badge partial">Polish</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Code + live</span>
+          </div>
+          <p class="muted small">The global EQ has a draggable response graph; the in-chain Graphic EQ (8 bands) and Parametric EQ (4 bands) fall back to generic sliders. Reuse <code>EqCurveWidget</code> for both. The 8-band EQ has gains only; the parametric EQ has freq/Q/type/slope.</p>
+        </article>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>Parallel routing visualisation</h3>
+            <span class="badge partial">Forward-looking</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort L</span>
+            <span class="badge conf">Documented + live</span>
+          </div>
+          <p class="muted small">The 2.4.4 router is a single row of 27 cells (blocks and <code>s</code> series links), so the flat chain UI is correct today. The protocol notes say the matrix can encode series/parallel topology; the current UI flattens all rows. If a future firmware exposes multi-row matrices, render the actual graph rather than a flat list.</p>
+        </article>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>Protocol primitives still missing</h3>
+            <span class="badge missing">Missing</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort M</span>
+            <span class="badge conf">Documented</span>
+          </div>
+          <ul>
+            <li><code>dread</code> — chunked list download. Required for library export and preset backup. <code>parse_message()</code> already recognises the prefix.</li>
+            <li><code>dmove</code> — list item reorder. Required for presets and model/IR lists.</li>
+            <li><code>dswap</code> — seen in firmware strings; swap semantics need checking.</li>
+            <li>Action helper — trigger <code>smp</code>/<code>smp_cfm</code> actions with a confirmation dialog; likely <code>{"value":"run"}</code>.</li>
+          </ul>
+        </article>
+
+        <article class="card feature p2">
+          <div class="top">
+            <h3>About dialog &amp; device information</h3>
+            <span class="badge partial">Partial</span>
+            <span class="badge p2">P2</span>
+            <span class="badge effort">Effort S</span>
+            <span class="badge conf">Verified live</span>
+          </div>
+          <p class="muted small">Only name and firmware are shown today. Add an About dialog with <code>_arch</code> (CM4), <code>_author</code>, <code>_license</code>, <code>_id</code> (masked) and <code>_logo</code>. The logo URL is a remote image; prefer a local fallback or the app icon.</p>
+        </article>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="implemented">
+        <h2><span class="num">10</span> Already implemented</h2>
+        <p class="section-lede">This audit is not a rewrite proposal. The following is in place and should be preserved.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Capability</th><th>Where</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>USB CDC-ACM, TCP, mDNS, manual TCP</td><td><code>stomp.py</code> transports</td><td>Persistent RX buffer, idle fallback, mDNS validation.</td></tr>
+              <tr><td>Full browse + delta polling</td><td><code>Device.browse_root</code>, <code>read_root</code>, poller</td><td>External preset/chain changes trigger a re-browse.</td></tr>
+              <tr><td>Preset list, select, previous/next, search</td><td><code>stomp_ui.py</code> header + Patches panel</td><td>Live device changes are picked up.</td></tr>
+              <tr><td>Rename preset</td><td><code>Device.rename_preset</code></td><td>128-byte name chunk; duplicate/empty validation.</td></tr>
+              <tr><td>Save current preset</td><td><code>Device.save_preset</code></td><td>Supports a target name, but UI does not expose Save As.</td></tr>
+              <tr><td>Chain display, add/remove/reorder, bypass</td><td><code>get_chain_slots</code>, <code>add/remove/move_chain_block</code>, UI cards</td><td>Fixed Amp/Delay/Reverb slots respected.</td></tr>
+              <tr><td>Block editor with nested groups/modules</td><td><code>get_block_editor</code>, parameter widgets</td><td>Floats, enums, plists, numbers, bools, text; tempo-sync modules.</td></tr>
+              <tr><td>Dual NAM / dual IR</td><td><code>get_dual_block</code>, dual cards</td><td>Separate enable, model, tone, pan, collapse.</td></tr>
+              <tr><td>Parametric NAM metadata</td><td><code>_parameter_from_node</code> pfloat branch</td><td>Model-provided names/ranges, hidden legacy controls.</td></tr>
+              <tr><td>Global parametric EQ</td><td><code>get_global_eq</code> + <code>EqCurveWidget</code></td><td>Preview, band selector, draggable editor, enable switch.</td></tr>
+              <tr><td>NAM / PNAM / IR upload</td><td><code>load_nam</code>, <code>load_pnam</code>, <code>load_ir</code></td><td>ACK-driven chunks, gzip/padding, overwrite warning, progress; fake-device tested, not re-tested on hardware here.</td></tr>
+              <tr><td>Activity log + status bar</td><td><code>_log</code>, <code>_set_status</code></td><td>Background workers post through <code>GLib.idle_add</code>.</td></tr>
+              <tr><td>Tests</td><td><code>tests/test_stomp.py</code></td><td>33 passing; fake device covers protocol, router, uploads, PNAM, EQ.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="roadmap">
+        <h2><span class="num">11</span> Suggested roadmap</h2>
+        <p class="section-lede">Indicative sequencing. Effort is relative to this codebase, not a calendar promise.</p>
+
+        <div class="roadmap">
+          <div class="phase">
+            <div class="pnum">1</div>
+            <div>
+              <h3>Performance &amp; Setup</h3>
+              <div class="when">Quick wins · mostly S effort · highest user impact</div>
+              <ul>
+                <li>Tuner popover (live <code>_freq</code>/<code>lvl</code>, reference, enable).</li>
+                <li>VU meters in header/Master; input gains and connected badges.</li>
+                <li>Preset level, colour, preset tempo, Tap Tempo, Save As.</li>
+                <li>USB audio panel; About/alias; Clear chain / Load default chain.</li>
+                <li>MIDI channel selector; Ctrl toe/heel calibration; misc toggles.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase">
+            <div class="pnum">2</div>
+            <div>
+              <h3>Library &amp; preset management</h3>
+              <div class="when">Medium effort · requires <code>dread</code>/<code>dmove</code></div>
+              <ul>
+                <li>Preset delete, reorder, bank/ABC view, duplicate, export.</li>
+                <li>Model/IR rename, delete, reorder, export; used-by checks.</li>
+                <li>Backup/restore; native preset bundles if the bundle format is confirmed.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase">
+            <div class="pnum">3</div>
+            <div>
+              <h3>MIDI &amp; controllers</h3>
+              <div class="when">Medium effort · shared matrix component</div>
+              <ul>
+                <li>MIDI PC map table; fixed CC reference; MIDI clock indicator.</li>
+                <li>Global and per-preset controller matrix, link picker, learn.</li>
+                <li>Assign 1–4 block targets (parameter semantics after verification).</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase">
+            <div class="pnum">4</div>
+            <div>
+              <h3>Connectivity &amp; long tail</h3>
+              <div class="when">Larger projects · plan separately</div>
+              <ul>
+                <li>Wi-Fi configuration (USB-first, masked credentials).</li>
+                <li>BLE transport (GATT discovery first).</li>
+                <li>Password/token auth (recover <code>Security::generateHash</code>).</li>
+                <li>VxAmp library; parallel-routing visualisation; block EQ graphs.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="implementation">
+        <h2><span class="num">12</span> Implementation map</h2>
+        <p class="section-lede">Where the work lands in the current codebase.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Area</th><th>New / changed code</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Settings page</td>
+                <td><code>stomp_ui.py</code>: new page in <code>_build_files_log_box</code> or a separate window</td>
+                <td>Current tabs are Files / Activity / Global EQ. A Settings page fits beside them; a wide setup window with sections may be cleaner.</td>
+              </tr>
+              <tr>
+                <td>Generic settings reader</td>
+                <td><code>stomp.py</code>: <code>get_settings()</code> or extend <code>_collect_control_children</code></td>
+                <td>Current editor skips <code>_*</code>, <code>on_off</code> and <code>link</code>, and treats <code>action</code>/<code>color</code> as text. A dedicated reader avoids changing block-editor behaviour.</td>
+              </tr>
+              <tr>
+                <td>Preset extras</td>
+                <td><code>Device.get_preset_extras()</code>, <code>set_preset_level/colour/tempo()</code></td>
+                <td>Read <code>root\app\output\pst</code>; write the existing float/string paths. Add a Tap Tempo helper in the UI.</td>
+              </tr>
+              <tr>
+                <td>Meters &amp; tuner</td>
+                <td><code>Device.read_meters()</code>, <code>read_tuner()</code>; small widget classes</td>
+                <td>Meters are already in <code>DeviceState</code>; tuner needs a faster dedicated poll than the 2 s TCP browse.</td>
+              </tr>
+              <tr>
+                <td>Library manager</td>
+                <td><code>Device.list_*</code> methods: <code>read_chunk</code>, <code>move_item</code>, <code>delete_item</code>, <code>export_item</code>, <code>import_item</code></td>
+                <td>Reuse the ACK-driven <code>_ack_for_chunk</code>; add <code>dread</code> and <code>dmove</code>; use <code>root\presets.used</code> for safety.</td>
+              </tr>
+              <tr>
+                <td>Controllers / MIDI</td>
+                <td><code>get_controllers()</code>, <code>set_controller_link()</code>, <code>get_midi_map()</code>, <code>set_midi_map()</code></td>
+                <td>Shared matrix widget; link picker walks the block tree. Verify <code>cpst</code> write shape first.</td>
+              </tr>
+              <tr>
+                <td>Actions</td>
+                <td><code>Device.trigger_action(path, confirm=True)</code></td>
+                <td>Likely writes <code>{"value":"run"}</code>; map <code>smp_cfm</code> to a confirmation dialog. Covers factory reset, clear/default chain.</td>
+              </tr>
+              <tr>
+                <td>Connectivity</td>
+                <td><code>WifiConfig</code>, <code>BleakTransport</code>, <code>TokenAuth</code></td>
+                <td>Wi-Fi uses the existing node writes; BLE implements <code>Transport</code>; auth needs the recovered hash.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout good">
+          <span class="t">Low-friction detail</span>
+          Most settings are plain <code>float</code> / <code>enum</code> / string nodes already in
+          <code>Device.nodes</code> after <code>browse root</code>. You do not need new protocol
+          commands for input gain, tuner, preset level/colour/tempo, MIDI channel, encoder,
+          headphones, ground lift, USB mode, or alias — <code>Device.write()</code> is enough.
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="security">
+        <h2><span class="num">13</span> Security &amp; privacy observations</h2>
+
+        <div class="callout bad">
+          <span class="t">Sensitive data exposed by the device</span>
+          <code>browse root</code> returns <code>root\sys\wifi\ssid</code>,
+          <code>root\sys\wifi\password</code>, <code>root\sys\pwd</code> and
+          <code>root\sys\key</code> to any connected client over USB or TCP. On this device the
+          Wi-Fi password is non-empty. The values are deliberately omitted here.
+        </div>
+
+        <ul>
+          <li><strong>Do not log the raw browse payload.</strong> The app currently logs only the node count, which is good; keep it that way. Any future diagnostics that dump nodes must redact <code>password</code>, <code>pwd</code> and <code>key</code>.</li>
+          <li><strong>Mask in the UI by default.</strong> A Network panel should show bullets with a reveal button, not the password in a text entry.</li>
+          <li><strong>Do not offer password changes until token auth works.</strong> Writing <code>root\sys\pwd</code> would lock out a client that cannot hash the nonce.</li>
+          <li><strong>Destructive actions need confirmation.</strong> Factory reset, clear chain, preset delete, model/IR delete and overwrite all destroy user data. Offer a backup first where possible.</li>
+          <li><strong>Default device has no authentication.</strong> The password field is empty on this unit; treat the transport as trusted-local only.</li>
+        </ul>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="method">
+        <h2><span class="num">14</span> Method &amp; confidence</h2>
+        <p class="section-lede">What was inspected, and what remains unverified.</p>
+
+        <div class="two-col">
+          <div class="card">
+            <h3>Evidence used</h3>
+            <ul>
+              <li><strong>Live device:</strong> <code>browse root</code> on firmware 2.4.4 over USB CDC-ACM — 688 nodes, 26 block definitions, 60 preset slots, 27-cell router, live meters.</li>
+              <li><strong>Official firmware 2.4.4:</strong> string table and exported symbols for labels and action semantics (<code>Settings</code>, <code>Tuner</code>, <code>Preset Specific</code>, <code>Controller 1</code>, <code>Global Controller 1</code>, <code>Clear Chain</code>, <code>Load Default Chain</code>, <code>Assign 1</code>, <code>MIDI PC</code>, <code>Factory reset</code>, <code>VU Meters</code>, <code>NodeAction::edit</code> → <code>run</code>).</li>
+              <li><strong>Official manual 2.0:</strong> tuner range/reference, 60 presets / 20 banks, input gain range, preset level, LED colour, USB audio, controller behavior.</li>
+              <li><strong>Source:</strong> <code>stomp.py</code> and <code>stomp_ui.py</code> inspected end-to-end; 33 unit tests pass.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Still needs hardware verification</h3>
+            <ul>
+              <li>Action trigger command for <code>smp</code>/<code>smp_cfm</code> (likely <code>{"value":"run"}</code>).</li>
+              <li><code>root\cpst</code> MIDI PC array write shape.</li>
+              <li>Controller link writes and learn flow.</li>
+              <li>Preset delete zero-fill and <code>dmove</code>/<code>dswap</code> on 2.4.4.</li>
+              <li>VxAmp upload framing and <code>.vxamp</code> format.</li>
+              <li>Wi-Fi credential writes and USB audio mode re-enumeration.</li>
+              <li><code>Assign 1–4</code> parameter-level semantics.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout info">
+          <span class="t">Read-only guarantee</span>
+          No <code>write</code>, <code>dwrite</code>, <code>dmove</code> or action command was
+          sent to the pedal during this audit. The only traffic was <code>read</code>,
+          <code>browse</code>, and <code>read root</code>. The report is safe to share, and no
+          preset, setting or library slot was changed.
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Confidence label</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge conf">Verified live</span></td><td>Path, type, range/options, or value directly observed in the 2.4.4 node tree.</td></tr>
+              <tr><td><span class="badge conf">Documented</span></td><td>Described in the reverse-engineering notes / official manual; not necessarily tested on this unit.</td></tr>
+              <tr><td><span class="badge conf">Firmware</span></td><td>Label or behavior inferred from strings/symbols in the official 2.4.4 ELF.</td></tr>
+              <tr><td><span class="badge conf">Needs hardware check</span></td><td>Node shape is known, but the write/trigger semantics were not exercised to avoid changing user data.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <section id="appendix">
+        <h2><span class="num">15</span> Appendix: node reference</h2>
+        <p class="section-lede">Copy-ready paths for the features above. All paths are relative to <code>root</code> and were observed on firmware 2.4.4.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Feature</th><th>Path(s)</th><th>Type / range</th></tr></thead>
+            <tbody>
+              <tr><td>Tuner enable</td><td><code>root\settings\tuner\on_off</code></td><td>enum ON/OFF</td></tr>
+              <tr><td>Tuner reference</td><td><code>root\settings\tuner\tuner\ref</code></td><td>enum 432…448</td></tr>
+              <tr><td>Tuner level / frequency</td><td><code>...\tuner\lvl</code>, <code>...\tuner\_freq</code></td><td>float −60…0 dB; float 0…2000 Hz</td></tr>
+              <tr><td>Input 1/2 gain</td><td><code>root\settings\input\gain1</code>, <code>gain2</code></td><td>float −15…+15 dB</td></tr>
+              <tr><td>Input connected</td><td><code>root\settings\input\_connected1</code>, <code>_connected2</code></td><td>enum NO/YES</td></tr>
+              <tr><td>Ctrl calibration</td><td><code>root\settings\ctrl\hlv</code>, <code>tev</code>, <code>_clvl</code></td><td>float 0…100 %</td></tr>
+              <tr><td>MIDI channel</td><td><code>root\settings\misc\midi_a</code></td><td>enum 0…15</td></tr>
+              <tr><td>Encoder / headphones / ground lift</td><td><code>root\settings\misc\encoder</code>, <code>headp</code>, <code>lift</code></td><td>CW/CCW; STEREO/MONO-L; ON/OFF</td></tr>
+              <tr><td>Factory reset</td><td><code>root\settings\misc\factory</code></td><td>action <code>smp_cfm</code></td></tr>
+              <tr><td>Global controllers</td><td><code>root\settings\misc\ctl3</code>, <code>ctl4</code>, <code>ctl5</code></td><td>mctrl: src, address, lrn, 3 links</td></tr>
+              <tr><td>USB audio</td><td><code>root\usb\mode</code>, <code>_status</code>, <code>_volume</code></td><td>STANDARD/MONITOR; OFF/ON/SYNC; −50…0 dB</td></tr>
+              <tr><td>VU meters</td><td><code>root\sys\_meters\_in0</code>, <code>_in1</code>, <code>_out0</code>, <code>_out1</code></td><td>float −110…0 dB</td></tr>
+              <tr><td>Alias / password / key</td><td><code>root\sys\alias</code>, <code>pwd</code>, <code>key</code></td><td>string</td></tr>
+              <tr><td>Wi-Fi</td><td><code>root\sys\wifi\ssid</code>, <code>password</code>, <code>state</code></td><td>string</td></tr>
+              <tr><td>Preset level / tempo / colour</td><td><code>root\app\output\pst\level</code>, <code>tmp</code>, <code>color</code></td><td>−20…+20 dB; 30…240 BPM; hex string</td></tr>
+              <tr><td>Preset controllers</td><td><code>root\app\output\pst\ctl1</code>, <code>ctl2</code>, <code>ctl3</code></td><td>mctrl: src, address, lrn, 3 links</td></tr>
+              <tr><td>Clear / default chain</td><td><code>root\app\output\c_chain</code>, <code>d_chain</code></td><td>action <code>smp_cfm</code></td></tr>
+              <tr><td>Preset list</td><td><code>root\presets</code></td><td>60 strings, <code>move=true</code></td></tr>
+              <tr><td>MIDI PC map</td><td><code>root\cpst</code></td><td>ctrl, 60-int array, <code>src=midipc</code></td></tr>
+              <tr><td>Fixed MIDI CC map</td><td><code>root\_cc1</code> … <code>root\_cc22</code></td><td>ctrl, <code>src=midicc</code></td></tr>
+              <tr><td>MIDI clock</td><td><code>root\midi_tempo</code></td><td>ctrl, <code>src=midick</code></td></tr>
+              <tr><td>Assign 1–4</td><td><code>root\assign1</code> … <code>root\assign4</code></td><td>item_type=assign, block path</td></tr>
+              <tr><td>Signal chain router</td><td><code>root\app\router</code></td><td>router, 1×27 matrix + <code>def</code>/<code>fixed</code></td></tr>
+              <tr><td>Global EQ</td><td><code>root\app\output\global_eq</code></td><td>4 bands: band/freq/q/type/slope + on_off</td></tr>
+              <tr><td>Preset node</td><td><code>root\app\preset</code> → <code>root\presets</code></td><td>plist → preset list</td></tr>
+              <tr><td>NAM/PNAM/IR lists</td><td><code>root\nam_amp</code>, <code>nam_drive</code>, <code>pnam_list</code>, <code>pnam_drive</code>, <code>ir_list</code>, <code>vxamp_list</code></td><td>see sizes above</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top:22px">Live node counts</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Type</th><th>Count</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>float</code></td><td>326</td><td>Most block parameters and settings.</td></tr>
+              <tr><td><code>enum</code></td><td>145</td><td>On/off, modes, references, MIDI channel.</td></tr>
+              <tr><td><code>item</code></td><td>137</td><td>Blocks, folders, assign/system items.</td></tr>
+              <tr><td><code>pfloat</code></td><td>36</td><td>Parametric NAM controls.</td></tr>
+              <tr><td><code>ctrl</code></td><td>21</td><td>MIDI CC/PC/clock + controller links.</td></tr>
+              <tr><td><code>plist</code></td><td>10</td><td>Preset, model and IR selections.</td></tr>
+              <tr><td><code>list</code></td><td>7</td><td>Preset, NAM/PNAM, IR, VxAmp libraries.</td></tr>
+              <tr><td><code>action</code></td><td>5</td><td>Preset up/down, clear/default chain, factory reset.</td></tr>
+              <tr><td><code>router</code></td><td>1</td><td>Current signal chain.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout info" style="margin-top:18px">
+          <span class="t">Firmware labels used in this report</span>
+          The official 2.4.4 ELF contains matching UI strings for every major gap:
+          <code>Settings</code>, <code>Tuner</code>, <code>Input</code>,
+          <code>Preset Specific</code>, <code>Preset Color</code>, <code>Preset TEMPO</code>,
+          <code>Controller 1</code>, <code>Global Controller 1</code>,
+          <code>Clear Chain</code>, <code>Load Default Chain</code>, <code>Assign 1</code>,
+          <code>Midi PC</code>, <code>Factory reset</code>, <code>VU Meters</code>,
+          <code>Audio Mode</code>, <code>Connection status</code>, <code>Ground Lift</code>,
+          <code>Headphones</code>, <code>Encoder mode</code>, <code>Ctrl Toe Calib</code>,
+          <code>Ctrl Heel Calib</code>, and <code>Save as...</code>.
+        </div>
+      </section>
+
+      <div class="foot">
+        <p>
+          <strong>StompStation PRO — Device Feature Gap Audit</strong> · 17 November 2026 ·
+          generated from a live read-only inspection of firmware 2.4.4, the official firmware
+          string table, the public user manual, and the current client source.
+        </p>
+        <p>
+          This project is unofficial and not affiliated with or endorsed by Sonulab. Node paths
+          and firmware behaviour may change in later firmware versions. No device writes were
+          performed during this audit.
+        </p>
+        <p><a class="toplink" href="#summary">Back to top ↑</a></p>
+      </div>
+
+    </main>
+  </div>
+</div>
+</body>
+</html>

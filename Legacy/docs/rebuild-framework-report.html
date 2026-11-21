@@ -1,0 +1,5144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StompStation Rebuild — Framework Evaluation</title>
+<style>
+  /* ============================================================
+     StompStation rebuild report
+     Self-contained. No external fonts, scripts, or images.
+     ============================================================ */
+
+  :root {
+    --paper: #f3efe6;
+    --paper-2: #e9e3d7;
+    --paper-3: #faf7f0;
+    --ink: #191714;
+    --ink-2: #474138;
+    --muted: #756d60;
+    --line: #d7cfc0;
+    --line-strong: #bdb2a0;
+    --night: #141311;
+    --night-2: #1d1b18;
+    --cream: #f7f1e3;
+    --cream-2: #e8dfcd;
+    --copper: #bb5b2b;
+    --copper-2: #e27a3f;
+    --green: #2f7255;
+    --green-2: #64c796;
+    --gold: #c39a4c;
+    --blue: #4b7897;
+    --red: #984138;
+    --purple: #6e5a7c;
+    --radius: 16px;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    --shadow: 0 24px 60px rgba(38, 29, 18, 0.10);
+  }
+
+  *,
+  *::before,
+  *::after { box-sizing: border-box; }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 86px;
+  }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at 8% 0%, rgba(187, 91, 43, 0.055), transparent 32%),
+      radial-gradient(circle at 92% 12%, rgba(47, 114, 85, 0.045), transparent 28%),
+      var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection { background: rgba(226, 122, 63, 0.28); }
+
+  a {
+    color: inherit;
+    text-decoration-color: var(--copper);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  a:hover { color: var(--copper); }
+
+  img { max-width: 100%; height: auto; }
+
+  code, kbd, samp { font-family: var(--mono); }
+
+  :focus-visible {
+    outline: 2px solid var(--copper);
+    outline-offset: 3px;
+  }
+
+  .wrap {
+    width: min(1180px, calc(100% - 48px));
+    margin-inline: auto;
+  }
+
+  .skip-link {
+    position: absolute;
+    left: 16px;
+    top: -60px;
+    z-index: 100;
+    background: var(--cream);
+    color: var(--ink);
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    transition: top 0.2s ease;
+  }
+
+  .skip-link:focus { top: 12px; }
+
+  /* ---------- Masthead ---------- */
+
+  .masthead {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 78% -20%, rgba(191, 91, 43, 0.25), transparent 46%),
+      linear-gradient(180deg, #171512 0%, #12110f 100%);
+    color: var(--cream);
+  }
+
+  .masthead::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.75;
+    background: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.035) 0,
+      rgba(255, 255, 255, 0.035) 1px,
+      transparent 1px,
+      transparent 8px
+    );
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 82%);
+    mask-image: linear-gradient(to bottom, #000 0%, transparent 82%);
+  }
+
+  .masthead::after {
+    content: "";
+    position: absolute;
+    right: -8%;
+    bottom: -40%;
+    width: 620px;
+    height: 620px;
+    z-index: -1;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(226, 122, 63, 0.12), transparent 68%);
+  }
+
+  .topbar {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 22px 0;
+    border-bottom: 1px solid rgba(247, 241, 227, 0.12);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--cream);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 750;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .brand-mark {
+    position: relative;
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border: 1px solid rgba(247, 241, 227, 0.28);
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 30%, #4a453d, #211f1b 65%);
+    box-shadow: inset 0 0 0 3px #171512;
+  }
+
+  .brand-mark::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    border: 2px solid var(--copper-2);
+    border-radius: 50%;
+  }
+
+  .brand-mark::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    width: 2px;
+    height: 5px;
+    border-radius: 2px;
+    background: var(--copper-2);
+    transform: translateX(-50%);
+  }
+
+  .brand small {
+    display: block;
+    margin-top: 2px;
+    color: #8f877a;
+    font-size: 8px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+  }
+
+  .topnav {
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .topnav a {
+    color: #b8afa0;
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+
+  .topnav a:hover { color: var(--cream); }
+
+  .topbar-note {
+    color: #867e71;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+  }
+
+  .hero {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1.06fr) minmax(340px, 0.94fr);
+    gap: 42px;
+    align-items: center;
+    padding: 70px 0 58px;
+  }
+
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 18px;
+    color: var(--copper-2);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 26px;
+    height: 1px;
+    background: currentColor;
+  }
+
+  .hero h1 {
+    margin: 0 0 24px;
+    font-family: var(--serif);
+    font-size: clamp(46px, 6.2vw, 82px);
+    font-weight: 500;
+    line-height: 0.98;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+
+  .hero h1 em {
+    color: var(--copper-2);
+    font-style: italic;
+  }
+
+  .hero-lede {
+    max-width: 620px;
+    margin: 0;
+    color: #cdc5b7;
+    font-size: 18px;
+    line-height: 1.66;
+  }
+
+  .hero-lede strong { color: var(--cream); font-weight: 650; }
+
+  .hero-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 30px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 11px;
+    border: 1px solid rgba(247, 241, 227, 0.16);
+    border-radius: 999px;
+    color: #c7bfb1;
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .pill::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--green-2);
+    box-shadow: 0 0 8px rgba(100, 199, 150, 0.7);
+  }
+
+  .hero-art {
+    position: relative;
+    align-self: center;
+    padding: 8px 0;
+    filter: drop-shadow(0 26px 34px rgba(0, 0, 0, 0.38));
+  }
+
+  .hero-art svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    animation: float 8s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0) rotate(-0.4deg); }
+    50% { transform: translateY(-7px) rotate(0.4deg); }
+  }
+
+  .hero-stats {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    margin-bottom: 32px;
+    border: 1px solid rgba(247, 241, 227, 0.14);
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(247, 241, 227, 0.12);
+  }
+
+  .hero-stat {
+    padding: 18px 20px;
+    background: rgba(20, 19, 17, 0.66);
+  }
+
+  .hero-stat b {
+    display: block;
+    font-family: var(--serif);
+    font-size: 29px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .hero-stat span {
+    display: block;
+    margin-top: 7px;
+    color: #938b7e;
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  /* ---------- Shared section language ---------- */
+
+  .section {
+    padding: 86px 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .section--tight { padding-top: 66px; padding-bottom: 66px; }
+
+  .section-head {
+    display: grid;
+    grid-template-columns: 146px minmax(0, 1fr);
+    gap: 30px;
+    margin-bottom: 40px;
+  }
+
+  .section-no {
+    padding-top: 8px;
+    color: var(--copper);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  .section h2 {
+    max-width: 820px;
+    margin: 0;
+    font-family: var(--serif);
+    font-size: clamp(34px, 4.4vw, 54px);
+    font-weight: 500;
+    line-height: 1.03;
+    letter-spacing: -0.028em;
+    text-wrap: balance;
+  }
+
+  .section-intro {
+    max-width: 760px;
+    margin: 18px 0 0;
+    color: var(--ink-2);
+    font-size: 16.5px;
+    line-height: 1.7;
+  }
+
+  .section-intro strong { color: var(--ink); }
+
+  h3 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+  }
+
+  h4 {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .kicker {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .small {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  /* ---------- Verdict ---------- */
+
+  .verdict-grid {
+    display: grid;
+    grid-template-columns: 1.12fr 0.88fr;
+    gap: 20px;
+    align-items: stretch;
+  }
+
+  .pick {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    padding: 32px;
+    border-radius: var(--radius);
+  }
+
+  .pick--primary {
+    background:
+      radial-gradient(circle at 92% 4%, rgba(226, 122, 63, 0.22), transparent 38%),
+      var(--night);
+    color: var(--cream);
+    box-shadow: var(--shadow);
+  }
+
+  .pick--primary::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.55;
+    background: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.035) 0,
+      rgba(255, 255, 255, 0.035) 1px,
+      transparent 1px,
+      transparent 9px
+    );
+    -webkit-mask-image: linear-gradient(120deg, transparent 30%, #000 100%);
+    mask-image: linear-gradient(120deg, transparent 30%, #000 100%);
+  }
+
+  .pick--runner {
+    border: 1px solid var(--line);
+    background: var(--paper-3);
+  }
+
+  .pick-kicker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--copper-2);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .pick--runner .pick-kicker { color: var(--green); }
+
+  .pick-kicker::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 10px currentColor;
+  }
+
+  .pick h3 {
+    margin: 14px 0 2px;
+    font-family: var(--serif);
+    font-size: clamp(38px, 5vw, 56px);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.035em;
+  }
+
+  .pick h3 small {
+    display: block;
+    margin-top: 8px;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .pick--runner h3 small { color: var(--muted); }
+
+  .pick-score {
+    position: absolute;
+    top: 28px;
+    right: 28px;
+    z-index: 2;
+    display: grid;
+    width: 72px;
+    height: 72px;
+    place-items: center;
+    border: 1px solid rgba(247, 241, 227, 0.18);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.16);
+    text-align: center;
+  }
+
+  .pick-score b {
+    display: block;
+    font-family: var(--serif);
+    font-size: 27px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .pick-score span {
+    display: block;
+    margin-top: 2px;
+    color: #9e9587;
+    font-size: 7px;
+    font-weight: 650;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .pick--runner .pick-score {
+    border-color: var(--line);
+    background: var(--paper-2);
+  }
+
+  .pick--runner .pick-score b { color: var(--green); }
+  .pick--runner .pick-score span { color: var(--muted); }
+
+  .pick > p {
+    max-width: 540px;
+    margin: 18px 0 0;
+    color: #c8c0b2;
+    font-size: 14.5px;
+    line-height: 1.65;
+  }
+
+  .pick--runner > p { color: var(--ink-2); }
+
+  .pick-list {
+    display: grid;
+    gap: 9px;
+    margin: 24px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .pick-list li {
+    display: grid;
+    grid-template-columns: 17px 1fr;
+    gap: 9px;
+    color: #ded6c8;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .pick--runner .pick-list li { color: var(--ink-2); }
+
+  .check {
+    color: var(--green-2);
+    font-weight: 800;
+  }
+
+  .pick--runner .check { color: var(--green); }
+
+  .pick-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 26px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(247, 241, 227, 0.12);
+    color: #9d9486;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+
+  .pick--runner .pick-foot {
+    border-top-color: var(--line);
+    color: var(--muted);
+  }
+
+  .pick-foot b { color: var(--cream); font-weight: 600; }
+  .pick--runner .pick-foot b { color: var(--ink); }
+
+  .callout {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 18px;
+    margin-top: 22px;
+    padding: 22px 24px;
+    border: 1px solid #e0d0b7;
+    border-left: 4px solid var(--copper);
+    border-radius: 0 12px 12px 0;
+    background: #f0e7d6;
+  }
+
+  .callout-icon {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border: 1px solid rgba(187, 91, 43, 0.4);
+    border-radius: 50%;
+    color: var(--copper);
+    font-family: var(--serif);
+    font-size: 18px;
+    font-style: italic;
+  }
+
+  .callout p {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 14.5px;
+    line-height: 1.65;
+  }
+
+  .callout strong { color: var(--ink); }
+
+  /* ---------- Current app ---------- */
+
+  .app-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.14fr) minmax(0, 0.86fr);
+    gap: 40px;
+    align-items: start;
+  }
+
+  .stat-ribbon {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    margin-bottom: 22px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--line);
+  }
+
+  .stat-cell {
+    padding: 16px 18px;
+    background: var(--paper-3);
+  }
+
+  .stat-cell b {
+    display: block;
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .stat-cell span {
+    display: block;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 18px 0 22px;
+  }
+
+  .chip {
+    padding: 5px 9px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper-3);
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+  }
+
+  .preserve-list {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .preserve-list li {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .preserve-list li::before {
+    content: "✓";
+    color: var(--green);
+    font-weight: 800;
+  }
+
+  .preserve-list b { font-weight: 650; }
+
+  .screenshot-card {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--night);
+    box-shadow: var(--shadow);
+  }
+
+  .screenshot-card img {
+    display: block;
+    width: 100%;
+    border-bottom: 1px solid #35312b;
+  }
+
+  .screenshot-card figcaption {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 16px;
+    color: #a49b8d;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.04em;
+  }
+
+  .screenshot-card figcaption a { color: #d7cdbd; }
+
+  .change-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 40px;
+  }
+
+  .change-card {
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper-3);
+  }
+
+  .change-card .kicker { color: var(--copper); }
+
+  .change-card p {
+    margin: 8px 0 0;
+    color: var(--ink-2);
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+
+  /* ---------- Criteria / tables ---------- */
+
+  .weight-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 18px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper-3);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  th {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--paper-2);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 14px 16px;
+    border-top: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  tr:first-child td { border-top: 0; }
+
+  .criteria-table td:first-child { font-weight: 650; }
+  .criteria-table td:nth-child(2) { width: 70px; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .criteria-table td:nth-child(3),
+  .criteria-table td:nth-child(4) { width: 23%; }
+
+  .score-cell {
+    display: grid;
+    grid-template-columns: 30px minmax(80px, 1fr);
+    gap: 10px;
+    align-items: center;
+  }
+
+  .score-cell b {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  .bar {
+    height: 6px;
+    overflow: hidden;
+    border-radius: 99px;
+    background: var(--paper-2);
+  }
+
+  .bar span {
+    display: block;
+    width: var(--w, 50%);
+    height: 100%;
+    border-radius: inherit;
+    background: var(--copper);
+  }
+
+  .bar--flutter span { background: var(--green); }
+
+  .table-total td {
+    border-top: 2px solid var(--line-strong);
+    background: #f4ecdd;
+    font-weight: 650;
+  }
+
+  .table-total .score-cell b { font-size: 14px; }
+
+  .verdict-note {
+    margin: 14px 0 0;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+
+  .shortlist-table td:first-child { font-weight: 650; white-space: nowrap; }
+  .shortlist-table td:nth-child(2) { color: var(--muted); font-size: 12px; }
+  .shortlist-table .pick-tag {
+    display: inline-block;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: rgba(47, 114, 85, 0.1);
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .shortlist-table .no-tag {
+    display: inline-block;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: rgba(117, 109, 96, 0.1);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  /* ---------- Option sections ---------- */
+
+  .option {
+    padding: 78px 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .option--alt { background: #eeeadf; }
+
+  .option-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(300px, 0.95fr);
+    gap: 42px;
+    align-items: end;
+    margin-bottom: 34px;
+  }
+
+  .option-number {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    color: var(--copper);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .option-number span {
+    display: inline-grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 9px;
+  }
+
+  .option--alt .option-number { color: var(--green); }
+
+  .option h2 {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: clamp(42px, 5.4vw, 68px);
+    font-weight: 500;
+    line-height: 0.98;
+    letter-spacing: -0.035em;
+  }
+
+  .option h2 em { color: var(--copper); font-style: italic; }
+  .option--alt h2 em { color: var(--green); }
+
+  .option-sub {
+    margin: 12px 0 0;
+    color: var(--ink-2);
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .spec-strip {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--line);
+  }
+
+  .spec-cell {
+    padding: 14px 16px;
+    background: var(--paper-3);
+  }
+
+  .option--alt .spec-cell { background: #f7f2e8; }
+
+  .spec-cell span {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .spec-cell b {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.4;
+  }
+
+  .stack-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 20px;
+  }
+
+  .stack-pill {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: rgba(250, 247, 240, 0.6);
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.02em;
+  }
+
+  .option--alt .stack-pill { background: rgba(255, 255, 255, 0.38); }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin: 38px 0;
+  }
+
+  .feature {
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper-3);
+  }
+
+  .option--alt .feature { background: #f8f3e9; }
+
+  .feature-no {
+    display: block;
+    margin-bottom: 18px;
+    color: var(--copper);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+  }
+
+  .option--alt .feature-no { color: var(--green); }
+
+  .feature h4 { font-size: 16px; }
+  .feature p {
+    margin: 8px 0 0;
+    color: var(--ink-2);
+    font-size: 13.5px;
+    line-height: 1.62;
+  }
+
+  .arch-panel {
+    position: relative;
+    overflow: hidden;
+    padding: 28px;
+    border-radius: var(--radius);
+    background: var(--night);
+    color: var(--cream);
+    box-shadow: var(--shadow);
+  }
+
+  .arch-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.5;
+    background: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 0,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 9px
+    );
+    -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+    mask-image: linear-gradient(to bottom, #000, transparent);
+    pointer-events: none;
+  }
+
+  .arch-panel > * { position: relative; z-index: 1; }
+
+  .arch-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .arch-head h3 {
+    font-family: var(--serif);
+    font-size: 25px;
+    font-weight: 500;
+  }
+
+  .arch-head span {
+    color: #9c9385;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .arch-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .arch-row + .arch-row { margin-top: 10px; }
+
+  .arch-node {
+    flex: 1;
+    min-width: 0;
+    padding: 13px 14px;
+    border: 1px solid rgba(247, 241, 227, 0.15);
+    border-radius: 8px;
+    background: rgba(247, 241, 227, 0.045);
+  }
+
+  .arch-node b {
+    display: block;
+    color: var(--cream);
+    font-size: 11.5px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .arch-node span {
+    display: block;
+    margin-top: 3px;
+    color: #9f9688;
+    font-family: var(--mono);
+    font-size: 8.5px;
+    line-height: 1.45;
+  }
+
+  .arch-node--hot {
+    border-color: rgba(226, 122, 63, 0.55);
+    background: rgba(226, 122, 63, 0.09);
+  }
+
+  .arch-node--ui {
+    border-color: rgba(100, 199, 150, 0.38);
+    background: rgba(100, 199, 150, 0.06);
+  }
+
+  .arch-node--wide { flex: 2.2; }
+
+  .arch-arrow {
+    display: grid;
+    flex: 0 0 18px;
+    place-items: center;
+    color: #71695e;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+
+  .arch-label {
+    margin: 18px 0 0;
+    color: #978e80;
+    font-family: var(--mono);
+    font-size: 9px;
+    line-height: 1.6;
+    letter-spacing: 0.02em;
+  }
+
+  .code-wrap { margin-top: 38px; }
+
+  .code-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 14px;
+    border: 1px solid #34302a;
+    border-bottom: 0;
+    border-radius: 10px 10px 0 0;
+    background: #211e1a;
+    color: #b8ad9d;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .code-label span { color: #766d61; text-transform: none; letter-spacing: 0.02em; }
+
+  pre.code {
+    margin: 0;
+    padding: 20px;
+    overflow-x: auto;
+    border: 1px solid #34302a;
+    border-radius: 0 0 10px 10px;
+    background: #171513;
+    color: #e9e1d3;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.68;
+    tab-size: 4;
+  }
+
+  .c-comment { color: #837b6e; }
+  .c-key { color: #e5a162; }
+  .c-str { color: #9fce9e; }
+  .c-fn { color: #9cc5dc; }
+  .c-type { color: #d8bd7c; }
+
+  .split {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-top: 38px;
+  }
+
+  .list-card {
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper-3);
+  }
+
+  .option--alt .list-card { background: #f8f3e9; }
+
+  .list-card h4 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .list-card h4::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+  }
+
+  .list-card--con h4::before { background: var(--red); }
+
+  .list-card ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .list-card li {
+    position: relative;
+    padding: 8px 0 8px 16px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .list-card li:first-child { border-top: 0; }
+
+  .list-card li::before {
+    content: "+";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .list-card--con li::before { content: "−"; color: var(--red); }
+
+  .example-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 9px;
+    margin-top: 24px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(250, 247, 240, 0.55);
+  }
+
+  .example-strip span:first-child {
+    margin-right: 4px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .example {
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--ink-2);
+    font-size: 11px;
+    text-decoration: none;
+    background: var(--paper-3);
+  }
+
+  .example:hover { border-color: var(--copper); color: var(--copper); }
+
+  .fit-line {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 26px;
+  }
+
+  .fit {
+    padding: 18px 20px;
+    border-left: 3px solid var(--green);
+    background: rgba(47, 114, 85, 0.055);
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .fit--avoid {
+    border-left-color: var(--red);
+    background: rgba(152, 65, 56, 0.055);
+  }
+
+  .fit b {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ---------- Head-to-head ---------- */
+
+  .compare-table td:first-child { font-weight: 650; }
+  .compare-table th:nth-child(2),
+  .compare-table th:nth-child(3) { width: 30%; }
+
+  .win {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 650;
+  }
+
+  .win::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+  }
+
+  .edge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(187, 91, 43, 0.1);
+    color: var(--copper);
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    vertical-align: 1px;
+  }
+
+  .decision-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 40px;
+  }
+
+  .decision {
+    padding: 26px;
+    border-radius: 12px;
+    background: var(--night);
+    color: var(--cream);
+  }
+
+  .decision--alt {
+    border: 1px solid var(--line);
+    background: var(--paper-3);
+    color: var(--ink);
+  }
+
+  .decision h3 {
+    margin-bottom: 14px;
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 500;
+  }
+
+  .decision p {
+    margin: 0 0 14px;
+    color: #c7bfb1;
+    font-size: 13.5px;
+    line-height: 1.62;
+  }
+
+  .decision--alt p { color: var(--ink-2); }
+
+  .decision ul {
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .decision li {
+    position: relative;
+    padding-left: 16px;
+    color: #ded6c8;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .decision--alt li { color: var(--ink-2); }
+
+  .decision li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--copper-2);
+    font-family: var(--mono);
+  }
+
+  .decision--alt li::before { color: var(--green); }
+
+  /* ---------- Wireframes ---------- */
+
+  .wireframe-intro {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 28px;
+    align-items: end;
+    margin-bottom: 30px;
+  }
+
+  .wireframe-intro p {
+    max-width: 760px;
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 15.5px;
+    line-height: 1.68;
+  }
+
+  .wireframe-badge {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .skin-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 14px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper-3);
+  }
+
+  .skin-bar .kicker { margin-bottom: 4px; }
+
+  .skin-bar p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .skin-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .skin-btn {
+    padding: 8px 11px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  }
+
+  .skin-btn:hover { border-color: var(--copper); color: var(--copper); }
+
+  .skin-btn.is-active {
+    border-color: var(--ink);
+    background: var(--ink);
+    color: var(--cream);
+  }
+
+  .skin-btn[data-skin="studio"].is-active { background: var(--night); }
+  .skin-btn[data-skin="cream"].is-active { background: #7e4d2c; border-color: #7e4d2c; }
+  .skin-btn[data-skin="british"].is-active { background: #3e5a3c; border-color: #3e5a3c; }
+
+  .wireframe-shell {
+    padding: 14px;
+    border: 1px solid #37322b;
+    border-radius: 18px;
+    background: linear-gradient(145deg, #2c2822, #1d1a16);
+    box-shadow: 0 30px 80px rgba(32, 24, 14, 0.24);
+  }
+
+  .wireframe-demo { overflow-x: auto; }
+
+  .wf-window {
+    --wf-bg: #151412;
+    --wf-panel: #1d1b18;
+    --wf-panel-2: #24211d;
+    --wf-line: #3a352d;
+    --wf-text: #e9e2d4;
+    --wf-muted: #9a9183;
+    --wf-accent: #67d59a;
+    --wf-accent-soft: rgba(103, 213, 154, 0.14);
+    --wf-amber: #d89a4c;
+    --wf-cream: #efe4cb;
+    --wf-amp: #26221d;
+    --wf-chassis: #6d322b;
+    --wf-chassis-2: #26413d;
+    --wf-chassis-3: #2c3550;
+    min-width: 1000px;
+    overflow: hidden;
+    border: 1px solid #403a31;
+    border-radius: 10px;
+    background: var(--wf-bg);
+    color: var(--wf-text);
+    font-family: var(--sans);
+    font-size: 10px;
+    line-height: 1.35;
+    user-select: none;
+  }
+
+  [data-skin="cream"] .wf-window {
+    --wf-bg: #1b1916;
+    --wf-panel: #25211c;
+    --wf-panel-2: #2d2821;
+    --wf-line: #4a4136;
+    --wf-text: #f3ead7;
+    --wf-muted: #b0a38f;
+    --wf-accent: #ef9c53;
+    --wf-accent-soft: rgba(239, 156, 83, 0.16);
+    --wf-amber: #e6b05c;
+    --wf-amp: #332a21;
+    --wf-chassis: #8a3a2c;
+    --wf-chassis-2: #3e4c38;
+    --wf-chassis-3: #4d3d2f;
+  }
+
+  [data-skin="british"] .wf-window {
+    --wf-bg: #131613;
+    --wf-panel: #1b201b;
+    --wf-panel-2: #232a23;
+    --wf-line: #354133;
+    --wf-text: #eee9d8;
+    --wf-muted: #9ba392;
+    --wf-accent: #d5b45f;
+    --wf-accent-soft: rgba(213, 180, 95, 0.15);
+    --wf-amber: #d5b45f;
+    --wf-amp: #20271f;
+    --wf-chassis: #3f5a3c;
+    --wf-chassis-2: #2f4a44;
+    --wf-chassis-3: #4a3e2f;
+  }
+
+  .wf-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: 30px;
+    padding: 0 11px;
+    border-bottom: 1px solid var(--wf-line);
+    background: #11100e;
+    color: #908779;
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.05em;
+  }
+
+  .wf-dots { display: flex; gap: 4px; }
+  .wf-dots i {
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4b453c;
+  }
+  .wf-dots i:first-child { background: #8d4a3d; }
+  .wf-dots i:nth-child(2) { background: #8d713e; }
+  .wf-dots i:last-child { background: #49754d; }
+  .wf-window-title { color: #b7ad9e; }
+
+  .wf-body {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    min-height: 500px;
+  }
+
+  .wf-presets {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--wf-line);
+    background: #12110f;
+  }
+
+  .wf-side-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 12px 8px;
+    color: var(--wf-text);
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  .wf-count {
+    display: inline-grid;
+    min-width: 20px;
+    height: 15px;
+    place-items: center;
+    border-radius: 999px;
+    background: #2e2a24;
+    color: #b7ad9e;
+    font-family: var(--mono);
+    font-size: 7px;
+  }
+
+  .wf-search {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0 10px 9px;
+    padding: 6px 8px;
+    border: 1px solid var(--wf-line);
+    border-radius: 4px;
+    color: #82796c;
+    font-size: 8.5px;
+  }
+
+  .wf-chips {
+    display: flex;
+    gap: 4px;
+    padding: 0 10px 8px;
+  }
+
+  .wf-chips span {
+    padding: 3px 6px;
+    border-radius: 3px;
+    color: #877e70;
+    font-family: var(--mono);
+    font-size: 7px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .wf-chips .active {
+    background: var(--wf-accent-soft);
+    color: var(--wf-accent);
+  }
+
+  .wf-preset-list {
+    display: grid;
+    gap: 1px;
+    padding: 1px 7px;
+    overflow-y: auto;
+  }
+
+  .wf-preset {
+    position: relative;
+    padding: 7px 9px;
+    border-radius: 4px;
+    color: #b6ac9d;
+    font-size: 8.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wf-preset:nth-child(2n) { color: #a79d8f; }
+  .wf-preset.active {
+    background: var(--wf-accent-soft);
+    color: var(--wf-text);
+    font-weight: 650;
+  }
+  .wf-preset.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 5px;
+    bottom: 5px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--wf-accent);
+  }
+
+  .wf-preset-dot {
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: var(--wf-amber);
+    vertical-align: 1px;
+  }
+
+  .wf-side-foot {
+    margin-top: auto;
+    padding: 10px 12px;
+    border-top: 1px solid var(--wf-line);
+    color: var(--wf-accent);
+    font-size: 8.5px;
+    font-weight: 650;
+  }
+
+  .wf-stage { min-width: 0; }
+
+  .wf-stage-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px 0;
+  }
+
+  .wf-stage-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--wf-text);
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  .wf-stage-hint {
+    color: #7d7467;
+    font-family: var(--mono);
+    font-size: 7.5px;
+    letter-spacing: 0.03em;
+  }
+
+  .wf-note {
+    display: inline-grid;
+    width: 13px;
+    height: 13px;
+    place-items: center;
+    border: 1px solid var(--wf-amber);
+    border-radius: 50%;
+    color: var(--wf-amber);
+    font-family: var(--mono);
+    font-size: 7px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: 1px;
+  }
+
+  .wf-chain {
+    display: flex;
+    align-items: stretch;
+    gap: 7px;
+    overflow-x: auto;
+    padding: 10px 14px 12px;
+    scrollbar-width: thin;
+    scrollbar-color: #4a443b transparent;
+  }
+
+  .wf-chain::-webkit-scrollbar { height: 5px; }
+  .wf-chain::-webkit-scrollbar-thumb { background: #4a443b; border-radius: 4px; }
+
+  .wf-pedal {
+    position: relative;
+    display: flex;
+    flex: 0 0 82px;
+    flex-direction: column;
+    min-height: 132px;
+    padding: 7px;
+    border: 1px solid #62594c;
+    border-radius: 7px;
+    background:
+      linear-gradient(155deg, rgba(255, 255, 255, 0.1), transparent 35%),
+      linear-gradient(160deg, #3b3731, #24211d);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 3px 7px rgba(0, 0, 0, 0.22);
+  }
+
+  .wf-pedal--mini { flex-basis: 62px; }
+  .wf-pedal--drive { background: linear-gradient(155deg, #8b4740, var(--wf-chassis) 48%, #4c211d); }
+  .wf-pedal--mod { background: linear-gradient(155deg, #3d6863, var(--wf-chassis-2) 48%, #162e2b); }
+  .wf-pedal--delay { background: linear-gradient(155deg, #3d5877, var(--wf-chassis-3) 48%, #1c2638); }
+  .wf-pedal--reverb { background: linear-gradient(155deg, #655773, #4f3e5e 48%, #2d2338); }
+  .wf-pedal--cab {
+    background:
+      linear-gradient(160deg, rgba(255, 255, 255, 0.14), transparent 36%),
+      linear-gradient(160deg, #d9cdb6, #a99d88);
+    border-color: #d6c9b1;
+    color: #2d2820;
+  }
+
+  .wf-pedal-label {
+    overflow: hidden;
+    color: #f0e9dc;
+    font-family: var(--mono);
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .wf-pedal--cab .wf-pedal-label { color: #2d2820; }
+
+  .wf-led-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    margin: 5px 0 4px;
+  }
+
+  .wf-led {
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #4d483f;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.26);
+  }
+
+  .wf-led--on {
+    background: var(--wf-accent);
+    box-shadow: 0 0 5px var(--wf-accent), inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  }
+
+  .wf-led--off { background: #514a41; }
+
+  .wf-led-label {
+    color: #a79d8e;
+    font-family: var(--mono);
+    font-size: 6.5px;
+    letter-spacing: 0.06em;
+  }
+
+  .wf-knob-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    margin: 5px 0 0;
+  }
+
+  .wf-knob {
+    position: relative;
+    display: block;
+    flex: 0 0 auto;
+    width: 19px;
+    height: 19px;
+    border: 1px solid #1b1815;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 28%, #f0e5ce 0%, #c6b89f 36%, #796e5c 100%);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+
+  .wf-knob i {
+    position: absolute;
+    inset: 0;
+    display: block;
+    transform: rotate(var(--a, -35deg));
+  }
+
+  .wf-knob i::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: calc(50% - 1px);
+    width: 2px;
+    height: 5px;
+    border-radius: 2px;
+    background: #211d19;
+  }
+
+  .wf-knob--sm { width: 15px; height: 15px; }
+  .wf-knob--sm i::before { top: 1.5px; width: 1.5px; height: 4px; }
+
+  .wf-knob--lg { width: 34px; height: 34px; }
+  .wf-knob--lg i::before { top: 4px; width: 2px; height: 9px; }
+
+  .wf-knob--xl { width: 46px; height: 46px; }
+  .wf-knob--xl i::before { top: 5px; width: 2px; height: 12px; }
+
+  .wf-pedal-foot {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: 7px;
+  }
+
+  .wf-footswitch {
+    display: block;
+    width: 15px;
+    height: 15px;
+    border: 1px solid #15120f;
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 28%, #f4eddf, #9d9484 55%, #61594d 100%);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  .wf-pedal-foot small {
+    color: #8f8577;
+    font-family: var(--mono);
+    font-size: 6px;
+    letter-spacing: 0.06em;
+  }
+
+  .wf-pedal--cab .wf-pedal-foot small { color: #5e5445; }
+
+  .wf-cab-speaker {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    margin: 7px auto 4px;
+    place-items: center;
+    border: 1px solid #4b4236;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, #2d2922 0 31%, #786e5d 32% 36%, #b8ab95 37% 62%, #8a7e6c 63% 100%);
+    box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.18);
+  }
+
+  .wf-amp {
+    display: flex;
+    flex: 0 0 198px;
+    flex-direction: column;
+    gap: 5px;
+    padding: 5px;
+    border: 1px solid #5b5245;
+    border-radius: 7px;
+    background: var(--wf-amp);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 3px 8px rgba(0, 0, 0, 0.26);
+  }
+
+  .wf-amp-grille {
+    height: 51px;
+    border: 1px solid #171511;
+    border-radius: 4px;
+    background:
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 4px),
+      repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.42) 0 1px, transparent 1px 4px),
+      linear-gradient(150deg, #3a352d, #171511);
+    box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.55);
+  }
+
+  .wf-amp-panel {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: 5px;
+    padding: 6px;
+    border-radius: 4px;
+    background: var(--wf-cream);
+    color: #26211b;
+  }
+
+  .wf-amp-brand {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 1px solid rgba(38, 33, 27, 0.24);
+    padding-bottom: 4px;
+    font-family: var(--mono);
+    font-size: 6.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+
+  .wf-amp-brand span {
+    color: #7d705e;
+    font-size: 5.5px;
+    letter-spacing: 0.1em;
+  }
+
+  .wf-amp-model {
+    grid-column: 1 / -1;
+    overflow: hidden;
+    padding: 2px 3px;
+    border: 1px solid rgba(38, 33, 27, 0.25);
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.35);
+    color: #443b2f;
+    font-family: var(--mono);
+    font-size: 6px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .wf-amp-knobs {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .wf-amp-knobs .wf-knob { width: 17px; height: 17px; }
+  .wf-amp-knobs .wf-knob i::before { top: 2px; height: 4px; }
+
+  .wf-amp-lane {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    color: #6c5f4d;
+    font-family: var(--mono);
+    font-size: 5.5px;
+    text-transform: uppercase;
+  }
+
+  .wf-amp-meter {
+    width: 100%;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: rgba(38, 33, 27, 0.2);
+  }
+
+  .wf-amp-meter i {
+    display: block;
+    width: 62%;
+    height: 100%;
+    background: #6d7d52;
+  }
+
+  .wf-add-slot {
+    display: grid;
+    flex: 0 0 58px;
+    place-items: center;
+    border: 1px dashed #5e5547;
+    border-radius: 7px;
+    color: #8d8374;
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 300;
+    text-align: center;
+  }
+
+  .wf-detail-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(190px, 0.7fr);
+    gap: 9px;
+    padding: 0 14px 13px;
+  }
+
+  .wf-card {
+    padding: 11px;
+    border: 1px solid var(--wf-line);
+    border-radius: 7px;
+    background: var(--wf-panel);
+  }
+
+  .wf-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 9px;
+  }
+
+  .wf-card-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--wf-text);
+    font-size: 9.5px;
+    font-weight: 650;
+  }
+
+  .wf-kicker {
+    display: block;
+    margin-bottom: 2px;
+    color: #8f8577;
+    font-family: var(--mono);
+    font-size: 6px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .wf-switch {
+    position: relative;
+    display: inline-block;
+    width: 24px;
+    height: 13px;
+    border-radius: 99px;
+    background: #39342c;
+  }
+
+  .wf-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #9f9586;
+    transition: left 0.2s ease;
+  }
+
+  .wf-switch--on { background: var(--wf-accent-soft); }
+  .wf-switch--on::after {
+    left: 13px;
+    background: var(--wf-accent);
+    box-shadow: 0 0 5px var(--wf-accent);
+  }
+
+  .wf-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 7px;
+    color: #a69c8d;
+    font-size: 8px;
+  }
+
+  .wf-select {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 112px;
+    padding: 4px 6px;
+    border: 1px solid #4a4339;
+    border-radius: 3px;
+    background: #23201b;
+    color: #c8bdad;
+    font-size: 7.5px;
+  }
+
+  .wf-knob-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
+    padding: 3px 2px 0;
+  }
+
+  .wf-knob-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    color: #948a7c;
+    font-family: var(--mono);
+    font-size: 6.5px;
+    letter-spacing: 0.03em;
+  }
+
+  .wf-knob-wrap em {
+    color: #c4b9a8;
+    font-family: var(--sans);
+    font-size: 7.5px;
+    font-style: normal;
+  }
+
+  .wf-knob-wrap small { color: #82796c; font-size: 6px; }
+
+  .wf-master-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wf-master-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .wf-master-top .wf-knob--xl { margin: 2px 4px 0 0; }
+
+  .wf-master-value {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 650;
+    color: var(--wf-text);
+  }
+
+  .wf-master-value small {
+    display: block;
+    margin-top: 2px;
+    color: #8f8577;
+    font-size: 6.5px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .wf-slider {
+    position: relative;
+    flex: 1;
+    height: 4px;
+    border-radius: 4px;
+    background: #3d372f;
+  }
+
+  .wf-slider i {
+    position: absolute;
+    top: -3px;
+    left: 68%;
+    width: 9px;
+    height: 9px;
+    border: 1px solid #1b1815;
+    border-radius: 50%;
+    background: var(--wf-accent);
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.22);
+  }
+
+  .wf-meter-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 20px;
+    margin-top: 4px;
+  }
+
+  .wf-meter-bars i {
+    display: block;
+    flex: 1;
+    height: var(--h, 50%);
+    border-radius: 1px;
+    background: var(--wf-accent);
+    opacity: 0.75;
+  }
+
+  .wf-statusbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 26px;
+    padding: 0 12px;
+    border-top: 1px solid var(--wf-line);
+    background: #11100e;
+    color: #8e8476;
+    font-family: var(--mono);
+    font-size: 7px;
+    letter-spacing: 0.04em;
+  }
+
+  .wf-status-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .wf-status-left .wf-led { width: 5px; height: 5px; }
+
+  .wf-statusbar b { color: var(--wf-accent); font-weight: 500; }
+  .wf-status-spacer { flex: 1; }
+
+  .wf-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 0 14px 9px;
+  }
+
+  .wf-tab {
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: #8f8577;
+    font-size: 8px;
+  }
+
+  .wf-tab.active {
+    border-color: var(--wf-line);
+    background: var(--wf-panel-2);
+    color: var(--wf-text);
+  }
+
+  /* Amp room */
+
+  .wf-room-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(190px, 0.6fr);
+    gap: 9px;
+    padding: 12px 14px 14px;
+    background: #12110f;
+  }
+
+  .wf-room-main { min-width: 0; }
+
+  .wf-room-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    color: #9b9183;
+    font-family: var(--mono);
+    font-size: 7.5px;
+  }
+
+  .wf-breadcrumb { color: #8d8375; }
+  .wf-breadcrumb b { color: var(--wf-text); font-weight: 500; }
+  .wf-breadcrumb span { color: #5f574c; }
+
+  .wf-amp-front {
+    padding: 7px;
+    border: 1px solid #5b5245;
+    border-radius: 9px;
+    background: var(--wf-amp);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .wf-amp-front-grille {
+    height: 128px;
+    border: 1px solid #15120f;
+    border-radius: 5px;
+    background:
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 5px),
+      repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.5) 0 1px, transparent 1px 5px),
+      radial-gradient(ellipse at 50% 45%, #413b32, #171511 72%);
+    box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.65);
+  }
+
+  .wf-amp-front-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+    margin-top: 7px;
+    padding: 8px;
+    border-radius: 5px;
+    background: var(--wf-cream);
+    color: #28221b;
+  }
+
+  .wf-channel {
+    padding: 7px;
+    border: 1px solid rgba(40, 34, 27, 0.18);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.22);
+  }
+
+  .wf-channel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-family: var(--mono);
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+  }
+
+  .wf-channel-name {
+    overflow: hidden;
+    margin-bottom: 5px;
+    padding: 3px 4px;
+    border: 1px solid rgba(40, 34, 27, 0.22);
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.35);
+    color: #4a3f31;
+    font-family: var(--mono);
+    font-size: 6.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .wf-channel-knobs {
+    display: flex;
+    justify-content: space-between;
+    gap: 3px;
+    margin-top: 6px;
+  }
+
+  .wf-channel-knobs .wf-knob-wrap { gap: 3px; }
+  .wf-channel-knobs .wf-knob { width: 22px; height: 22px; }
+  .wf-channel-knobs .wf-knob i::before { top: 2px; height: 6px; }
+  .wf-channel-knobs em { font-size: 6px; }
+
+  .wf-amp-front-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 6px;
+    padding: 0 3px;
+    color: #a89d8e;
+    font-family: var(--mono);
+    font-size: 6.5px;
+  }
+
+  .wf-pan-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .wf-pan-track {
+    position: relative;
+    width: 55px;
+    height: 3px;
+    border-radius: 3px;
+    background: #4c453b;
+  }
+
+  .wf-pan-track i {
+    position: absolute;
+    top: -3px;
+    left: 66%;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--wf-accent);
+  }
+
+  .wf-room-lower {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 9px;
+  }
+
+  .wf-room-side {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wf-side-card {
+    padding: 11px;
+    border: 1px solid var(--wf-line);
+    border-radius: 7px;
+    background: var(--wf-panel);
+  }
+
+  .wf-side-card h5 {
+    margin: 0 0 7px;
+    color: #a69c8d;
+    font-family: var(--mono);
+    font-size: 6.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .wf-ab {
+    display: flex;
+    gap: 4px;
+  }
+
+  .wf-ab span {
+    flex: 1;
+    padding: 7px 0;
+    border: 1px solid var(--wf-line);
+    border-radius: 3px;
+    color: #9f9587;
+    font-family: var(--mono);
+    font-size: 8px;
+    text-align: center;
+  }
+
+  .wf-ab .active {
+    border-color: var(--wf-accent);
+    background: var(--wf-accent-soft);
+    color: var(--wf-accent);
+  }
+
+  .wf-history {
+    display: grid;
+    gap: 5px;
+  }
+
+  .wf-history span {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid #2e2a24;
+    color: #a59b8c;
+    font-size: 7px;
+  }
+
+  .wf-history small { color: #71695d; font-family: var(--mono); font-size: 6px; }
+
+  .wf-eq-svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  .wf-eq-grid { stroke: #3c3730; stroke-width: 0.5; }
+  .wf-eq-curve { fill: none; stroke: var(--wf-accent); stroke-width: 1.8; }
+  .wf-eq-area { fill: var(--wf-accent); opacity: 0.08; }
+  .wf-eq-point { fill: var(--wf-accent); stroke: var(--wf-bg); stroke-width: 1; }
+
+  .wf-room-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 14px;
+    border-top: 1px solid var(--wf-line);
+    background: #11100e;
+    color: #867c6e;
+    font-family: var(--mono);
+    font-size: 7px;
+  }
+
+  /* Responsive device studies */
+
+  .device-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .wf-device {
+    overflow: hidden;
+    border: 7px solid #29251f;
+    border-radius: 18px;
+    background: #12110f;
+    box-shadow: 0 20px 50px rgba(32, 24, 14, 0.18);
+  }
+
+  .wf-device-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 11px;
+    border-bottom: 1px solid #3a352d;
+    background: #171614;
+    color: #d9d0c1;
+    font-size: 8px;
+  }
+
+  .wf-device-top b { color: var(--wf-accent, #67d59a); font-family: var(--mono); font-size: 7px; letter-spacing: 0.06em; }
+
+  .wf-tablet-body { padding: 11px; }
+
+  .wf-tablet-preset {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 7px 9px;
+    border: 1px solid #3a352d;
+    border-radius: 5px;
+    background: #1d1b18;
+    color: #ded5c6;
+    font-size: 9px;
+    font-weight: 650;
+  }
+
+  .wf-tablet-preset span { color: #7e7568; font-family: var(--mono); font-size: 7px; }
+
+  .wf-tablet-chain {
+    display: flex;
+    gap: 4px;
+    overflow: hidden;
+    padding: 2px 0 9px;
+  }
+
+  .wf-tablet-chain .wf-pedal {
+    flex-basis: 47px;
+    min-height: 86px;
+    padding: 4px;
+    border-radius: 5px;
+  }
+
+  .wf-tablet-chain .wf-pedal-label { font-size: 5.5px; }
+  .wf-tablet-chain .wf-led { width: 3px; height: 3px; }
+  .wf-tablet-chain .wf-knob { width: 12px; height: 12px; }
+  .wf-tablet-chain .wf-knob i::before { top: 1px; height: 3px; width: 1px; left: calc(50% - .5px); }
+  .wf-tablet-chain .wf-footswitch { width: 9px; height: 9px; }
+  .wf-tablet-chain .wf-amp { flex-basis: 100px; border-radius: 5px; }
+  .wf-tablet-chain .wf-amp-grille { height: 25px; }
+  .wf-tablet-chain .wf-amp-brand { font-size: 5px; padding-bottom: 2px; }
+  .wf-tablet-chain .wf-amp-model { font-size: 4.5px; padding: 1px 2px; }
+  .wf-tablet-chain .wf-amp-knobs .wf-knob { width: 10px; height: 10px; }
+  .wf-tablet-chain .wf-amp-knobs .wf-knob i::before { height: 2px; }
+  .wf-tablet-chain .wf-amp-lane { display: none; }
+  .wf-tablet-chain .wf-add-slot { flex-basis: 31px; font-size: 12px; }
+  .wf-tablet-inspector {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: 6px;
+    padding: 9px;
+    border: 1px solid #3a352d;
+    border-radius: 6px;
+    background: #1b1916;
+  }
+  .wf-tablet-inspector .wf-knob-grid { grid-template-columns: repeat(3, 1fr); }
+  .wf-tablet-inspector .wf-knob--lg { width: 27px; height: 27px; }
+  .wf-tablet-inspector .wf-knob--lg i::before { height: 7px; }
+  .wf-tablet-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 7px;
+    padding: 6px 9px;
+    border: 1px solid #3a352d;
+    border-radius: 4px;
+    color: #a59b8c;
+    font-family: var(--mono);
+    font-size: 6.5px;
+  }
+  .wf-tablet-bottom b { color: var(--wf-accent, #67d59a); }
+
+  .wf-phone {
+    max-width: 290px;
+    margin-inline: auto;
+    border-width: 6px;
+    border-radius: 24px;
+  }
+
+  .wf-phone-notch {
+    width: 60px;
+    height: 12px;
+    margin: 4px auto 2px;
+    border-radius: 0 0 8px 8px;
+    background: #29251f;
+  }
+
+  .wf-phone-body { padding: 10px 9px 12px; }
+
+  .wf-phone-preset {
+    margin-bottom: 8px;
+    padding: 8px;
+    border: 1px solid #3a352d;
+    border-radius: 5px;
+    background: #1d1b18;
+    color: #e6ddce;
+    font-size: 10px;
+    font-weight: 650;
+    text-align: center;
+  }
+
+  .wf-phone-preset span {
+    display: block;
+    margin-top: 2px;
+    color: #8e8476;
+    font-family: var(--mono);
+    font-size: 6px;
+    font-weight: 400;
+    letter-spacing: 0.05em;
+  }
+
+  .wf-phone-chain {
+    display: flex;
+    justify-content: center;
+    gap: 3px;
+    padding: 4px 0 9px;
+  }
+
+  .wf-phone-chain .wf-pedal {
+    flex-basis: 37px;
+    min-height: 69px;
+    padding: 3px;
+    border-radius: 4px;
+  }
+
+  .wf-phone-chain .wf-pedal-label { font-size: 4.5px; }
+  .wf-phone-chain .wf-led-row { margin: 3px 0 2px; }
+  .wf-phone-chain .wf-led { width: 2.5px; height: 2.5px; }
+  .wf-phone-chain .wf-led-label { display: none; }
+  .wf-phone-chain .wf-knob-row { gap: 2px; margin-top: 2px; }
+  .wf-phone-chain .wf-knob { width: 9px; height: 9px; }
+  .wf-phone-chain .wf-knob i::before { top: 1px; height: 2px; width: 1px; left: calc(50% - .5px); }
+  .wf-phone-chain .wf-footswitch { width: 7px; height: 7px; }
+  .wf-phone-chain .wf-pedal-foot small { display: none; }
+
+  .wf-phone-amp {
+    padding: 6px;
+    border: 1px solid #5b5245;
+    border-radius: 6px;
+    background: #26221d;
+  }
+
+  .wf-phone-amp-grille {
+    height: 35px;
+    border: 1px solid #15120f;
+    border-radius: 3px;
+    background:
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 4px),
+      repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.5) 0 1px, transparent 1px 4px),
+      linear-gradient(150deg, #3a352d, #171511);
+  }
+
+  .wf-phone-amp-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: 5px;
+    padding: 5px;
+    border-radius: 3px;
+    background: #efe4cb;
+    color: #3d3428;
+    font-family: var(--mono);
+    font-size: 5px;
+  }
+
+  .wf-phone-amp-panel .wf-knob-row { margin: 0; gap: 3px; }
+  .wf-phone-amp-panel .wf-knob { width: 14px; height: 14px; }
+  .wf-phone-amp-panel .wf-knob i::before { top: 1.5px; height: 3.5px; width: 1.5px; }
+
+  .wf-phone-controls {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid #3a352d;
+    border-radius: 5px;
+    background: #1b1916;
+  }
+
+  .wf-phone-controls .wf-row { margin-top: 0; margin-bottom: 7px; }
+  .wf-phone-controls .wf-slider { height: 5px; }
+  .wf-phone-controls .wf-slider i { width: 12px; height: 12px; top: -4px; }
+
+  .wf-phone-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 7px;
+    color: #8f8577;
+    font-family: var(--mono);
+    font-size: 6px;
+  }
+
+  .skin-panel {
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper-3);
+  }
+
+  .skin-panel h3 {
+    font-family: var(--serif);
+    font-size: 27px;
+    font-weight: 500;
+  }
+
+  .skin-panel p {
+    margin: 8px 0 18px;
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 7px;
+    margin: 14px 0 18px;
+  }
+
+  .swatch {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper-3);
+  }
+
+  .swatch i {
+    display: block;
+    height: 30px;
+    background: var(--c);
+  }
+
+  .swatch span {
+    display: block;
+    padding: 4px 5px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 6.5px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .token-list {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .token-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 8px;
+  }
+
+  .token-list b { color: var(--muted); font-weight: 400; }
+
+  .annotation-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .annotation {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 9px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(250, 247, 240, 0.55);
+  }
+
+  .annotation b {
+    display: grid;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    border: 1px solid var(--copper);
+    border-radius: 50%;
+    color: var(--copper);
+    font-family: var(--mono);
+    font-size: 8px;
+  }
+
+  .annotation p {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+
+  .annotation strong { color: var(--ink); }
+
+  .wireframe-caption {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 12px 2px 0;
+  }
+
+  .wireframe-caption b {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .wireframe-caption span {
+    color: var(--muted);
+    font-size: 11px;
+    text-align: right;
+  }
+
+  .wf-figure { margin: 0 0 42px; }
+
+  /* ---------- UI kit / blueprint ---------- */
+
+  .kit-table td:first-child {
+    width: 155px;
+    color: var(--ink);
+    font-weight: 650;
+  }
+
+  .kit-table td:nth-child(2) { color: var(--ink-2); font-size: 12.5px; }
+  .kit-table td:nth-child(3) { color: var(--muted); font-size: 11.5px; }
+
+  .blueprint-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 24px;
+    margin-top: 34px;
+    align-items: start;
+  }
+
+  .token-code { margin-top: 0; }
+
+  .theme-json {
+    margin: 0;
+    padding: 20px;
+    overflow-x: auto;
+    border: 1px solid #34302a;
+    border-radius: 10px;
+    background: #171513;
+    color: #e9e1d3;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.7;
+  }
+
+  .theme-json .j-key { color: #d7b477; }
+  .theme-json .j-str { color: #a6cea0; }
+  .theme-json .j-num { color: #dca06c; }
+  .theme-json .j-punct { color: #8a8173; }
+
+  .state-flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    margin-top: 14px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--paper-3);
+  }
+
+  .state-flow span {
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 9px;
+  }
+
+  .state-flow i {
+    color: var(--copper);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-style: normal;
+  }
+
+  .access-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin: 18px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .access-list li {
+    position: relative;
+    padding: 10px 12px 10px 30px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper-3);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .access-list li::before {
+    content: "⌘";
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    color: var(--copper);
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+
+  /* ---------- Roadmap ---------- */
+
+  .roadmap {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    margin-top: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--line);
+  }
+
+  .phase {
+    min-height: 245px;
+    padding: 19px 17px;
+    background: var(--paper-3);
+  }
+
+  .phase-no {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 24px;
+    color: var(--copper);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+  }
+
+  .phase-no span {
+    color: var(--muted);
+    font-size: 8px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+  }
+
+  .phase h4 {
+    margin-bottom: 8px;
+    font-size: 14px;
+    line-height: 1.3;
+  }
+
+  .phase p {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 11.5px;
+    line-height: 1.55;
+  }
+
+  .phase small {
+    display: block;
+    margin-top: 16px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    line-height: 1.5;
+  }
+
+  .spike {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 24px;
+    margin-top: 26px;
+    padding: 26px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--night);
+    color: var(--cream);
+  }
+
+  .spike h3 {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 500;
+  }
+
+  .spike p {
+    margin: 10px 0 0;
+    color: #bdb4a6;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .spike-table {
+    display: grid;
+    gap: 0;
+  }
+
+  .spike-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(247, 241, 227, 0.12);
+    color: #d4cbbd;
+    font-size: 11.5px;
+  }
+
+  .spike-row span:last-child {
+    color: var(--green-2);
+    font-family: var(--mono);
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  /* ---------- Risks ---------- */
+
+  .risk-table td:first-child { width: 30%; font-weight: 650; }
+  .risk-table td:nth-child(2) { width: 44%; color: var(--ink-2); }
+  .risk-table td:nth-child(3) { color: var(--ink-2); }
+
+  .severity {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .severity--high { background: rgba(152, 65, 56, 0.12); color: var(--red); }
+  .severity--med { background: rgba(195, 154, 76, 0.16); color: #8d6825; }
+  .severity--low { background: rgba(47, 114, 85, 0.1); color: var(--green); }
+
+  /* ---------- Appendix ---------- */
+
+  .appendix-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    align-items: start;
+  }
+
+  .appendix-block {
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper-3);
+  }
+
+  .appendix-block h3 {
+    margin-bottom: 10px;
+    font-family: var(--serif);
+    font-size: 24px;
+    font-weight: 500;
+  }
+
+  .appendix-block p,
+  .appendix-block li {
+    color: var(--ink-2);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+
+  .appendix-block ul {
+    margin: 12px 0 0;
+    padding-left: 18px;
+  }
+
+  .appendix-block li + li { margin-top: 7px; }
+
+  .source-list {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .source-list li {
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+    font-size: 11.5px;
+  }
+  .source-list li:first-child { border-top: 0; }
+  .source-list a { color: var(--ink-2); }
+
+  .map-table td:first-child { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); }
+  .map-table td:nth-child(2),
+  .map-table td:nth-child(3) { font-size: 11px; color: var(--muted); }
+
+  .final-line {
+    margin-top: 46px;
+    padding: 26px 0 0;
+    border-top: 1px solid var(--line);
+    font-family: var(--serif);
+    font-size: clamp(24px, 3vw, 34px);
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  .final-line em { color: var(--copper); }
+
+  footer {
+    padding: 34px 0 46px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .footer-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .footer-brand {
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .footer-links a { color: var(--muted); }
+
+  /* ---------- Responsive ---------- */
+
+  @media (max-width: 980px) {
+    .hero {
+      grid-template-columns: 1fr;
+      gap: 30px;
+      padding-top: 54px;
+    }
+
+    .hero-art {
+      max-width: 560px;
+      margin-inline: auto;
+    }
+
+    .section-head { grid-template-columns: 1fr; gap: 8px; }
+    .section-no { padding-top: 0; }
+
+    .verdict-grid,
+    .app-grid,
+    .option-head,
+    .blueprint-grid,
+    .device-grid,
+    .appendix-grid { grid-template-columns: 1fr; }
+
+    .option-head { gap: 24px; align-items: start; }
+
+    .change-grid { grid-template-columns: 1fr; }
+
+    .roadmap { grid-template-columns: repeat(2, 1fr); }
+    .phase { min-height: 0; }
+
+    .spike { grid-template-columns: 1fr; }
+
+    .decision-grid { grid-template-columns: 1fr; }
+
+    .topnav { display: none; }
+    .topbar-note { display: none; }
+  }
+
+  @media (max-width: 700px) {
+    .wrap { width: calc(100% - 32px); }
+
+    body { font-size: 15px; }
+
+    .hero { padding: 44px 0 40px; }
+    .hero-lede { font-size: 16px; }
+
+    .hero-stats { grid-template-columns: repeat(2, 1fr); }
+
+    .section { padding: 60px 0; }
+    .section--tight { padding-top: 48px; padding-bottom: 48px; }
+    .section-intro { font-size: 15.5px; }
+
+    .pick { padding: 24px; }
+    .pick-score {
+      position: static;
+      width: auto;
+      height: auto;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 5px;
+      margin-top: 18px;
+      padding: 5px 9px;
+      border-radius: 4px;
+    }
+    .pick-score b { font-size: 16px; }
+    .pick-score span { margin: 0; }
+
+    .stat-ribbon { grid-template-columns: 1fr; }
+    .stat-cell { border-top: 1px solid var(--line); }
+    .stat-cell:first-child { border-top: 0; }
+
+    .feature-grid,
+    .split,
+    .fit-line,
+    .annotation-grid,
+    .access-list,
+    .room-lower { grid-template-columns: 1fr; }
+
+    .option-head { grid-template-columns: 1fr; }
+    .spec-strip { grid-template-columns: 1fr 1fr; }
+
+    .arch-row { flex-wrap: wrap; }
+    .arch-node { flex: 1 1 45%; }
+    .arch-arrow { display: none; }
+
+    .roadmap { grid-template-columns: 1fr; }
+    .phase { border-top: 1px solid var(--line); }
+    .phase:first-child { border-top: 0; }
+
+    .wireframe-intro { grid-template-columns: 1fr; }
+    .wireframe-badge { justify-self: start; }
+
+    .skin-bar { align-items: flex-start; flex-direction: column; }
+
+    .wf-figure { margin-bottom: 32px; }
+
+    .wireframe-caption { flex-direction: column; gap: 4px; }
+    .wireframe-caption span { text-align: left; }
+
+    .table-wrap { border-radius: 8px; }
+
+    .criteria-table { min-width: 620px; }
+    .shortlist-table { min-width: 620px; }
+    .compare-table { min-width: 680px; }
+    .kit-table { min-width: 620px; }
+    .risk-table { min-width: 680px; }
+    .map-table { min-width: 640px; }
+
+    .final-line { margin-top: 32px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .hero-art svg { animation: none; }
+    * { transition-duration: 0.01ms !important; }
+  }
+
+  @media print {
+    body { background: #fff; }
+    .topnav, .skin-bar, .skip-link { display: none; }
+    .masthead { background: #111 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .pick--primary, .arch-panel, .spike { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section, .option { padding: 40px 0; }
+    .wireframe-shell, .pick--primary { box-shadow: none; }
+    a { text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#verdict">Skip to recommendation</a>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="topbar">
+      <a class="brand" href="#top" aria-label="StompStation report home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>StompStation<small>Rebuild study</small></span>
+      </a>
+      <nav class="topnav" aria-label="Report sections">
+        <a href="#verdict">Verdict</a>
+        <a href="#today">Today</a>
+        <a href="#criteria">Criteria</a>
+        <a href="#tauri">Tauri</a>
+        <a href="#flutter">Flutter</a>
+        <a href="#wireframes">Wireframes</a>
+        <a href="#roadmap">Plan</a>
+      </nav>
+      <span class="topbar-note">EVAL / 2026-11</span>
+    </div>
+
+    <div class="hero" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow">Framework evaluation · November 2026</p>
+        <h1>A better frame for the <em>StompStation.</em></h1>
+        <p class="hero-lede">
+          The current GTK4 client proved the protocol. The rebuild needs to make the
+          pedalboard the interface — and run everywhere. After auditing the codebase,
+          <strong>two frameworks are worth serious consideration</strong>: Tauri 2 and Flutter.
+        </p>
+        <div class="hero-tags" aria-label="Report scope">
+          <span class="pill">10,056 lines audited</span>
+          <span class="pill">2 finalists</span>
+          <span class="pill">1 recommendation</span>
+        </div>
+      </div>
+
+      <div class="hero-art" aria-hidden="true">
+        <svg viewBox="0 0 560 390" role="img" aria-label="Illustration of an amp and pedalboard">
+          <defs>
+            <linearGradient id="ampBody" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#3a342c"/>
+              <stop offset="1" stop-color="#171512"/>
+            </linearGradient>
+            <linearGradient id="board" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#38322a"/>
+              <stop offset="1" stop-color="#1d1a16"/>
+            </linearGradient>
+            <linearGradient id="pedalRed" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#9d4e40"/>
+              <stop offset="1" stop-color="#53211c"/>
+            </linearGradient>
+            <linearGradient id="pedalTeal" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#3f746c"/>
+              <stop offset="1" stop-color="#17302c"/>
+            </linearGradient>
+            <linearGradient id="pedalBlue" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#4c6c8d"/>
+              <stop offset="1" stop-color="#1d2a3e"/>
+            </linearGradient>
+            <linearGradient id="knob" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#f2e7d0"/>
+              <stop offset=".55" stop-color="#b9ab92"/>
+              <stop offset="1" stop-color="#716656"/>
+            </linearGradient>
+            <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+              <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000" flood-opacity=".45"/>
+            </filter>
+            <pattern id="grille" width="8" height="8" patternUnits="userSpaceOnUse">
+              <path d="M0 0v8M0 0h8" stroke="#ffffff" stroke-opacity=".055" stroke-width="1"/>
+            </pattern>
+          </defs>
+
+          <g filter="url(#shadow)">
+            <!-- amp head -->
+            <g transform="translate(110 22)">
+              <rect width="350" height="184" rx="12" fill="url(#ampBody)" stroke="#5b5145" stroke-width="1.2"/>
+              <rect x="13" y="14" width="324" height="104" rx="5" fill="#191612" stroke="#0b0a08"/>
+              <rect x="13" y="14" width="324" height="104" rx="5" fill="url(#grille)"/>
+              <rect x="13" y="126" width="324" height="43" rx="5" fill="#e8dcc2"/>
+              <text x="25" y="143" fill="#4a3d2c" font-family="ui-monospace, monospace" font-size="8" letter-spacing="1.5">STOMPSTATION</text>
+              <text x="25" y="158" fill="#7c6c55" font-family="ui-monospace, monospace" font-size="6" letter-spacing="1">DUAL NAM · STEREO IR</text>
+              <g transform="translate(196 136)">
+                <circle cx="12" cy="14" r="12" fill="#2a251e" stroke="#b7a991"/>
+                <circle cx="12" cy="14" r="8" fill="url(#knob)"/>
+                <path d="M12 8v5" stroke="#29231c" stroke-width="1.6" stroke-linecap="round"/>
+                <circle cx="46" cy="14" r="12" fill="#2a251e" stroke="#b7a991"/>
+                <circle cx="46" cy="14" r="8" fill="url(#knob)"/>
+                <path d="M46 8v5" stroke="#29231c" stroke-width="1.6" stroke-linecap="round"/>
+                <circle cx="80" cy="14" r="12" fill="#2a251e" stroke="#b7a991"/>
+                <circle cx="80" cy="14" r="8" fill="url(#knob)"/>
+                <path d="M80 8v5" stroke="#29231c" stroke-width="1.6" stroke-linecap="round"/>
+                <circle cx="114" cy="14" r="12" fill="#2a251e" stroke="#b7a991"/>
+                <circle cx="114" cy="14" r="8" fill="url(#knob)"/>
+                <path d="M114 8v5" stroke="#29231c" stroke-width="1.6" stroke-linecap="round"/>
+              </g>
+              <circle cx="321" cy="146" r="3.5" fill="#75d6a0"/>
+              <circle cx="321" cy="146" r="6.5" fill="#75d6a0" opacity=".18"/>
+            </g>
+
+            <!-- pedalboard -->
+            <g transform="translate(42 238) rotate(-2 240 80)">
+              <rect width="478" height="132" rx="12" fill="url(#board)" stroke="#5a5042" stroke-width="1.2"/>
+              <rect x="10" y="12" width="458" height="108" rx="7" fill="#171511" opacity=".36"/>
+
+              <!-- mini pedals -->
+              <g transform="translate(24 28)">
+                <rect width="62" height="79" rx="7" fill="#34302a" stroke="#716454"/>
+                <rect x="6" y="7" width="50" height="13" rx="2" fill="#11100e"/>
+                <text x="31" y="16" text-anchor="middle" fill="#e7ddcc" font-family="ui-monospace, monospace" font-size="5.5" letter-spacing="1">GATE</text>
+                <circle cx="31" cy="33" r="3" fill="#6ed69b"/>
+                <circle cx="31" cy="56" r="10" fill="#b7a88f" stroke="#211d18"/>
+                <circle cx="31" cy="56" r="7" fill="url(#knob)"/>
+                <circle cx="31" cy="69" r="5" fill="#c2b6a2" stroke="#4d4438"/>
+              </g>
+
+              <g transform="translate(94 28)">
+                <rect width="62" height="79" rx="7" fill="#34302a" stroke="#716454"/>
+                <rect x="6" y="7" width="50" height="13" rx="2" fill="#11100e"/>
+                <text x="31" y="16" text-anchor="middle" fill="#e7ddcc" font-family="ui-monospace, monospace" font-size="5.5" letter-spacing="1">PITCH</text>
+                <circle cx="31" cy="33" r="3" fill="#4b463d"/>
+                <circle cx="31" cy="56" r="10" fill="#b7a88f" stroke="#211d18"/>
+                <circle cx="31" cy="56" r="7" fill="url(#knob)"/>
+                <circle cx="31" cy="69" r="5" fill="#c2b6a2" stroke="#4d4438"/>
+              </g>
+
+              <g transform="translate(164 28)">
+                <rect width="70" height="79" rx="7" fill="url(#pedalRed)" stroke="#9d5c4d"/>
+                <rect x="6" y="7" width="58" height="13" rx="2" fill="#1b0e0c"/>
+                <text x="35" y="16" text-anchor="middle" fill="#f4e6d4" font-family="ui-monospace, monospace" font-size="5.5" letter-spacing="1">DRIVE</text>
+                <circle cx="35" cy="31" r="3" fill="#e7b06b"/>
+                <circle cx="21" cy="51" r="7" fill="#c4b59d" stroke="#2a1512"/>
+                <circle cx="35" cy="51" r="7" fill="#c4b59d" stroke="#2a1512"/>
+                <circle cx="49" cy="51" r="7" fill="#c4b59d" stroke="#2a1512"/>
+                <circle cx="35" cy="68" r="5" fill="#d3c8b4" stroke="#4d2a23"/>
+              </g>
+
+              <g transform="translate(242 28)">
+                <rect width="78" height="79" rx="7" fill="#26221d" stroke="#716454"/>
+                <rect x="5" y="6" width="68" height="29" rx="3" fill="#15120f"/>
+                <rect x="5" y="6" width="68" height="29" rx="3" fill="url(#grille)"/>
+                <rect x="5" y="39" width="68" height="22" rx="3" fill="#e8dcc2"/>
+                <text x="39" y="48" text-anchor="middle" fill="#4a3d2c" font-family="ui-monospace, monospace" font-size="4.6" letter-spacing=".7">AMP / NAM</text>
+                <circle cx="19" cy="54" r="4.5" fill="#a99b83" stroke="#2a241d"/>
+                <circle cx="39" cy="54" r="4.5" fill="#a99b83" stroke="#2a241d"/>
+                <circle cx="59" cy="54" r="4.5" fill="#a99b83" stroke="#2a241d"/>
+                <circle cx="39" cy="69" r="5" fill="#d3c8b4" stroke="#4d4438"/>
+              </g>
+
+              <g transform="translate(328 28)">
+                <rect width="62" height="79" rx="7" fill="#ded2bb" stroke="#a69880"/>
+                <rect x="6" y="7" width="50" height="13" rx="2" fill="#f4ecdc"/>
+                <text x="31" y="16" text-anchor="middle" fill="#4f4332" font-family="ui-monospace, monospace" font-size="5.5" letter-spacing="1">CAB</text>
+                <circle cx="31" cy="43" r="17" fill="#2c2821"/>
+                <circle cx="31" cy="43" r="14" fill="#8d806b"/>
+                <circle cx="31" cy="43" r="6" fill="#3a342b"/>
+                <circle cx="31" cy="69" r="5" fill="#ede4d2" stroke="#7c6d58"/>
+              </g>
+
+              <g transform="translate(398 28)">
+                <rect width="62" height="79" rx="7" fill="url(#pedalTeal)" stroke="#58847a"/>
+                <rect x="6" y="7" width="50" height="13" rx="2" fill="#0d1b18"/>
+                <text x="31" y="16" text-anchor="middle" fill="#e4f0e5" font-family="ui-monospace, monospace" font-size="5.5" letter-spacing="1">DELAY</text>
+                <circle cx="31" cy="31" r="3" fill="#6ed69b"/>
+                <circle cx="22" cy="51" r="6.5" fill="#b9c6b7" stroke="#14302b"/>
+                <circle cx="40" cy="51" r="6.5" fill="#b9c6b6" stroke="#14302b"/>
+                <circle cx="31" cy="69" r="5" fill="#d3c8b4" stroke="#284a43"/>
+              </g>
+
+              <!-- cable -->
+              <path d="M464 96 C496 96 496 120 520 120" fill="none" stroke="#b98754" stroke-width="2" opacity=".7"/>
+              <circle cx="464" cy="96" r="3" fill="#2a241d" stroke="#b98754"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="hero-stats" aria-label="Audit at a glance">
+      <div class="hero-stat"><b>2,578</b><span>Protocol core lines</span></div>
+      <div class="hero-stat"><b>4,961</b><span>GTK UI lines</span></div>
+      <div class="hero-stat"><b>603</b><span>Real-device nodes</span></div>
+      <div class="hero-stat"><b>30</b><span>Passing tests</span></div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ======================= VERDICT ======================= -->
+  <section class="section" id="verdict">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">01 / Verdict</div>
+        <div>
+          <h2>Build it in Tauri 2. Keep Flutter as the strong alternative.</h2>
+          <p class="section-intro">
+            The decision is close, but not ambiguous. StompStation's differentiator is a
+            visual, tactile, user-modifiable pedalboard — and the web platform is simply the
+            shortest path from an idea to a convincing amp-and-pedal interface. Tauri also
+            puts the protocol in Rust, where serial I/O, ACK-driven uploads, and background
+            polling belong. Flutter is the better answer only if a single-language team or
+            a tablet-first roadmap outweighs end-user skinning.
+          </p>
+        </div>
+      </div>
+
+      <div class="verdict-grid">
+        <article class="pick pick--primary">
+          <div class="pick-kicker">Primary recommendation</div>
+          <h3>Tauri 2 <small>Rust core + React/TypeScript UI</small></h3>
+          <div class="pick-score" aria-label="Weighted score 8.9 out of 10">
+            <div><b>8.9</b><span>weighted</span></div>
+          </div>
+          <p>
+            A native Rust device engine with a webview front end. The UI can be skinned,
+            rearranged, and extended with CSS and SVG; the protocol never shares a thread
+            with the interface.
+          </p>
+          <ul class="pick-list">
+            <li><span class="check">✓</span><span>CSS variables, SVG artwork, and token files make pedal skins a first-class feature — not a plugin afterthought.</span></li>
+            <li><span class="check">✓</span><span>Rust crates cover every current transport and format: serial, TCP, mDNS, gzip, WAV, JSON, hex.</span></li>
+            <li><span class="check">✓</span><span>No bundled Chromium. Installers stay small and startup stays fast; Windows, macOS, and Linux are supported.</span></li>
+            <li><span class="check">✓</span><span>The UI can be tested in a normal browser with a mocked IPC layer; the core keeps the existing 30-test protocol suite.</span></li>
+          </ul>
+          <div class="pick-foot"><b>Choose this</b> if the pedalboard look, user themes, and a lean desktop install matter most.</div>
+        </article>
+
+        <article class="pick pick--runner">
+          <div class="pick-kicker">Strong alternative</div>
+          <h3>Flutter <small>One Dart codebase + a GPU canvas</small></h3>
+          <div class="pick-score" aria-label="Weighted score 8.3 out of 10">
+            <div><b>8.3</b><span>weighted</span></div>
+          </div>
+          <p>
+            A single codebase with pixel-identical rendering on every platform. CustomPainter
+            makes knobs, EQ curves, grille cloth, and VU meters feel native to the framework.
+          </p>
+          <ul class="pick-list">
+            <li><span class="check">✓</span><span>The most consistent cross-platform rendering — the pedalboard looks the same on Linux, Windows, and macOS.</span></li>
+            <li><span class="check">✓</span><span>One language and one test model; golden widget tests are excellent for a visual product.</span></li>
+            <li><span class="check">✓</span><span>The clearest route to a companion tablet/phone controller, including a possible network-connected stage remote.</span></li>
+            <li><span class="check">✓</span><span>GPU-accelerated custom painting gives precise control over animation, meters, and high-DPI artwork.</span></li>
+          </ul>
+          <div class="pick-foot"><b>Choose this</b> if mobile/tablet parity and one-language simplicity are the top constraints.</div>
+        </article>
+      </div>
+
+      <div class="callout">
+        <div class="callout-icon" aria-hidden="true">i</div>
+        <p>
+          <strong>The important insight:</strong> this app's performance challenge is not drawing
+          knobs at 120 fps. It is never blocking the interface while a serial port waits for a
+          NUL byte, while a 2 MiB PNAM upload waits for an ACK, or while the device returns a
+          603-node tree. The winning architecture separates a headless device engine from a
+          replaceable UI — which is exactly what both finalists make possible.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= CURRENT APP ======================= -->
+  <section class="section" id="today">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">02 / Starting point</div>
+        <div>
+          <h2>A proven protocol inside a single-platform UI.</h2>
+          <p class="section-intro">
+            The current application is two things that have grown together: a capable
+            reverse-engineered protocol library and a GTK4 presentation layer. The rebuild
+            should separate them deliberately, then make the presentation layer portable,
+            themeable, and much more like a piece of guitar gear.
+          </p>
+        </div>
+      </div>
+
+      <div class="app-grid">
+        <div>
+          <div class="stat-ribbon">
+            <div class="stat-cell"><b>2,578</b><span>Protocol / transport</span></div>
+            <div class="stat-cell"><b>4,961</b><span>Modern GTK UI</span></div>
+            <div class="stat-cell"><b>1,517</b><span>Legacy GTK UI</span></div>
+          </div>
+
+          <div class="chip-row" aria-label="Current application stack">
+            <span class="chip">Python 3.10+</span>
+            <span class="chip">GTK4</span>
+            <span class="chip">libadwaita</span>
+            <span class="chip">PyGObject</span>
+            <span class="chip">pyserial</span>
+            <span class="chip">mDNS</span>
+            <span class="chip">TCP</span>
+            <span class="chip">USB CDC-ACM</span>
+            <span class="chip">Cairo</span>
+          </div>
+
+          <ul class="preserve-list">
+            <li><span><b>Framing-aware I/O.</b> NUL-terminated frames, idle-timeout fallback, persistent receive buffer, serialized writes.</span></li>
+            <li><span><b>Dynamic node cache.</b> Full <code>browse root</code> snapshots plus <code>read root</code> deltas, with router/block/preset discovery.</span></li>
+            <li><span><b>Editor metadata.</b> Nested folders, enums, model/IR lists, parametric NAM ranges, tempo-sync modules, dual lanes.</span></li>
+            <li><span><b>ACK-driven uploads.</b> NAM, PNAM, and IR chunking with gzip framing, padding, and final-marker edge cases.</span></li>
+            <li><span><b>Operational resilience.</b> External-change detection, reconnect behaviour, polling pause during uploads, USB diagnostics.</span></li>
+          </ul>
+        </div>
+
+        <figure class="screenshot-card">
+          <img src="screenshot.png" alt="The current GTK4 StompStation interface, showing the signal chain, patch list, amp editor, and master controls">
+          <figcaption>
+            <span>Current GTK4 client · docs/screenshot.png</span>
+            <a href="screenshot.png">Open full size ↗</a>
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="change-grid">
+        <div class="change-card">
+          <span class="kicker">Keep</span>
+          <p>The protocol behaviour and the domain model. Port it, don't “clean it up” until the replay suite passes byte-for-byte.</p>
+        </div>
+        <div class="change-card">
+          <span class="kicker">Split</span>
+          <p>A headless device service owns transports, polling, uploads, and state. The UI becomes a replaceable client with a typed event stream.</p>
+        </div>
+        <div class="change-card">
+          <span class="kicker">Reimagine</span>
+          <p>Replace generic sliders and dropdowns with a reusable hardware vocabulary: pedals, knobs, LEDs, amp heads, cabs, and a patch cable.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= CRITERIA ======================= -->
+  <section class="section" id="criteria">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">03 / Scorecard</div>
+        <div>
+          <h2>Weighted for this product, not for a generic app.</h2>
+          <p class="section-intro">
+            UI expression carries the most weight because the current interface is the weakest
+            part of the experience. Performance and cross-platform reach are close behind.
+            Hardware I/O is non-negotiable: a beautiful UI that drops a serial frame is worse
+            than a plain one that does not.
+          </p>
+        </div>
+      </div>
+
+      <p class="weight-note"><span class="severity severity--low">Method</span> Judgment-based scores from the code audit and framework capabilities. No synthetic benchmark was run; the proposed five-day spike is how to validate the close calls.</p>
+
+      <div class="table-wrap">
+        <table class="criteria-table">
+          <caption class="small" style="caption-side: bottom; padding: 10px 16px; text-align: left;">Scores out of 10. Weighted totals: Tauri 8.9, Flutter 8.3. These are fit scores for StompStation, not general framework rankings.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Criterion</th>
+              <th scope="col">Weight</th>
+              <th scope="col">Tauri 2</th>
+              <th scope="col">Flutter</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>UI expression &amp; end-user skinning</td>
+              <td>25%</td>
+              <td><div class="score-cell"><b>10</b><span class="bar"><span style="--w:100%"></span></span></div></td>
+              <td><div class="score-cell"><b>8</b><span class="bar bar--flutter"><span style="--w:80%"></span></span></div></td>
+            </tr>
+            <tr>
+              <td>Real-time performance &amp; responsiveness</td>
+              <td>20%</td>
+              <td><div class="score-cell"><b>9</b><span class="bar"><span style="--w:90%"></span></span></div></td>
+              <td><div class="score-cell"><b>9</b><span class="bar bar--flutter"><span style="--w:90%"></span></span></div></td>
+            </tr>
+            <tr>
+              <td>Cross-platform consistency</td>
+              <td>15%</td>
+              <td><div class="score-cell"><b>8</b><span class="bar"><span style="--w:80%"></span></span></div></td>
+              <td><div class="score-cell"><b>10</b><span class="bar bar--flutter"><span style="--w:100%"></span></span></div></td>
+            </tr>
+            <tr>
+              <td>Hardware I/O maturity</td>
+              <td>15%</td>
+              <td><div class="score-cell"><b>9</b><span class="bar"><span style="--w:90%"></span></span></div></td>
+              <td><div class="score-cell"><b>7</b><span class="bar bar--flutter"><span style="--w:70%"></span></span></div></td>
+            </tr>
+            <tr>
+              <td>Maintainability &amp; contributor pool</td>
+              <td>15%</td>
+              <td><div class="score-cell"><b>8</b><span class="bar"><span style="--w:80%"></span></span></div></td>
+              <td><div class="score-cell"><b>8</b><span class="bar bar--flutter"><span style="--w:80%"></span></span></div></td>
+            </tr>
+            <tr>
+              <td>Footprint &amp; startup</td>
+              <td>5%</td>
+              <td><div class="score-cell"><b>9</b><span class="bar"><span style="--w:90%"></span></span></div></td>
+              <td><div class="score-cell"><b>6</b><span class="bar bar--flutter"><span style="--w:60%"></span></span></div></td>
+            </tr>
+            <tr>
+              <td>Packaging &amp; distribution</td>
+              <td>5%</td>
+              <td><div class="score-cell"><b>8</b><span class="bar"><span style="--w:80%"></span></span></div></td>
+              <td><div class="score-cell"><b>8</b><span class="bar bar--flutter"><span style="--w:80%"></span></span></div></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="table-total">
+              <td>Weighted result</td>
+              <td>100%</td>
+              <td><div class="score-cell"><b>8.9</b><span class="bar"><span style="--w:89%"></span></span></div></td>
+              <td><div class="score-cell"><b>8.3</b><span class="bar bar--flutter"><span style="--w:83%"></span></span></div></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <p class="verdict-note">The gap is intentionally small. A team that already knows Dart, or a roadmap where the same UI must run on a tablet, can justify Flutter without stretching the evidence.</p>
+
+      <h3 style="margin-top: 48px; margin-bottom: 14px;">Also considered</h3>
+      <div class="table-wrap">
+        <table class="shortlist-table">
+          <thead>
+            <tr><th scope="col">Option</th><th scope="col">Why it is not a finalist</th><th scope="col">Verdict</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Keep GTK4 / libadwaita</td>
+              <td>Zero protocol migration risk, but libadwaita is Linux-first, Windows and macOS packaging/theming are awkward, and the existing UI would still need to be rebuilt to achieve the new design. It answers the framework question by giving up on cross-platform.</td>
+              <td><span class="no-tag">Not shortlisted</span></td>
+            </tr>
+            <tr>
+              <td>Avalonia (.NET)</td>
+              <td>Excellent desktop framework with strong native I/O and XAML styling, but the pedalboard would be built from WPF-style primitives and the ecosystem is smaller than the web or Flutter for this specific visual product.</td>
+              <td><span class="no-tag">Not shortlisted</span></td>
+            </tr>
+            <tr>
+              <td>Qt 6 / QML + PySide6</td>
+              <td>The closest like-for-like Python migration and very mature serial support. Custom QML can look great, but licensing, packaging, and the cost of building a modern design system make it a harder long-term bet than Tauri.</td>
+              <td><span class="no-tag">Not shortlisted</span></td>
+            </tr>
+            <tr>
+              <td>Electron + React</td>
+              <td>The easiest port of a web UI and a huge ecosystem, but bundling Chromium is the opposite of “performant” for a utility that controls a pedal. Startup and memory are avoidable costs here.</td>
+              <td><span class="no-tag">Not shortlisted</span></td>
+            </tr>
+            <tr>
+              <td>Compose Multiplatform</td>
+              <td>Rising, credible, and pleasant for JVM/Kotlin teams. Desktop tooling and native serial/mDNS packages are still less battle-tested than the finalists, and the UI approach is closer to Flutter without Flutter's reach.</td>
+              <td><span class="no-tag">Watch</span></td>
+            </tr>
+            <tr>
+              <td>Python + pywebview</td>
+              <td>Lowest migration cost, but it inherits the packaging and threading problems and adds a thin webview layer. It is a stepping stone, not the destination.</td>
+              <td><span class="no-tag">Not shortlisted</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= TAURI ======================= -->
+  <section class="option" id="tauri">
+    <div class="wrap">
+      <div class="option-head">
+        <div>
+          <div class="option-number"><span>01</span> Primary recommendation · 8.9 / 10</div>
+          <h2>Tauri <em>2</em></h2>
+          <p class="option-sub">
+            Rust does the hardware. The webview does the guitar gear. The boundary between
+            them is a small, typed IPC contract — so the interface can be rebuilt, reskinned,
+            or even replaced without touching the protocol.
+          </p>
+          <div class="stack-pills" aria-label="Recommended Tauri stack">
+            <span class="stack-pill">Tauri 2</span>
+            <span class="stack-pill">React 19</span>
+            <span class="stack-pill">TypeScript</span>
+            <span class="stack-pill">Vite</span>
+            <span class="stack-pill">Zustand</span>
+            <span class="stack-pill">dnd-kit</span>
+            <span class="stack-pill">Rust</span>
+            <span class="stack-pill">Tokio</span>
+            <span class="stack-pill">serialport</span>
+            <span class="stack-pill">mdns-sd</span>
+            <span class="stack-pill">serde</span>
+          </div>
+        </div>
+
+        <div class="spec-strip">
+          <div class="spec-cell"><span>Renderer</span><b>OS WebView<br>WebView2 · WKWebView · WebKitGTK</b></div>
+          <div class="spec-cell"><span>Languages</span><b>Rust + TypeScript</b></div>
+          <div class="spec-cell"><span>Reach</span><b>Windows · macOS · Linux<br>plus mobile targets in v2</b></div>
+          <div class="spec-cell"><span>Footprint</span><b>Small app bundle<br>system webview, no Chromium</b></div>
+        </div>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature">
+          <span class="feature-no">01 / UI ADVANTAGE</span>
+          <h4>The pedalboard is a styling problem — and CSS is the best styling tool</h4>
+          <p>
+            Tolex, brushed aluminum, chicken-wire grilles, worn labels, cream panels, LEDs,
+            patch cables: these are gradients, borders, shadows, SVG, and type. A web
+            front end gives you direct control over all of it without writing a rendering
+            engine. A skin can be a JSON token file or a CSS override; a user can change the
+            accent, panel finish, knob cap, and pedal chassis without a rebuild.
+          </p>
+        </article>
+        <article class="feature">
+          <span class="feature-no">02 / CORE ADVANTAGE</span>
+          <h4>Rust is a natural home for the protocol</h4>
+          <p>
+            The current core is already a threaded, blocking, byte-oriented client. Rust's
+            ownership model fits the serialized I/O lock, the persistent RX buffer, and the
+            ACK-driven upload state machine. <code>serialport</code>, <code>tokio</code>,
+            <code>mdns-sd</code>, <code>serde_json</code>, <code>flate2</code>, and
+            <code>hound</code> cover every operation the Python client performs today.
+          </p>
+        </article>
+        <article class="feature">
+          <span class="feature-no">03 / PROCESS ADVANTAGE</span>
+          <h4>No GIL, no blocked UI, no shared event loop</h4>
+          <p>
+            The device engine runs independently of the webview. A slow serial read, a
+            reconnect, or a 2 MiB upload cannot freeze a knob animation. The front end
+            receives typed snapshots and deltas over Tauri events; commands go the other way.
+            Backpressure is explicit instead of accidental.
+          </p>
+        </article>
+        <article class="feature">
+          <span class="feature-no">04 / PRODUCT ADVANTAGE</span>
+          <h4>The web ecosystem is the shortest path to a polished desktop tool</h4>
+          <p>
+            Accessible dialogs, virtualized lists, drag-and-drop, keyboard navigation,
+            responsive layout, SVG curves, and animation are solved problems. The same
+            components can be rendered in a browser against a mock device for fast visual
+            iteration — no pedal, no serial port, no special hardware required.
+          </p>
+        </article>
+      </div>
+
+      <div class="arch-panel">
+        <div class="arch-head">
+          <h3>Proposed Tauri architecture</h3>
+          <span>One process · two worlds · typed boundary</span>
+        </div>
+        <div class="arch-row">
+          <div class="arch-node arch-node--ui"><b>React UI</b><span>pedalboard · inspector · amp room · settings</span></div>
+          <div class="arch-arrow">↔</div>
+          <div class="arch-node arch-node--ui"><b>Client store</b><span>Zustand selectors · optimistic writes · undo</span></div>
+          <div class="arch-arrow">↔</div>
+          <div class="arch-node"><b>IPC contract</b><span>tauri-specta commands + events</span></div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-node arch-node--hot arch-node--wide"><b>Device service (Rust)</b><span>connection lifecycle · request queue · node cache · poller · upload state machine</span></div>
+          <div class="arch-arrow">↔</div>
+          <div class="arch-node"><b>Domain model</b><span>presets · routers · blocks · editor metadata · dual NAM/IR · EQ</span></div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-node"><b>Serial transport</b><span>serialport · CDC-ACM · 115200 baud</span></div>
+          <div class="arch-node"><b>TCP transport</b><span>tokio TcpStream · manual host:port</span></div>
+          <div class="arch-node"><b>mDNS discovery</b><span>mdns-sd · _http._tcp · voidx filter</span></div>
+          <div class="arch-node"><b>Upload codecs</b><span>flate2 · hound · hex · 1–2 MiB padding</span></div>
+        </div>
+        <p class="arch-label">
+          The UI never owns a socket. The core never owns a widget. This is the same split the
+          current Python app wants, made enforceable by the process boundary.
+        </p>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-label">Rust core · illustrative transport and event bridge <span>src-tauri/src/device.rs</span></div>
+        <pre class="code"><code><span class="c-comment">// The serial and TCP transports implement one small trait.</span>
+<span class="c-key">pub trait</span> <span class="c-type">Transport</span>: <span class="c-type">Send</span> {
+    <span class="c-key">fn</span> <span class="c-fn">write_all</span>(&amp;<span class="c-key">mut</span> self, bytes: &amp;[<span class="c-key">u8</span>]) -&gt; <span class="c-type">Result</span>&lt;(), <span class="c-type">TransportError</span>&gt;;
+    <span class="c-key">fn</span> <span class="c-fn">read</span>(&amp;<span class="c-key">mut</span> self, buf: &amp;<span class="c-key">mut</span> [<span class="c-key">u8</span>], timeout: <span class="c-type">Duration</span>) -&gt; <span class="c-type">Result</span>&lt;<span class="c-key">usize</span>, <span class="c-type">TransportError</span>&gt;;
+}
+
+<span class="c-key">pub fn</span> <span class="c-fn">open_serial</span>(path: &amp;<span class="c-key">str</span>) -&gt; <span class="c-type">Result</span>&lt;<span class="c-type">SerialTransport</span>, <span class="c-type">TransportError</span>&gt; {
+    <span class="c-key">let</span> port = serialport::new(path, <span class="c-num">115_200</span>)
+        .timeout(<span class="c-type">Duration</span>::from_millis(<span class="c-num">250</span>))
+        .open()?;
+    <span class="c-type">Ok</span>(<span class="c-type">SerialTransport</span> { port })
+}
+
+<span class="c-comment">// Commands are thin: lock the device, perform one operation, return.</span>
+#[tauri::command]
+<span class="c-key">async fn</span> <span class="c-fn">set_block</span>(
+    state: tauri::State&lt;<span class="c-key">'_</span>, <span class="c-type">AppState</span>&gt;,
+    block: <span class="c-type">String</span>,
+    on: <span class="c-key">bool</span>,
+) -&gt; <span class="c-type">Result</span>&lt;(), <span class="c-type">String</span>&gt; {
+    state.device.lock().<span class="c-key">await</span>
+        .set_block(&amp;block, on).<span class="c-key">await</span>
+        .map_err(|e| e.to_string())
+}
+
+<span class="c-comment">// One poller. One event stream. The UI decides what to render.</span>
+<span class="c-key">let</span> handle = app.handle().clone();
+tauri::async_runtime::spawn(<span class="c-key">async move</span> {
+    <span class="c-key">loop</span> {
+        <span class="c-key">let</span> delta = device.tick().<span class="c-key">await</span>;
+        handle.emit(<span class="c-str">"device://state"</span>, delta).ok();
+        tokio::time::sleep(<span class="c-type">Duration</span>::from_millis(<span class="c-num">250</span>)).<span class="c-key">await</span>;
+    }
+});
+</code></pre>
+      </div>
+
+      <div class="split">
+        <div class="list-card">
+          <h4>Why it wins here</h4>
+          <ul>
+            <li>Best possible canvas for a convincing, tactile pedalboard and amp room.</li>
+            <li>User themes and per-pedal skins are cheap to ship and safe to validate.</li>
+            <li>Rust maps cleanly to the existing transport, cache, and upload logic.</li>
+            <li>Small installers, fast startup, and no bundled browser engine.</li>
+            <li>Typed IPC plus a browser-testable UI keeps iteration fast.</li>
+            <li>Built-in updater, signing, and bundling for the three desktop targets.</li>
+          </ul>
+        </div>
+        <div class="list-card list-card--con">
+          <h4>The honest trade-offs</h4>
+          <ul>
+            <li>Linux uses WebKitGTK; effects and animation performance vary by distribution and GPU.</li>
+            <li>Two languages: Rust for the core, TypeScript for the interface.</li>
+            <li>CSS can become an unmaintainable design system without token discipline.</li>
+            <li>Webview security requires a locked-down capability file and no remote content.</li>
+            <li>Accessibility is excellent if you use semantic HTML — and easy to break if you don't.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="example-strip">
+        <span>Real-world proof</span>
+        <a class="example" href="https://tauri.app/showcase/" target="_blank" rel="noreferrer">Spacedrive</a>
+        <a class="example" href="https://tauri.app/showcase/" target="_blank" rel="noreferrer">GitButler</a>
+        <a class="example" href="https://tauri.app/showcase/" target="_blank" rel="noreferrer">Hoppscotch Desktop</a>
+        <a class="example" href="https://tauri.app/showcase/" target="_blank" rel="noreferrer">Cap</a>
+        <span class="small">Complex, cross-platform desktop products with native backends.</span>
+      </div>
+
+      <div class="fit-line">
+        <div class="fit"><b>Choose Tauri if…</b> the pedalboard's look and feel is a product feature, you want users to be able to reskin it, and you are comfortable owning a Rust core (or starting with a Python sidecar during the transition).</div>
+        <div class="fit fit--avoid"><b>Avoid Tauri if…</b> you cannot test on the Linux WebKitGTK variants you intend to support, or you need the same pixel-identical rendering on a low-end tablet as on a desktop.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= FLUTTER ======================= -->
+  <section class="option option--alt" id="flutter">
+    <div class="wrap">
+      <div class="option-head">
+        <div>
+          <div class="option-number"><span>02</span> Strong alternative · 8.3 / 10</div>
+          <h2>Flutter <em>3</em></h2>
+          <p class="option-sub">
+            One Dart codebase, one rendering pipeline, and a canvas that can draw any pedal
+            you can imagine. Flutter is the most consistent way to put the same interface on
+            a desktop, a tablet, and a phone — provided you are willing to build your own
+            skinning system.
+          </p>
+          <div class="stack-pills" aria-label="Recommended Flutter stack">
+            <span class="stack-pill">Flutter 3.x</span>
+            <span class="stack-pill">Dart 3</span>
+            <span class="stack-pill">Riverpod</span>
+            <span class="stack-pill">CustomPainter</span>
+            <span class="stack-pill">flutter_libserialport</span>
+            <span class="stack-pill">bonsoir</span>
+            <span class="stack-pill">file_selector</span>
+            <span class="stack-pill">window_manager</span>
+            <span class="stack-pill">golden_toolkit</span>
+          </div>
+        </div>
+
+        <div class="spec-strip">
+          <div class="spec-cell"><span>Renderer</span><b>Skia / Impeller<br>GPU-accelerated canvas</b></div>
+          <div class="spec-cell"><span>Language</span><b>Dart 3</b></div>
+          <div class="spec-cell"><span>Reach</span><b>Windows · macOS · Linux<br>Android · iOS · web</b></div>
+          <div class="spec-cell"><span>Footprint</span><b>Engine bundled<br>larger installer, predictable runtime</b></div>
+        </div>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature">
+          <span class="feature-no">01 / RENDERING ADVANTAGE</span>
+          <h4>CustomPainter is a guitar-pedal UI superpower</h4>
+          <p>
+            A rotary knob with a 270° sweep and a pointer, a VU meter with a real needle, an
+            EQ curve you can drag, a speaker cone, a scratched metal edge: all of these are
+            paths, gradients, and transforms on a canvas. Flutter exposes them directly, and
+            the result is identical on every platform.
+          </p>
+        </article>
+        <article class="feature">
+          <span class="feature-no">02 / TEAM ADVANTAGE</span>
+          <h4>One language from serial port to widget tree</h4>
+          <p>
+            Dart handles sockets, files, gzip, JSON, and isolates without a second runtime.
+            A small team can read the whole system in one language, and widget tests plus
+            golden tests can pin the visual result of a pedal at several sizes.
+          </p>
+        </article>
+        <article class="feature">
+          <span class="feature-no">03 / REACH ADVANTAGE</span>
+          <h4>The tablet remote is not a separate project</h4>
+          <p>
+            The same codebase can target Android and iOS. A network-connected stage remote —
+            setlist, preset stepping, master volume, and a large-format amp view — is a
+            natural second product rather than a rewrite. USB OTG control is possible on
+            Android as a later step.
+          </p>
+        </article>
+        <article class="feature">
+          <span class="feature-no">04 / CONSISTENCY ADVANTAGE</span>
+          <h4>What you test is what every platform runs</h4>
+          <p>
+            There is no “works in WebKitGTK but not WKWebView” class of bug. Fonts, layout,
+            shadows, and hit targets are part of the app, not the operating system. That is
+            valuable for a product with a strong visual identity and a small support team.
+          </p>
+        </article>
+      </div>
+
+      <div class="arch-panel">
+        <div class="arch-head">
+          <h3>Proposed Flutter architecture</h3>
+          <span>One codebase · isolate the hardware</span>
+        </div>
+        <div class="arch-row">
+          <div class="arch-node arch-node--ui"><b>Flutter widgets</b><span>pedalboard · amp room · inspector · theme editor</span></div>
+          <div class="arch-arrow">↔</div>
+          <div class="arch-node arch-node--ui"><b>Riverpod state</b><span>selectors · optimistic updates · undo stack</span></div>
+          <div class="arch-arrow">↔</div>
+          <div class="arch-node"><b>Device repository</b><span>streams · command queue · cache diffing</span></div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-node arch-node--hot arch-node--wide"><b>Device isolate</b><span>blocking serial reads · polling · ACK uploads · reconnect</span></div>
+          <div class="arch-arrow">↔</div>
+          <div class="arch-node"><b>Domain model</b><span>presets · routers · blocks · editor metadata · dual NAM/IR · EQ</span></div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-node"><b>Serial FFI</b><span>flutter_libserialport · CDC-ACM</span></div>
+          <div class="arch-node"><b>TCP socket</b><span>dart:io Socket</span></div>
+          <div class="arch-node"><b>mDNS discovery</b><span>bonsoir · _http._tcp</span></div>
+          <div class="arch-node"><b>Upload codecs</b><span>dart:io gzip · ByteData · hex</span></div>
+        </div>
+        <p class="arch-label">
+          Keep blocking serial work off the UI isolate. Stream snapshots outward, send
+          commands inward, and let Riverpod rebuild only the widgets that subscribe to a
+          changed slice.
+        </p>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-label">Dart · illustrative knob painter and serial service <span>lib/widgets/knob.dart</span></div>
+        <pre class="code"><code><span class="c-key">class</span> <span class="c-type">KnobPainter</span> <span class="c-key">extends</span> <span class="c-type">CustomPainter</span> {
+  <span class="c-type">KnobPainter</span>({<span class="c-key">required this</span>.value, <span class="c-key">required this</span>.theme});
+  <span class="c-key">final double</span> value;          <span class="c-comment">// 0.0 .. 1.0</span>
+  <span class="c-key">final</span> <span class="c-type">StompTheme</span> theme;
+
+  <span class="c-key">@override</span>
+  <span class="c-key">void</span> <span class="c-fn">paint</span>(<span class="c-type">Canvas</span> canvas, <span class="c-type">Size</span> size) {
+    <span class="c-key">final</span> center = size.center(<span class="c-type">Offset</span>.zero);
+    <span class="c-key">final</span> radius = size.shortestSide / <span class="c-num">2</span>;
+    <span class="c-key">const</span> start = math.pi * <span class="c-num">0.75</span>;
+    <span class="c-key">const</span> sweep = math.pi * <span class="c-num">1.5</span>;
+    <span class="c-key">final</span> angle = start + sweep * value;
+
+    <span class="c-key">final</span> rect = <span class="c-type">Rect</span>.fromCircle(center: center, radius: radius - <span class="c-num">2</span>);
+    canvas.drawArc(rect, start, sweep, <span class="c-key">false</span>, theme.knobTrack);
+    canvas.drawArc(rect, start, angle - start, <span class="c-key">false</span>, theme.knobValue);
+
+    <span class="c-comment">// Pointer, cap highlight, tick marks, and a value bubble are</span>
+    <span class="c-comment">// added here. No platform widgets are involved.</span>
+  }
+
+  <span class="c-key">@override</span>
+  <span class="c-key">bool</span> <span class="c-fn">shouldRepaint</span>(<span class="c-type">KnobPainter</span> old) =&gt;
+      old.value != value || old.theme != theme;
+}
+
+<span class="c-comment">// Keep blocking serial I/O out of the UI isolate.</span>
+<span class="c-key">final</span> port = <span class="c-type">SerialPort</span>(<span class="c-str">'/dev/ttyACM0'</span>)..open();
+port.write(<span class="c-type">Uint8List</span>.fromList(utf8.encode(<span class="c-str">'read root\r\n\x00'</span>)));
+</code></pre>
+      </div>
+
+      <div class="split">
+        <div class="list-card">
+          <h4>Why it wins here</h4>
+          <ul>
+            <li>Pixel-identical visual result across desktop platforms.</li>
+            <li>Custom painting makes knobs, meters, grilles, and graphs first-class.</li>
+            <li>One language, one test model, and excellent golden testing.</li>
+            <li>Direct path to a tablet or phone stage remote.</li>
+            <li>Strong animation and high-DPI control.</li>
+            <li>No webview dependency or browser-engine variation.</li>
+          </ul>
+        </div>
+        <div class="list-card list-card--con">
+          <h4>The honest trade-offs</h4>
+          <ul>
+            <li>End-user skinning is not free: you must design a theme schema and editor.</li>
+            <li>Desktop serial and mDNS rely on third-party packages and FFI; audit them early.</li>
+            <li>Installers are larger because the engine is bundled.</li>
+            <li>Desktop accessibility and native integrations are improving, but need testing.</li>
+            <li>Linux builds require a GTK development toolchain and distribution packaging work.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="example-strip">
+        <span>Real-world proof</span>
+        <a class="example" href="https://flutter.dev/showcase" target="_blank" rel="noreferrer">Ubuntu Desktop Installer</a>
+        <a class="example" href="https://flutter.dev/showcase" target="_blank" rel="noreferrer">Superlist</a>
+        <a class="example" href="https://flutter.dev/showcase" target="_blank" rel="noreferrer">Rive</a>
+        <a class="example" href="https://flutter.dev/showcase" target="_blank" rel="noreferrer">Flutter DevTools</a>
+        <span class="small">Desktop and creative tools with custom, high-fidelity visual interfaces.</span>
+      </div>
+
+      <div class="fit-line">
+        <div class="fit"><b>Choose Flutter if…</b> you want one language, the same rendering everywhere, and a tablet/phone companion is on the roadmap. You should be ready to design a theme system rather than relying on CSS.</div>
+        <div class="fit fit--avoid"><b>Avoid Flutter if…</b> users must be able to write or share their own visual skins without a custom editor, or if a small installer is a hard requirement.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= HEAD TO HEAD ======================= -->
+  <section class="section" id="compare">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">04 / Head to head</div>
+        <div>
+          <h2>Where each one actually wins.</h2>
+          <p class="section-intro">
+            The right question is not “which framework is better?” It is “which set of
+            constraints do we expect to live with for the next four years?” This table is
+            deliberately specific to a guitar-modeler controller with a custom visual identity.
+          </p>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th scope="col">Dimension</th><th scope="col">Tauri 2</th><th scope="col">Flutter</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Pedalboard visual freedom</td>
+              <td><span class="win">Unlimited</span> <span class="edge">Edge</span><br><span class="small">HTML, CSS, SVG, canvas; the whole web design toolbox.</span></td>
+              <td><span class="win">Unlimited, but lower-level</span><br><span class="small">You draw it yourself with widgets and CustomPainter.</span></td>
+            </tr>
+            <tr>
+              <td>End-user themes / skins</td>
+              <td><span class="win">Native fit</span> <span class="edge">Edge</span><br><span class="small">Token files, CSS overrides, shareable skin packs.</span></td>
+              <td><span class="win">Bespoke system</span><br><span class="small">Build a theme editor, schema, validation, and asset pipeline.</span></td>
+            </tr>
+            <tr>
+              <td>Rendering consistency</td>
+              <td><span class="win">Good, OS-dependent</span><br><span class="small">WebKitGTK on Linux is the variance to test.</span></td>
+              <td><span class="win">Excellent</span> <span class="edge">Edge</span><br><span class="small">Same Skia/Impeller output on every target.</span></td>
+            </tr>
+            <tr>
+              <td>Serial / USB maturity</td>
+              <td><span class="win">Strong</span> <span class="edge">Edge</span><br><span class="small">Rust <code>serialport</code> is mature and widely deployed.</span></td>
+              <td><span class="win">Adequate</span><br><span class="small">flutter_libserialport wraps libserialport; test reconnect and hotplug.</span></td>
+            </tr>
+            <tr>
+              <td>mDNS discovery</td>
+              <td><span class="win">Strong</span><br><span class="small">mdns-sd or zeroconf crates; straightforward browse loop.</span></td>
+              <td><span class="win">Adequate</span><br><span class="small">bonsoir and multicast_dns cover service discovery.</span></td>
+            </tr>
+            <tr>
+              <td>Background work / UI isolation</td>
+              <td><span class="win">Excellent</span> <span class="edge">Edge</span><br><span class="small">Rust tasks and channels are separate from the webview.</span></td>
+              <td><span class="win">Good</span><br><span class="small">Use isolates carefully; blocking serial on the main isolate will jank.</span></td>
+            </tr>
+            <tr>
+              <td>Cold start &amp; idle footprint</td>
+              <td><span class="win">Leaner</span> <span class="edge">Edge</span><br><span class="small">No bundled Chromium; system webview and a small binary.</span></td>
+              <td><span class="win">Moderate</span><br><span class="small">Engine is bundled; startup and memory are predictable but heavier.</span></td>
+            </tr>
+            <tr>
+              <td>Windows / macOS / Linux</td>
+              <td><span class="win">Supported</span><br><span class="small">WebView2, WKWebView, WebKitGTK; Linux runtime dependency.</span></td>
+              <td><span class="win">Supported</span><br><span class="small">Linux needs GTK dev libs to build; runtime is self-contained.</span></td>
+            </tr>
+            <tr>
+              <td>Tablet / phone future</td>
+              <td><span class="win">Possible</span><br><span class="small">Tauri 2 supports mobile, but the webview UX needs work.</span></td>
+              <td><span class="win">First-class</span> <span class="edge">Edge</span><br><span class="small">The same widget code targets Android and iOS.</span></td>
+            </tr>
+            <tr>
+              <td>Accessibility</td>
+              <td><span class="win">Strong foundation</span> <span class="edge">Edge</span><br><span class="small">Semantic HTML, ARIA, keyboard navigation are native to the platform.</span></td>
+              <td><span class="win">Improving</span><br><span class="small">Flutter accessibility is capable but needs deliberate desktop testing.</span></td>
+            </tr>
+            <tr>
+              <td>Testing the UI</td>
+              <td><span class="win">Split but flexible</span><br><span class="small">Vitest + Playwright in a browser; tauri-driver for shell smoke tests.</span></td>
+              <td><span class="win">Cohesive</span> <span class="edge">Edge</span><br><span class="small">Widget tests and golden files cover visuals and interaction together.</span></td>
+            </tr>
+            <tr>
+              <td>Hiring / contributors</td>
+              <td><span class="win">Largest pool</span> <span class="edge">Edge</span><br><span class="small">Web developers can contribute immediately; Rust is the narrower skill.</span></td>
+              <td><span class="win">Smaller pool</span><br><span class="small">Dart is approachable, but fewer desktop contributors know it.</span></td>
+            </tr>
+            <tr>
+              <td>Learning curve</td>
+              <td><span class="win">Two disciplines</span><br><span class="small">Rust ownership plus frontend state management.</span></td>
+              <td><span class="win">One discipline</span> <span class="edge">Edge</span><br><span class="small">Dart covers backend and UI, but widget composition takes practice.</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="decision-grid">
+        <article class="decision">
+          <div class="kicker" style="color:#bcae9b;">Pick Tauri when</div>
+          <h3>The interface is the product.</h3>
+          <p>The rebuild is a chance to make StompStation feel like a piece of gear, and users should be able to make it theirs.</p>
+          <ul>
+            <li>You want shareable pedal skins and a theme editor with minimal friction.</li>
+            <li>You value a small installer, fast startup, and a native-feeling utility.</li>
+            <li>You are comfortable with a Rust core or a staged Python-sidecar migration.</li>
+            <li>Linux is the primary platform and you can test WebKitGTK builds.</li>
+            <li>You want web contributors to help with the UI.</li>
+          </ul>
+        </article>
+        <article class="decision decision--alt">
+          <div class="kicker" style="color: var(--muted);">Pick Flutter when</div>
+          <h3>The same pixels must run everywhere.</h3>
+          <p>A tablet or phone companion is part of the product, and the team would rather master one language and one rendering model.</p>
+          <ul>
+            <li>You are planning an Android/iOS stage remote from day one.</li>
+            <li>You want golden tests to lock the visual design across platforms.</li>
+            <li>Your team already knows Dart or strongly prefers a single language.</li>
+            <li>You can invest in a bespoke theme/skin editor rather than CSS.</li>
+            <li>Install size is acceptable in exchange for a self-contained runtime.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="callout" style="margin-top: 24px;">
+        <div class="callout-icon" aria-hidden="true">↗</div>
+        <p>
+          <strong>Don't let the framework decision block the rebuild.</strong> The highest-value
+          first deliverable is a headless protocol engine with a replay test harness and a
+          small CLI. Both finalists can sit on top of it. Build that first, in whichever
+          language you choose, and the UI decision becomes reversible.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= WIREFRAMES ======================= -->
+  <section class="section" id="wireframes">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">05 / Wireframes</div>
+        <div>
+          <h2>A pedalboard, not a settings dialog.</h2>
+          <p class="section-intro">
+            These concept wireframes show the Tauri direction; the same information
+            architecture translates cleanly to Flutter widgets. They are deliberately
+            hardware-shaped: the chain is the primary navigation, the amp head carries visual
+            weight, and the selected block opens into a focused editing surface.
+          </p>
+        </div>
+      </div>
+
+      <div class="wireframe-intro">
+        <p>
+          The current GTK UI is functional but reads as a grid of form controls. The redesign
+          borrows the visual grammar of a real board: pedal enclosures, amp tolex, speaker
+          grilles, LEDs, and a patch-cable flow from input to output. None of this should
+          obscure the data; every control still has a label, a value, and a keyboard path.
+        </p>
+        <span class="wireframe-badge">Concept wireframes · not screenshots</span>
+      </div>
+
+      <div class="skin-bar">
+        <div>
+          <span class="kicker">Try the skin system</span>
+          <p>One layout, three finishes. In Tauri these are CSS variables; in Flutter they would be <code>ThemeExtension</code> tokens.</p>
+        </div>
+        <div class="skin-buttons" role="group" aria-label="Wireframe skin">
+          <button class="skin-btn is-active" type="button" data-skin="studio" aria-pressed="true">Studio Black</button>
+          <button class="skin-btn" type="button" data-skin="cream" aria-pressed="false">Cream Tolex</button>
+          <button class="skin-btn" type="button" data-skin="british" aria-pressed="false">British Green</button>
+        </div>
+      </div>
+
+      <div class="wireframe-demo" id="skin-demo" data-skin="studio">
+        <!-- ============ BOARD WIREFRAME ============ -->
+        <figure class="wf-figure">
+          <div class="wireframe-shell">
+            <div class="wf-window" role="img" aria-label="Wireframe of the main StompStation board view">
+              <div class="wf-titlebar">
+                <span class="wf-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="wf-window-title">StompStation — Board</span>
+                <span>— □ ×</span>
+              </div>
+
+              <div class="wf-body">
+                <aside class="wf-presets">
+                  <div class="wf-side-head">
+                    <span>Patches <span class="wf-note">1</span></span>
+                    <span class="wf-count">52</span>
+                  </div>
+                  <div class="wf-search"><span aria-hidden="true">⌕</span> Search patches</div>
+                  <div class="wf-chips"><span class="active">All</span><span>Starred</span><span>Recent</span></div>
+                  <div class="wf-preset-list">
+                    <div class="wf-preset">Dumble Clean</div>
+                    <div class="wf-preset">Dumble Ford</div>
+                    <div class="wf-preset">Dumble Carlton</div>
+                    <div class="wf-preset active"><span class="wf-preset-dot"></span>Match Brave Chorus</div>
+                    <div class="wf-preset">Match Brave Cab</div>
+                    <div class="wf-preset">Match Brave No Cab</div>
+                    <div class="wf-preset">Tone-King</div>
+                    <div class="wf-preset">Tone-King - Drive</div>
+                    <div class="wf-preset">Tone-King - Drive Delay</div>
+                    <div class="wf-preset">Purple Plexi</div>
+                    <div class="wf-preset">SineWave</div>
+                    <div class="wf-preset">Dookie</div>
+                    <div class="wf-preset">Space Prince</div>
+                    <div class="wf-preset">5150</div>
+                    <div class="wf-preset">Bass Ampeg</div>
+                  </div>
+                  <div class="wf-side-foot">+ New patch</div>
+                </aside>
+
+                <div class="wf-stage">
+                  <div class="wf-stage-head">
+                    <div class="wf-stage-title">Signal chain <span class="wf-note">2</span></div>
+                    <div class="wf-stage-hint">drag to reorder · right-click to bypass</div>
+                  </div>
+
+                  <div class="wf-chain">
+                    <div class="wf-pedal wf-pedal--mini">
+                      <div class="wf-pedal-label">GATE</div>
+                      <div class="wf-led-row"><span class="wf-led wf-led--off"></span><span class="wf-led-label">OFF</span></div>
+                      <div class="wf-knob-row">
+                        <span class="wf-knob" style="--a:-45deg"><i></i></span>
+                      </div>
+                      <div class="wf-pedal-foot"><span class="wf-footswitch"></span><small>1</small></div>
+                    </div>
+
+                    <div class="wf-pedal wf-pedal--mini">
+                      <div class="wf-pedal-label">PITCH</div>
+                      <div class="wf-led-row"><span class="wf-led wf-led--off"></span><span class="wf-led-label">OFF</span></div>
+                      <div class="wf-knob-row">
+                        <span class="wf-knob" style="--a:20deg"><i></i></span>
+                      </div>
+                      <div class="wf-pedal-foot"><span class="wf-footswitch"></span><small>2</small></div>
+                    </div>
+
+                    <div class="wf-pedal wf-pedal--mini">
+                      <div class="wf-pedal-label">COMP</div>
+                      <div class="wf-led-row"><span class="wf-led wf-led--off"></span><span class="wf-led-label">OFF</span></div>
+                      <div class="wf-knob-row">
+                        <span class="wf-knob" style="--a:-10deg"><i></i></span>
+                      </div>
+                      <div class="wf-pedal-foot"><span class="wf-footswitch"></span><small>3</small></div>
+                    </div>
+
+                    <div class="wf-pedal wf-pedal--drive">
+                      <div class="wf-pedal-label">DRIVE</div>
+                      <div class="wf-led-row"><span class="wf-led wf-led--on"></span><span class="wf-led-label">ON</span></div>
+                      <div class="wf-knob-row">
+                        <span class="wf-knob" style="--a:-35deg"><i></i></span>
+                        <span class="wf-knob" style="--a:15deg"><i></i></span>
+                        <span class="wf-knob" style="--a:-20deg"><i></i></span>
+                      </div>
+                      <div class="wf-pedal-foot"><span class="wf-footswitch"></span><small>4</small></div>
+                    </div>
+
+                    <div class="wf-amp">
+                      <div class="wf-amp-grille"></div>
+                      <div class="wf-amp-panel">
+                        <div class="wf-amp-brand"><b>AMP / NAM</b><span>DUAL LANE</span></div>
+                        <div class="wf-amp-model">Match Brave Hi D 3 · NAM 1 <span class="wf-note">3</span></div>
+                        <div class="wf-amp-knobs">
+                          <span class="wf-knob" style="--a:-30deg"><i></i></span>
+                          <span class="wf-knob" style="--a:10deg"><i></i></span>
+                          <span class="wf-knob" style="--a:-5deg"><i></i></span>
+                          <span class="wf-knob" style="--a:25deg"><i></i></span>
+                        </div>
+                        <div class="wf-amp-lane"><span>NAM 1 · ON</span><span class="wf-amp-meter"><i></i></span></div>
+                      </div>
+                    </div>
+
+                    <div class="wf-pedal wf-pedal--cab">
+                      <div class="wf-pedal-label">CAB</div>
+                      <div class="wf-cab-speaker"></div>
+                      <div class="wf-pedal-foot"><span class="wf-footswitch"></span><small>IR</small></div>
+                    </div>
+
+                    <div class="wf-pedal wf-pedal--mod">
+                      <div class="wf-pedal-label">MOD</div>
+                      <div class="wf-led-row"><span class="wf-led wf-led--on"></span><span class="wf-led-label">ON</span></div>
+                      <div class="wf-knob-row">
+                        <span class="wf-knob" style="--a:0deg"><i></i></span>
+                        <span class="wf-knob" style="--a:-25deg"><i></i></span>
+                      </div>
+                      <div class="wf-pedal-foot"><span class="wf-footswitch"></span><small>6</small></div>
+                    </div>
+
+                    <div class="wf-pedal wf-pedal--delay">
+                      <div class="wf-pedal-label">DELAY</div>
+                      <div class="wf-led-row"><span class="wf-led wf-led--off"></span><span class="wf-led-label">OFF</span></div>
+                      <div class="wf-knob-row">
+                        <span class="wf-knob" style="--a:-40deg"><i></i></span>
+                        <span class="wf-knob" style="--a:5deg"><i></i></span>
+                        <span class="wf-knob" style="--a:35deg"><i></i></span>
+                      </div>
+                      <div class="wf-pedal-foot"><span class="wf-footswitch"></span><small>7</small></div>
+                    </div>
+
+                    <div class="wf-pedal wf-pedal--reverb">
+                      <div class="wf-pedal-label">REVERB</div>
+                      <div class="wf-led-row"><span class="wf-led wf-led--off"></span><span class="wf-led-label">OFF</span></div>
+                      <div class="wf-knob-row">
+                        <span class="wf-knob" style="--a:15deg"><i></i></span>
+                        <span class="wf-knob" style="--a:-20deg"><i></i></span>
+                      </div>
+                      <div class="wf-pedal-foot"><span class="wf-footswitch"></span><small>8</small></div>
+                    </div>
+
+                    <div class="wf-add-slot" aria-label="Add block">+</div>
+                  </div>
+
+                  <div class="wf-tabs" aria-hidden="true">
+                    <span class="wf-tab active">Board</span>
+                    <span class="wf-tab">Amp room</span>
+                    <span class="wf-tab">Global EQ</span>
+                    <span class="wf-tab">Files</span>
+                    <span class="wf-tab">Activity</span>
+                  </div>
+
+                  <div class="wf-detail-row">
+                    <div class="wf-card">
+                      <div class="wf-card-head">
+                        <div>
+                          <span class="wf-kicker">Selected block <span class="wf-note">4</span></span>
+                          <div class="wf-card-title"><span>Drive <span style="color:#9a9183;font-weight:400;">· model</span></span></div>
+                        </div>
+                        <span class="wf-switch wf-switch--on" aria-label="Block enabled"></span>
+                      </div>
+                      <div class="wf-row">
+                        <span>Model</span>
+                        <span class="wf-select">Klone 3 ▾</span>
+                      </div>
+                      <div class="wf-knob-grid">
+                        <span class="wf-knob-wrap"><span class="wf-knob wf-knob--lg" style="--a:-30deg"><i></i></span><em>Gain</em><small>6.4</small></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob wf-knob--lg" style="--a:10deg"><i></i></span><em>Tone</em><small>5.2</small></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob wf-knob--lg" style="--a:25deg"><i></i></span><em>Level</em><small>7.0</small></span>
+                      </div>
+                    </div>
+
+                    <div class="wf-card wf-master-stack">
+                      <div class="wf-card-head">
+                        <div>
+                          <span class="wf-kicker">Master <span class="wf-note">5</span></span>
+                          <div class="wf-card-title">Output</div>
+                        </div>
+                      </div>
+                      <div class="wf-master-top">
+                        <span class="wf-knob wf-knob--xl" style="--a:35deg"><i></i></span>
+                        <span class="wf-master-value">72.0<small>volume</small></span>
+                      </div>
+                      <div class="wf-row"><span>Tempo</span><span><b style="color:var(--wf-text);">120</b> BPM</span></div>
+                      <div class="wf-meter-bars" aria-hidden="true">
+                        <i style="--h:35%"></i><i style="--h:48%"></i><i style="--h:62%"></i><i style="--h:44%"></i><i style="--h:55%"></i><i style="--h:38%"></i><i style="--h:29%"></i><i style="--h:20%"></i>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="wf-statusbar">
+                <span class="wf-status-left"><span class="wf-led wf-led--on"></span> <b>Up to date</b> <span class="wf-note">6</span></span>
+                <span>USB · /dev/ttyACM0</span>
+                <span class="wf-status-spacer"></span>
+                <span>Firmware 2.4.4</span>
+                <span>Activity log</span>
+              </div>
+            </div>
+          </div>
+          <figcaption class="wireframe-caption">
+            <b>Concept A · Board view</b>
+            <span>1440px desktop · chain as navigation · inspector always visible</span>
+          </figcaption>
+        </figure>
+
+        <div class="annotation-grid">
+          <div class="annotation"><b>1</b><p><strong>Preset rail.</strong> Search, favorites, and recent patches. Virtually scroll a library of hundreds without rebuilding the world.</p></div>
+          <div class="annotation"><b>2</b><p><strong>Signal chain.</strong> Hardware-shaped cards, bypass LEDs, drag reordering, fixed Amp/Delay/Reverb positions, and an add slot at the end.</p></div>
+          <div class="annotation"><b>3</b><p><strong>Amp head.</strong> The most important block gets the most visual weight. Model name, lane, and NAM state are legible from across a desk.</p></div>
+          <div class="annotation"><b>4</b><p><strong>Focused inspector.</strong> The selected block opens here with large knobs, numeric values, and a model selector. No page change required.</p></div>
+          <div class="annotation"><b>5</b><p><strong>Master strip.</strong> Volume, tempo, and live meters remain pinned. A performance control should never be buried in a tab.</p></div>
+          <div class="annotation"><b>6</b><p><strong>Persistent status.</strong> Connection, transport, firmware, and sync state are always visible, with the activity log one click away.</p></div>
+        </div>
+      </div>
+
+      <!-- ============ AMP ROOM ============ -->
+      <figure class="wf-figure" style="margin-top: 46px;">
+        <div class="wireframe-shell">
+          <div class="wf-window" role="img" aria-label="Wireframe of the amp room focus editor">
+            <div class="wf-titlebar">
+              <span class="wf-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="wf-window-title">StompStation — Amp room</span>
+              <span>— □ ×</span>
+            </div>
+
+            <div class="wf-room-layout">
+              <div class="wf-room-main">
+                <div class="wf-room-toolbar">
+                  <span class="wf-breadcrumb">Board <span>/</span> Amp (NAM) <span>/</span> <b>Focus</b></span>
+                  <span>ESC to return · ↑ ↓ to step blocks</span>
+                </div>
+
+                <div class="wf-amp-front">
+                  <div class="wf-amp-front-grille"></div>
+                  <div class="wf-amp-front-panel">
+                    <div class="wf-channel">
+                      <div class="wf-channel-head"><span>NAM 1</span><span class="wf-led wf-led--on"></span></div>
+                      <div class="wf-channel-name">Match Brave Hi D 3</div>
+                      <div class="wf-channel-knobs">
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:-35deg"><i></i></span><em>Gain</em></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:0deg"><i></i></span><em>Vol</em></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:-15deg"><i></i></span><em>Low</em></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:10deg"><i></i></span><em>Mid</em></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:20deg"><i></i></span><em>High</em></span>
+                      </div>
+                    </div>
+
+                    <div class="wf-channel">
+                      <div class="wf-channel-head"><span>NAM 2</span><span class="wf-led wf-led--on"></span></div>
+                      <div class="wf-channel-name">64 Vibroverb D 2</div>
+                      <div class="wf-channel-knobs">
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:-10deg"><i></i></span><em>Gain</em></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:15deg"><i></i></span><em>Vol</em></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:-25deg"><i></i></span><em>Low</em></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:5deg"><i></i></span><em>Mid</em></span>
+                        <span class="wf-knob-wrap"><span class="wf-knob" style="--a:30deg"><i></i></span><em>High</em></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="wf-amp-front-foot">
+                    <span>STEREO PLACEMENT</span>
+                    <span class="wf-pan-row">Model 1 <span class="wf-pan-track"><i></i></span> L</span>
+                    <span class="wf-pan-row">Model 2 <span class="wf-pan-track"><i style="left:12%;"></i></span> R</span>
+                    <span>Lock levels</span>
+                  </div>
+                </div>
+
+                <div class="wf-room-lower">
+                  <div class="wf-side-card">
+                    <h5>Cabinet / IR <span class="wf-note">3</span></h5>
+                    <div class="wf-row" style="margin-top:0;"><span>IR 1</span><span class="wf-select">TJ3 58BND310 ▾</span></div>
+                    <div class="wf-row"><span>Level</span><span class="wf-slider"><i style="left:62%;"></i></span></div>
+                    <div class="wf-row"><span>Blend</span><span class="wf-slider"><i style="left:38%;"></i></span></div>
+                    <div class="wf-row"><span>Pan</span><span class="wf-slider"><i style="left:50%;"></i></span></div>
+                  </div>
+
+                  <div class="wf-side-card">
+                    <h5>Global EQ <span class="wf-note">4</span></h5>
+                    <svg class="wf-eq-svg" viewBox="0 0 220 88" aria-hidden="true">
+                      <g class="wf-eq-grid">
+                        <line x1="0" y1="22" x2="220" y2="22"></line>
+                        <line x1="0" y1="44" x2="220" y2="44"></line>
+                        <line x1="0" y1="66" x2="220" y2="66"></line>
+                        <line x1="55" y1="0" x2="55" y2="88"></line>
+                        <line x1="110" y1="0" x2="110" y2="88"></line>
+                        <line x1="165" y1="0" x2="165" y2="88"></line>
+                      </g>
+                      <path class="wf-eq-area" d="M0 46 C30 46 34 34 55 34 S82 58 110 52 S145 30 170 36 S200 44 220 42 L220 88 L0 88 Z"></path>
+                      <path class="wf-eq-curve" d="M0 46 C30 46 34 34 55 34 S82 58 110 52 S145 30 170 36 S200 44 220 42"></path>
+                      <circle class="wf-eq-point" cx="55" cy="34" r="3"></circle>
+                      <circle class="wf-eq-point" cx="110" cy="52" r="3"></circle>
+                      <circle class="wf-eq-point" cx="170" cy="36" r="3"></circle>
+                    </svg>
+                    <div class="wf-row" style="margin-top:4px;"><span>Band 2 · 640 Hz</span><span>+2.5 dB · Q 1.2</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <aside class="wf-room-side">
+                <div class="wf-side-card">
+                  <h5>A/B compare <span class="wf-note">5</span></h5>
+                  <div class="wf-ab"><span class="active">A · NAM 1</span><span>B · NAM 2</span></div>
+                  <div class="wf-row" style="margin-top:8px;"><span>Copy A → B</span><span>Link</span></div>
+                </div>
+
+                <div class="wf-side-card">
+                  <h5>Edit history</h5>
+                  <div class="wf-history">
+                    <span>Gain 6.4 → 6.8 <small>now</small></span>
+                    <span>Model changed <small>2m</small></span>
+                    <span>Preset loaded <small>14m</small></span>
+                    <span>IR blend 38% <small>1h</small></span>
+                  </div>
+                </div>
+
+                <div class="wf-side-card">
+                  <h5>Shortcuts</h5>
+                  <div class="wf-history">
+                    <span>Fine adjust <small>SHIFT</small></span>
+                    <span>Reset knob <small>DBL-CLICK</small></span>
+                    <span>Bypass block <small>SPACE</small></span>
+                    <span>Back to board <small>ESC</small></span>
+                  </div>
+                </div>
+              </aside>
+            </div>
+
+            <div class="wf-room-footer">
+              <span>Editing buffer · unsaved changes</span>
+              <span>Save to device · Ctrl+S</span>
+            </div>
+          </div>
+        </div>
+        <figcaption class="wireframe-caption">
+          <b>Concept B · Amp room</b>
+          <span>Focus mode keeps the chain one keypress away · dual lanes side by side</span>
+        </figcaption>
+      </figure>
+
+      <div class="annotation-grid">
+        <div class="annotation"><b>1</b><p><strong>Focus, not navigation.</strong> The amp opens as a workspace rather than a new settings page. <kbd>Esc</kbd> returns to the board; arrow keys step blocks.</p></div>
+        <div class="annotation"><b>2</b><p><strong>Dual lanes.</strong> NAM 1 and NAM 2 are peers, each with its own model, controls, enable state, and pan.</p></div>
+        <div class="annotation"><b>3</b><p><strong>Cabinet card.</strong> IR slot, level, blend, and pan are visible together — the way they are adjusted in practice.</p></div>
+        <div class="annotation"><b>4</b><p><strong>Direct-manipulation EQ.</strong> Drag points on the curve; numeric fields remain for precision and accessibility.</p></div>
+        <div class="annotation"><b>5</b><p><strong>A/B and history.</strong> Compare two amp lanes, undo a tweak, or see what changed. A performance tool should forgive experimentation.</p></div>
+        <div class="annotation"><b>6</b><p><strong>No dead ends.</strong> The global chain stays one keypress away, and every edit has a visible save state.</p></div>
+      </div>
+
+      <!-- ============ RESPONSIVE / SKINS ============ -->
+      <h3 style="margin-top: 52px; margin-bottom: 8px;">The same board at three sizes.</h3>
+      <p class="small" style="max-width: 760px; margin-bottom: 22px;">
+        A desktop controller should degrade gracefully. On a tablet, the preset rail becomes a
+        drawer and the inspector becomes a bottom sheet. On a phone, the app becomes a
+        performance remote: preset stepping, master volume, and a large amp face — not a
+        cramped version of the full editor.
+      </p>
+
+      <div class="device-grid">
+        <div>
+          <div class="wf-device" role="img" aria-label="Wireframe of the tablet layout">
+            <div class="wf-device-top"><span>StompStation · Tablet</span><b>CONNECTED</b></div>
+            <div class="wf-tablet-body">
+              <div class="wf-tablet-preset"><span>‹</span> Match Brave Chorus <span>▾</span></div>
+              <div class="wf-tablet-chain">
+                <div class="wf-pedal wf-pedal--mini"><div class="wf-pedal-label">GATE</div><div class="wf-led-row"><span class="wf-led wf-led--off"></span></div><div class="wf-pedal-foot"><span class="wf-footswitch"></span></div></div>
+                <div class="wf-pedal wf-pedal--drive"><div class="wf-pedal-label">DRIVE</div><div class="wf-led-row"><span class="wf-led wf-led--on"></span></div><div class="wf-knob-row"><span class="wf-knob" style="--a:-20deg"><i></i></span><span class="wf-knob" style="--a:15deg"><i></i></span></div><div class="wf-pedal-foot"><span class="wf-footswitch"></span></div></div>
+                <div class="wf-amp"><div class="wf-amp-grille"></div><div class="wf-amp-panel"><div class="wf-amp-brand"><b>AMP</b><span>NAM</span></div><div class="wf-amp-model">Match Brave Hi D 3</div><div class="wf-amp-knobs"><span class="wf-knob" style="--a:-30deg"><i></i></span><span class="wf-knob" style="--a:15deg"><i></i></span><span class="wf-knob" style="--a:0deg"><i></i></span><span class="wf-knob" style="--a:25deg"><i></i></span></div></div></div>
+                <div class="wf-pedal wf-pedal--cab"><div class="wf-pedal-label">CAB</div><div class="wf-cab-speaker"></div><div class="wf-pedal-foot"><span class="wf-footswitch"></span></div></div>
+                <div class="wf-pedal wf-pedal--delay"><div class="wf-pedal-label">DELAY</div><div class="wf-led-row"><span class="wf-led wf-led--off"></span></div><div class="wf-knob-row"><span class="wf-knob" style="--a:-10deg"><i></i></span><span class="wf-knob" style="--a:20deg"><i></i></span></div><div class="wf-pedal-foot"><span class="wf-footswitch"></span></div></div>
+                <div class="wf-pedal wf-pedal--reverb"><div class="wf-pedal-label">REVERB</div><div class="wf-led-row"><span class="wf-led wf-led--off"></span></div><div class="wf-knob-row"><span class="wf-knob" style="--a:5deg"><i></i></span></div><div class="wf-pedal-foot"><span class="wf-footswitch"></span></div></div>
+                <div class="wf-add-slot">+</div>
+              </div>
+              <div class="wf-tablet-inspector">
+                <div>
+                  <div class="wf-kicker">Selected block</div>
+                  <div class="wf-card-title" style="margin-bottom:8px;">Drive <span class="wf-switch wf-switch--on" style="margin-left:6px;"></span></div>
+                  <div class="wf-row"><span>Model</span><span class="wf-select" style="min-width:80px;">Klone 3 ▾</span></div>
+                </div>
+                <div class="wf-knob-grid">
+                  <span class="wf-knob-wrap"><span class="wf-knob wf-knob--lg" style="--a:-30deg"><i></i></span><em>Gain</em></span>
+                  <span class="wf-knob-wrap"><span class="wf-knob wf-knob--lg" style="--a:10deg"><i></i></span><em>Tone</em></span>
+                  <span class="wf-knob-wrap"><span class="wf-knob wf-knob--lg" style="--a:25deg"><i></i></span><em>Level</em></span>
+                </div>
+              </div>
+              <div class="wf-tablet-bottom"><span>Master <b>72.0</b></span><span>Tempo <b>120</b> BPM</span><span>Files</span><span>Activity</span></div>
+            </div>
+          </div>
+          <p class="small" style="margin-top: 10px;"><strong>Tablet, landscape.</strong> Presets collapse to a drawer; the chain stays horizontal; the inspector becomes a bottom sheet. Large hit targets for a stage-side device.</p>
+        </div>
+
+        <div>
+          <div class="wf-device wf-phone" role="img" aria-label="Wireframe of the phone performance remote">
+            <div class="wf-phone-notch"></div>
+            <div class="wf-phone-body">
+              <div class="wf-phone-preset">Match Brave Chorus<span>Preset 12 / 52 · synced</span></div>
+              <div class="wf-phone-chain">
+                <div class="wf-pedal wf-pedal--mini"><div class="wf-pedal-label">GATE</div><div class="wf-led-row"><span class="wf-led wf-led--off"></span></div></div>
+                <div class="wf-pedal wf-pedal--drive"><div class="wf-pedal-label">DRIVE</div><div class="wf-led-row"><span class="wf-led wf-led--on"></span></div></div>
+                <div class="wf-pedal wf-pedal--mod"><div class="wf-pedal-label">MOD</div><div class="wf-led-row"><span class="wf-led wf-led--on"></span></div></div>
+                <div class="wf-pedal wf-pedal--delay"><div class="wf-pedal-label">DLY</div><div class="wf-led-row"><span class="wf-led wf-led--off"></span></div></div>
+                <div class="wf-pedal wf-pedal--reverb"><div class="wf-pedal-label">REV</div><div class="wf-led-row"><span class="wf-led wf-led--off"></span></div></div>
+              </div>
+              <div class="wf-phone-amp">
+                <div class="wf-phone-amp-grille"></div>
+                <div class="wf-phone-amp-panel">
+                  <span>AMP · NAM</span>
+                  <div class="wf-knob-row"><span class="wf-knob" style="--a:-20deg"><i></i></span><span class="wf-knob" style="--a:10deg"><i></i></span><span class="wf-knob" style="--a:30deg"><i></i></span></div>
+                </div>
+              </div>
+              <div class="wf-phone-controls">
+                <div class="wf-row"><span>Master volume</span><span><b style="color:var(--wf-text);">72</b></span></div>
+                <div class="wf-slider"><i></i></div>
+                <div class="wf-row" style="margin-top:8px;"><span>Tempo</span><span><b style="color:var(--wf-text);">120</b> BPM</span></div>
+              </div>
+              <div class="wf-phone-foot"><span>‹ Previous</span><span>Next ›</span></div>
+            </div>
+          </div>
+          <p class="small" style="margin-top: 10px;"><strong>Phone, portrait.</strong> A stage remote, not a pocket editor: preset stepping, bypass state, master volume, and the amp face. Network transport makes this viable.</p>
+        </div>
+      </div>
+
+      <div class="skin-panel" style="margin-top: 26px;">
+        <div class="kicker">The skin model</div>
+        <h3>Tokens first. Per-pedal overrides second.</h3>
+        <p>
+          A theme is a small, validated JSON document. It sets a global palette and can
+          override individual pedal types. A skin editor ships as a grid of safe controls —
+          colors, finishes, LED behavior, density — rather than arbitrary CSS, so a shared
+          theme cannot break the layout or destroy contrast.
+        </p>
+
+        <div class="swatches" aria-hidden="true">
+          <div class="swatch"><i style="--c:#171512"></i><span>amp body</span></div>
+          <div class="swatch"><i style="--c:#e8dcc2"></i><span>panel cream</span></div>
+          <div class="swatch"><i style="--c:#6d322b"></i><span>drive chassis</span></div>
+          <div class="swatch"><i style="--c:#67d59a"></i><span>LED green</span></div>
+          <div class="swatch"><i style="--c:#d89a4c"></i><span>accent amber</span></div>
+          <div class="swatch"><i style="--c:#3f5a3c"></i><span>british green</span></div>
+          <div class="swatch"><i style="--c:#4b7897"></i><span>delay blue</span></div>
+          <div class="swatch"><i style="--c:#6e5a7c"></i><span>reverb purple</span></div>
+        </div>
+
+        <ul class="token-list" aria-label="Theme token examples">
+          <li><span>--stomp-accent</span><b>#e27a3f</b></li>
+          <li><span>--pedal-drive-chassis</span><b>#6d322b</b></li>
+          <li><span>--amp-panel</span><b>#e8dcc2</b></li>
+          <li><span>--led-on</span><b>#67d59a</b></li>
+          <li><span>--density</span><b>comfortable</b></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= BLUEPRINT ======================= -->
+  <section class="section" id="blueprint">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">06 / UI blueprint</div>
+        <div>
+          <h2>Build a hardware component kit.</h2>
+          <p class="section-intro">
+            The fastest way to make the rebuild feel designed rather than themed is to stop
+            styling generic form controls. Define a small vocabulary of guitar-hardware
+            components and make every screen compose them. The kit is the design system, the
+            theme surface, and the accessibility contract in one place.
+          </p>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="kit-table">
+          <thead><tr><th scope="col">Component</th><th scope="col">What it owns</th><th scope="col">Implementation notes</th></tr></thead>
+          <tbody>
+            <tr><td>Pedal chassis</td><td>Size variants (mini, standard, amp, cab), label, artwork, LED, footswitch, bypass state, drag handle.</td><td>One component with a skin slot. Fixed device positions get a lock affordance, not a disabled look.</td></tr>
+            <tr><td>Knob</td><td>270° rotary control, pointer, tick marks, value bubble, fine mode, keyboard support, double-click reset.</td><td>SVG or CSS in Tauri; CustomPainter in Flutter. Expose value, min, max, step, default, and formatted label.</td></tr>
+            <tr><td>Signal chain</td><td>Horizontal flow, empty slots, fixed slots, drag reordering, keyboard reorder, add/remove menu.</td><td>Optimistic UI with rollback on device rejection. Never let a drag animation lie about the final state.</td></tr>
+            <tr><td>AMP head</td><td>NAM 1 / NAM 2 lanes, model selector, per-lane enable, tone stack, stereo pan, A/B compare.</td><td>A larger chassis variant with its own responsive rules. Collapse the second lane on narrow screens.</td></tr>
+            <tr><td>Cabinet / IR</td><td>IR slot, level, blend, pan, upload action, waveform or speaker visualization.</td><td>Treat upload as a first-class action, not a trip to a settings tab.</td></tr>
+            <tr><td>EQ curve</td><td>Draggable bands, frequency/gain/Q, filter type, enable state, numeric fallback.</td><td>SVG path with pointer events in Tauri; canvas in Flutter. Always pair the graph with accessible inputs.</td></tr>
+            <tr><td>Preset rail</td><td>Search, favorites, recent, current marker, keyboard stepping, rename, save.</td><td>Virtualize the list early; 500+ presets should not create 500 live nodes.</td></tr>
+            <tr><td>Connection bar</td><td>Transport selector, mDNS discoveries, manual TCP, USB diagnostics, connect state.</td><td>Port the existing diagnostic messages. A failed USB connection should explain itself.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="blueprint-grid">
+        <div>
+          <div class="kicker">Theme contract · illustrative</div>
+          <pre class="theme-json"><code>{
+  <span class="j-key">"name"</span><span class="j-punct">:</span> <span class="j-str">"Cream Tolex"</span><span class="j-punct">,</span>
+  <span class="j-key">"version"</span><span class="j-punct">:</span> <span class="j-num">1</span><span class="j-punct">,</span>
+  <span class="j-key">"tokens"</span><span class="j-punct">:</span> {
+    <span class="j-key">"accent"</span><span class="j-punct">:</span> <span class="j-str">"#e27a3f"</span><span class="j-punct">,</span>
+    <span class="j-key">"panel"</span><span class="j-punct">:</span> <span class="j-str">"#e8dcc2"</span><span class="j-punct">,</span>
+    <span class="j-key">"ink"</span><span class="j-punct">:</span> <span class="j-str">"#1d1a16"</span><span class="j-punct">,</span>
+    <span class="j-key">"ledOn"</span><span class="j-punct">:</span> <span class="j-str">"#67d59a"</span><span class="j-punct">,</span>
+    <span class="j-key">"density"</span><span class="j-punct">:</span> <span class="j-str">"comfortable"</span>
+  }<span class="j-punct">,</span>
+  <span class="j-key">"pedals"</span><span class="j-punct">:</span> {
+    <span class="j-key">"drive"</span><span class="j-punct">:</span> { <span class="j-key">"chassis"</span><span class="j-punct">:</span> <span class="j-str">"#6d322b"</span> }<span class="j-punct">,</span>
+    <span class="j-key">"delay"</span><span class="j-punct">:</span> { <span class="j-key">"chassis"</span><span class="j-punct">:</span> <span class="j-str">"#2c3550"</span> }
+  }
+}</code></pre>
+          <p class="small" style="margin-top: 10px;">Validate on load, derive contrast checks, and always keep a “reset to default” escape hatch.</p>
+        </div>
+
+        <div>
+          <div class="kicker">State flow</div>
+          <div class="state-flow" aria-label="State flow diagram">
+            <span>device delta</span><i>→</i><span>normalize</span><i>→</i><span>diff</span><i>→</i><span>store slice</span><i>→</i><span>selector</span><i>→</i><span>knob</span>
+          </div>
+          <p class="small" style="margin-top: 12px;">
+            Polling can arrive every 500 ms while the UI updates at 250 ms. Batch deltas into a
+            single animation frame; subscribe each control to a narrow slice; keep an
+            “editing” guard so a poll cannot overwrite a value under the user's finger.
+          </p>
+
+          <div class="kicker" style="margin-top: 28px;">Accessibility is part of the hardware</div>
+          <ul class="access-list">
+            <li>Every knob is a real slider with a name, value, and keyboard step.</li>
+            <li>LED state never relies on color alone; the bypass label is always present.</li>
+            <li>Drag reordering has a keyboard alternative in the block menu.</li>
+            <li>Respect reduced motion; keep needle and meter animation optional.</li>
+            <li>Focus order follows the signal chain, not the DOM's decorative order.</li>
+            <li>Theme contrast is validated before a skin can be saved or shared.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= ROADMAP ======================= -->
+  <section class="section" id="roadmap">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">07 / Migration plan</div>
+        <div>
+          <h2>Port the protocol first. Make it pretty second.</h2>
+          <p class="section-intro">
+            The riskiest part of this rebuild is not React or Dart. It is the framing, the
+            ACK state machine, and the device's undocumented edge cases. Freeze those behind
+            a replay harness before a single pedal is drawn. The UI then becomes a client of a
+            stable contract.
+          </p>
+        </div>
+      </div>
+
+      <div class="roadmap">
+        <article class="phase">
+          <div class="phase-no">00 <span>1 week</span></div>
+          <h4>Freeze the protocol</h4>
+          <p>Convert current tests and real-device captures into replay fixtures. Record browse snapshots, deltas, block-editor metadata, and upload ACKs. Define the public device state model.</p>
+          <small>Output: fixture corpus + golden parser tests</small>
+        </article>
+        <article class="phase">
+          <div class="phase-no">01 <span>2–4 weeks</span></div>
+          <h4>Build the headless core</h4>
+          <p>Port transports, framing, cache, router/editor discovery, polling, external-change detection, and the upload state machine. Ship a CLI harness that can connect, browse, set a block, and replay an upload.</p>
+          <small>Output: core library + CLI + all tests green</small>
+        </article>
+        <article class="phase">
+          <div class="phase-no">02 <span>3–5 weeks</span></div>
+          <h4>Establish the design system</h4>
+          <p>Build the shell, typed IPC, theme tokens, and the hardware component kit: knob, pedal, chain, amp head, cab, EQ curve, preset rail. Implement the board wireframe against a fake device.</p>
+          <small>Output: interactive board view + skin switcher</small>
+        </article>
+        <article class="phase">
+          <div class="phase-no">03 <span>3–4 weeks</span></div>
+          <h4>Reach feature parity</h4>
+          <p>Presets, chain editing, dual NAM/IR, parametric NAM metadata, global EQ, uploads, activity log, reconnect, and diagnostics. Port the “editing guard” and external-change behaviour.</p>
+          <small>Output: a daily-driver build on Linux</small>
+        </article>
+        <article class="phase">
+          <div class="phase-no">04 <span>2–3 weeks</span></div>
+          <h4>Harden every platform</h4>
+          <p>Windows WebView2 bootstrapper, macOS signing/notarization, Linux udev rules and WebKitGTK matrix, auto-update, crash reporting, and the performance budget from the spike.</p>
+          <small>Output: signed installers + support notes</small>
+        </article>
+      </div>
+
+      <div class="spike">
+        <div>
+          <h3>Run a five-day spike before committing.</h3>
+          <p>
+            Build the same narrow slice in both frameworks: connection bar, a five-pedal
+            chain, one amp inspector with three knobs, and a mocked 603-node state update.
+            Measure rather than argue. The result should decide the close call.
+          </p>
+        </div>
+        <div class="spike-table" aria-label="Spike acceptance targets">
+          <div class="spike-row"><span>Cold start to usable board</span><span>&lt; 1.5 s target</span></div>
+          <div class="spike-row"><span>Chain drag at 120 Hz</span><span>no visible dropped frames</span></div>
+          <div class="spike-row"><span>603-node delta handling</span><span>&lt; 16 ms batch / frame</span></div>
+          <div class="spike-row"><span>Blocking serial read</span><span>knob stays interactive</span></div>
+          <div class="spike-row"><span>2 MiB PNAM upload</span><span>no UI stall, progress updates</span></div>
+          <div class="spike-row"><span>Unplug / replug recovery</span><span>&lt; 3 s to reconnect</span></div>
+          <div class="spike-row"><span>Idle memory</span><span>set a ceiling, then hold it</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= RISKS ======================= -->
+  <section class="section" id="risks">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">08 / Risks</div>
+        <div>
+          <h2>What could go wrong — and the countermeasure.</h2>
+          <p class="section-intro">
+            Most rebuild risk lives in the device layer and the platform edges, not in the
+            choice of component library. Treat the protocol as a compatibility project and the
+            UI as a design project; give each its own acceptance criteria.
+          </p>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="risk-table">
+          <thead><tr><th scope="col">Risk</th><th scope="col">Why it matters</th><th scope="col">Mitigation</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Protocol regression <span class="severity severity--high">High</span></td>
+              <td>A dropped delimiter or a mishandled final upload chunk can corrupt a model slot or leave the device out of sync.</td>
+              <td>Replay fixtures from real captures, golden byte assertions, and a hardware smoke script that restores every value it changes.</td>
+            </tr>
+            <tr>
+              <td>WebKitGTK inconsistency <span class="severity severity--med">Medium</span></td>
+              <td>Tauri depends on the system webview on Linux; animations and filters can vary across distributions and GPUs.</td>
+              <td>Test on the target distros, keep effects conservative, provide a “reduced effects” mode, and measure the five-day spike on the oldest supported machine.</td>
+            </tr>
+            <tr>
+              <td>Serial ownership conflict <span class="severity severity--med">Medium</span></td>
+              <td>The official app and this client can steal each other's <code>read root</code> deltas. Two clients on one pedal is a known failure mode.</td>
+              <td>Single-instance lock, clear “another controller may be connected” warning, and a fast disconnect/reconnect path.</td>
+            </tr>
+            <tr>
+              <td>Linux USB permissions <span class="severity severity--med">Medium</span></td>
+              <td>CDC-ACM needs a bound driver and the right group. The current app already carries diagnostics for this exact case.</td>
+              <td>Ship a udev rule, detect the missing <code>cdc_acm</code> module, and port the existing <code>--diagnose</code> explanations into the UI.</td>
+            </tr>
+            <tr>
+              <td>Theme breakage <span class="severity severity--low">Low</span></td>
+              <td>User-authored skins can destroy contrast, hit targets, or layout.</td>
+              <td>Schema validation, a safe token subset, contrast checks, preview-before-apply, and a one-click reset.</td>
+            </tr>
+            <tr>
+              <td>Rust learning curve <span class="severity severity--med">Medium</span></td>
+              <td>The protocol core is 2,500 lines of Python; a direct port is real work, not a weekend.</td>
+              <td>Keep the core boundary narrow, port against the replay suite, or use a Python sidecar for the first release and rewrite once the UI is proven.</td>
+            </tr>
+            <tr>
+              <td>Upload data loss <span class="severity severity--high">High</span></td>
+              <td>NAM/PNAM/IR uploads have not been validated on real hardware; the framing has delicate final-chunk rules.</td>
+              <td>Keep the current behaviour exactly, add a read-back/verify step where the device allows it, and test with a harmless slot before enabling overwrite.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= APPENDIX ======================= -->
+  <section class="section" id="appendix">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-no">09 / Appendix</div>
+        <div>
+          <h2>Notes, mapping, and sources.</h2>
+          <p class="section-intro">
+            The evaluation is based on the repository as it stands in November 2026: its
+            protocol notes, its 30-test suite, and the GTK4 interface. The effort estimates are
+            planning ranges for one experienced developer; they are not quotes.
+          </p>
+        </div>
+      </div>
+
+      <div class="appendix-grid">
+        <div class="appendix-block">
+          <h3>Protocol mapping</h3>
+          <div class="table-wrap" style="border:0; background:transparent;">
+            <table class="map-table">
+              <thead><tr><th scope="col">Current Python</th><th scope="col">Tauri / Rust</th><th scope="col">Flutter / Dart</th></tr></thead>
+              <tbody>
+                <tr><td>SerialTransport</td><td>serialport + tokio task</td><td>flutter_libserialport + isolate</td></tr>
+                <tr><td>TCPTransport</td><td>tokio TcpStream</td><td>dart:io Socket</td></tr>
+                <tr><td>mDNS discovery</td><td>mdns-sd</td><td>bonsoir</td></tr>
+                <tr><td>NUL framing / RX buffer</td><td>custom bytes buffer</td><td>custom bytes buffer</td></tr>
+                <tr><td>NAMP/PNAM gzip + padding</td><td>flate2</td><td>dart:io GZipCodec</td></tr>
+                <tr><td>WAV → IR float32</td><td>hound + byte order</td><td>ByteData + custom parser</td></tr>
+                <tr><td>JSON node commands</td><td>serde_json</td><td>dart:convert</td></tr>
+                <tr><td>Threads + GLib idle</td><td>tokio tasks + events</td><td>isolates + streams</td></tr>
+                <tr><td>GTK widgets</td><td>React + CSS/SVG</td><td>Flutter widgets + CustomPainter</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="small" style="margin-top: 12px;">The mapping is intentionally one-to-one. Nothing in the protocol requires a framework change; it requires a careful port and a test harness.</p>
+        </div>
+
+        <div class="appendix-block">
+          <h3>Sources &amp; further reading</h3>
+          <ul class="source-list">
+            <li><a href="https://v2.tauri.app/" target="_blank" rel="noreferrer">Tauri 2 documentation</a> — architecture, capabilities, bundling, mobile.</li>
+            <li><a href="https://docs.rs/serialport" target="_blank" rel="noreferrer">Rust <code>serialport</code> crate</a> — cross-platform serial I/O.</li>
+            <li><a href="https://docs.rs/mdns-sd" target="_blank" rel="noreferrer">Rust <code>mdns-sd</code> crate</a> — mDNS service discovery.</li>
+            <li><a href="https://pub.dev/packages/flutter_libserialport" target="_blank" rel="noreferrer">flutter_libserialport</a> — serial FFI package.</li>
+            <li><a href="https://pub.dev/packages/bonsoir" target="_blank" rel="noreferrer">bonsoir</a> — Flutter network service discovery.</li>
+            <li><a href="https://flutter.dev/" target="_blank" rel="noreferrer">Flutter</a> and <a href="https://docs.flutter.dev/platform-integration/desktop" target="_blank" rel="noreferrer">desktop docs</a>.</li>
+            <li><a href="https://dndkit.com/" target="_blank" rel="noreferrer">dnd-kit</a> — accessible drag-and-drop for the signal chain.</li>
+            <li><a href="https://tauri.app/showcase/" target="_blank" rel="noreferrer">Tauri showcase</a> — Spacedrive, GitButler, Hoppscotch, Cap.</li>
+            <li><a href="https://flutter.dev/showcase" target="_blank" rel="noreferrer">Flutter showcase</a> — Ubuntu Desktop Installer, Superlist, Rive.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="final-line">
+        The StompStation deserves an interface that feels like plugging into an amp — and the
+        engineering that makes it <em>reliable on every stage.</em>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-row">
+      <span class="footer-brand">StompStation rebuild study</span>
+      <div class="footer-links">
+        <a href="#verdict">Back to verdict</a>
+        <a href="#wireframes">Wireframes</a>
+        <a href="screenshot.png">Current UI</a>
+        <a href="https://github.com/obiwanconobi/ssp-linux-controller" target="_blank" rel="noreferrer">Repository</a>
+      </div>
+      <span>Prepared November 2026 · Independent evaluation</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var demo = document.getElementById('skin-demo');
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.skin-btn'));
+    if (!demo || !buttons.length) return;
+
+    function setSkin(skin) {
+      demo.setAttribute('data-skin', skin);
+      buttons.forEach(function (button) {
+        var active = button.getAttribute('data-skin') === skin;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    }
+
+    buttons.forEach(function (button) {
+      button.addEventListener('click', function () {
+        setSkin(button.getAttribute('data-skin'));
+      });
+    });
+  }());
+</script>
+</body>
+</html>

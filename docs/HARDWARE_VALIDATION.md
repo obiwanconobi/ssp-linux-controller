@@ -1,0 +1,263 @@
+# Hardware validation — 2026-11-20
+
+## Device
+
+| Field | Value |
+| --- | --- |
+| Model | StompStation PRO |
+| Firmware | 2.4.4 |
+| Device ID | `a13c18be0000001088a29e9e5d7d` |
+| Transport | USB CDC-ACM `/dev/ttyACM0`; mDNS Wi-Fi `192.168.1.97:8080` |
+| Browse size | 688 nodes |
+| Chain | 12 blocks, 14 router slots (2 empty) |
+| Presets | 60 names |
+| Captures | NAM amp 60, PNAM amp 10, NAM drive 60, PNAM drive 10, IR 50 |
+
+The full snapshot and every block editor were captured to
+[`fixtures/snapshots/hardware-2.4.4.json`](../fixtures/snapshots/hardware-2.4.4.json)
+with:
+
+```bash
+cargo run -p stomp-cli --bin stomp -- fixture serial:/dev/ttyACM0 \
+  fixtures/snapshots/hardware-2.4.4.json
+```
+
+## Read-only differential
+
+The Python client (`Legacy/stomp.py`) and the Rust core were
+run against the same pedal without writing. They agreed on:
+
+- device name, firmware, and ID;
+- current preset `Dumble Carlton`, all 60 preset names, and the preset list ref;
+- all 12 chain block labels, paths, families, and on/off states;
+- master volume `87.0` (0–100) and tempo `80.0` (30–240);
+- all five capture lists and their slot counts;
+- global EQ path `root\app\output\global_eq`, four bands, beat values, Q, and
+  band type `BP`.
+
+Python reports the extra `root\presets` list in its state bag; Rust keeps the
+preset namespace in `PresetView` instead, which is intentional.
+
+## Firmware 2.5.3 read-only pass (2026-11-21)
+
+The same pedal was updated to 2.5.3 and checked over Wi-Fi:
+
+- `root\sys\_ver` reports `2.5.3`; `browse root` returns 694 nodes;
+- preset, capture-list, master, and global-EQ shapes are unchanged;
+- the active PNAM amp (`[AMP] RVRA.KR7-Mar-CH3`) is a
+  `ParametricSlimmableContainer`; its `p1` is a `switch` styled
+  `vtype:["ON","OFF"]` with `value: 0.5` (position 1, `OFF`);
+- two simultaneous TCP clients both received the full browse response and
+  continued to receive `read root` deltas;
+- the USB descriptor now reports product `StompStation`, serial
+  `STOMPPRO-…-ACM`, and `bcdDevice 0x0104`.
+
+The new switch shape is parsed by both clients; see
+[`FIRMWARE_2.5.3.md`](FIRMWARE_2.5.3.md) for the full
+firmware diff and remaining notes. No 2.5.3 snapshot fixture was committed
+because it contains the user's capture/preset names.
+
+## UI-level verification with the real fixture
+
+The browser build was loaded with a mocked `window.__TAURI_INTERNALS__.invoke`
+that returned the hardware fixture for `connect`, `get_snapshot`, and
+`select_block`. Clicking the actual connection sheet then ran the real store
+mapping path:
+
+- preset rail: `Dumble Carlton`, 36 named patches across 60 device slots;
+- board: 12 pedals, 3 fixed, correct on/off states;
+- master: volume 87, tempo 80, preset level `—`;
+- amp room: real NAM model names, lane 2 off, pan values, IR name;
+- global EQ: bypassed, four bands normalized to 1–4;
+- library: five capture lists and real slot counts;
+- no console or page errors.
+
+Screenshots are in [`docs/screenshots/`](screenshots/). This verifies the same
+mapping code the Tauri commands feed. The Tauri IPC layer was later exercised by
+launching the installed release, which auto-connected over Wi-Fi and loaded the
+live snapshot. Write commands use the same `Device` core and were exercised
+through the CLI; the app’s Save/Remove/Replace buttons are thin wrappers over
+those commands.
+
+## Reversible write test — gate only
+
+This was the first, minimum-risk hardware write test. With explicit user
+approval, only the Noise Gate was written:
+
+1. fresh snapshot: gate `OFF`;
+2. write `root\app\gate\on_off = {"value":"ON"}`;
+3. read back: gate `ON`;
+4. write `root\app\gate\on_off = {"value":"OFF"}`;
+5. read back: gate `OFF`;
+6. fresh final snapshot: gate `OFF`, preset still `Dumble Carlton`.
+
+No preset save, model/IR changes, router edits, EQ writes, or uploads were
+performed in this gate-only test. A shell trap re-asserted OFF if any step
+failed. Later save/chain tests are documented below.
+
+## Firmware differences found, and fixes
+
+| Difference | Fix |
+| --- | --- |
+| EQ bands are 0–3 on hardware (simulator used 1–4). | `EqBandView.index` is always 1–4 for the UI; `device_index` preserves 0–3 for writes. |
+| Global EQ controls live inside an `eq_par` group and firmware types include `LPS/LP/BP/HP/HPS`. | UI response math now supports low/high pass; type mapping covers all five firmware values. |
+| Global bypass is separate from band values (`on_off` is OFF; bands all report enabled). | Added store-level `eqEnabled`, mapped from the snapshot. |
+| Delay Time and Mod Rate are tempo modules; the useful value is `rawdata`, not a direct parameter. | Group conversion synthesizes a shell-eligible time/rate control from `rawdata`; the module mode selector is exposed. |
+| Compressor uses `sensitivity` / `makeup`, not `thresh` / `ratio` / `lvl`. | Aliases and shell priorities updated; labels prefer the firmware description. |
+| Cabinet uses `lo_cut` / `hi_cut`; reverb pre-delay is `pre_dly`; mod depth is `dpth`. | Alias table updated for shell knob selection. |
+| No preset-level node on 2.4.4. | `presetLevelAvailable` is false; the master strip shows `—` and disables the stepper. |
+| Tempo range is 30–240, not 20–300. | Master ranges are carried from the device snapshot; tempo steppers clamp accordingly. |
+
+Updated regression tests:
+
+- [`src/ipc/mapSnapshot.test.ts`](../apps/desktop/ui/src/ipc/mapSnapshot.test.ts)
+  maps both the simulator and hardware fixtures, including 0-based EQ
+  normalization and the real 60-preset/5-list surface.
+- [`src/components/kit/knobMap.test.ts`](../apps/desktop/ui/src/components/kit/knobMap.test.ts)
+  asserts real hardware knob choices for drive, amp, compressor, delay, mod,
+  and cab.
+
+## Chain edit payload fix (simulator + partial hardware)
+
+A UI report that “Remove from chain” did nothing traced to `Device::edit_chain`:
+it sent the router matrix as the top-level write payload
+(`write root\app\router:[[...]]`). The firmware write shape is an object, so
+the ACK never arrived and the command timed out. The router write is now wrapped
+as `write root\app\router:{"value":[[...]]}` for add, remove, move, replace,
+and link.
+
+The simulator smoke performs remove → add → replace → replace-back and asserts
+the resulting labels, empty slots, and available-block list. Add/remove were
+then exercised on hardware during the reversible save test below, including a
+fresh-read check. Move/link still need a hardware pass; they use the same
+wrapped router payload.
+
+## Preset save field-order fix (hardware-validated)
+
+The “Save does not persist chain/parameter edits” report was reproduced on the
+pedal. Rust’s `serde_json` default sorted object keys, so the save command went
+out as `{"save":"save","value":"Dumble Carlton"}`. The firmware applies fields
+in order: it persisted the old state, then treated `value` as a preset load and
+restored the stored preset.
+
+The client now enables `serde_json`’s `preserve_order`, matching the device
+app’s wire shape `{"value":"...","save":"save"}`. Coalesced knob/model writes
+are flushed before the save command, and router edits now keep the preset
+marked dirty instead of being cleared by a refresh.
+
+Reversible hardware test, 2026-11-20:
+
+1. baseline: preset `Dumble Carlton`, Noise Gate in slot `(0,0)`, Drive gain
+   `2.20765`;
+2. removed the Noise Gate and set Drive gain to `2.5`;
+3. saved;
+4. fresh connection/read: Noise Gate still removed, Drive gain `2.5`;
+5. restored the Noise Gate at `(0,0)` and Drive gain to `2.20765`, saved;
+6. fresh connection/read: original chain and gain restored, preset unchanged.
+
+Command-level regression tests assert the exact save and `dwrite` field order.
+After the restore, a full fresh snapshot matched the pre-test snapshot exactly
+(ignoring revision, meters, and USB status): preset `Dumble Carlton`, original
+12-block chain, Noise Gate `OFF`, Drive gain `2.20765`.
+
+## Parametric NAM editor mapping
+
+The live drive editor was captured read-only while the block was in Parametric
+NAM mode. It exposed both loaders (`model` hidden, `pmodel` visible) plus the
+model-dependent `p1..p3` pfloat controls and the legacy NAM tone controls
+hidden. The desktop mapper previously always selected `model`, so the normal
+NAM list stayed on screen and the shell text followed the inactive model.
+
+The mapper now prefers the visible loader and treats `pmodel` as a model
+control. Selecting a PNAM model rebrowses that block so the model-dependent
+labels/ranges load; switching type with an empty PNAM slot selects the first
+available model, matching the Python client. Regression coverage includes the
+real 2.4.4 PNAM editor shape and the type-change/default-model flow.
+
+The corrected PNAM loader, pedal-shell model, and model-dependent controls were
+confirmed on the live pedal by the user. The fix itself required no hardware
+write; it was validated from the captured PNAM editor shape plus the UI smoke.
+
+## Startup discovery
+
+The Tauri app now starts disconnected. It browses mDNS `_http._tcp` for a
+service whose TXT `id` contains `voidx`, tries those first, then probes USB
+serial ports, and finally opens the connection sheet with the discovery error.
+The browser preview is unaffected; the Tauri demo is opt-in with `--demo` or
+`STOMPSTATION_DEMO=1`. UI startup smoke covers no-device, demo, and USB-success
+states with mocked IPC.
+
+The installed release was launched against the real pedal on 2026-11-20. It
+found the `_http._tcp` service and auto-connected over Wi-Fi at
+`192.168.1.97:8080`, then loaded the 12-block board read-only. The app was
+closed after verification; no chain write was issued.
+
+## Regression coverage
+
+The hardware-free suite is the release gate:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace          # 43 tests
+./scripts/smoke.sh              # simulator, chain edits, save path, preset, upload
+
+cd apps/desktop/ui
+pnpm lint
+pnpm test                       # 28 Vitest tests
+pnpm build
+pnpm test:ui
+pnpm test:startup
+```
+
+Relevant focused tests:
+
+- [`src/ipc/mapSnapshot.test.ts`](../apps/desktop/ui/src/ipc/mapSnapshot.test.ts):
+  active NAM/PNAM loader selection and PNAM controls.
+- [`src/stores/useAppStore.test.ts`](../apps/desktop/ui/src/stores/useAppStore.test.ts):
+  dirty-state persistence, save clearing, chain remove routing, and the
+  type-change/default-PNAM-model flow.
+- [`crates/stomp-protocol/src/command.rs`](../crates/stomp-protocol/src/command.rs):
+  exact `value`-before-`save` and `index`/`chunk`/`value` ordering.
+- [`scripts/smoke.sh`](../scripts/smoke.sh): simulator remove/add/replace and
+  preset/upload assertions.
+
+## Android validation (emulator)
+
+The Tauri Android app was built for `aarch64` and `x86_64` and run on a Pixel 10
+Pro API 37 x86_64 emulator. The release APK connected over TCP to the bundled
+simulator through `adb reverse tcp:45700 tcp:45700` and loaded the full board,
+inspector, chain, and master controls. The mobile connection sheet correctly
+omitted USB and used Wi-Fi/manual TCP.
+
+The build targets SDK 36 because SDK 37 enforces `ACCESS_LOCAL_NETWORK` as a
+runtime permission; target 36 keeps `INTERNET`’s implicit LAN access for this
+sideload APK. Bumping to 37 requires adding and requesting that permission.
+
+Android constraints:
+
+- no USB serial/OTG path; the transport stub returns “unsupported”;
+- mDNS requires the `MulticastLock` in `MainActivity`; emulator mDNS is not a
+  reliable test because its virtual network does not route to the host LAN;
+- the physical phone has not been tested;
+- release APKs are signed with the local Android debug key for sideloading.
+
+See [`ANDROID.md`](ANDROID.md) for build and install instructions.
+
+## Still unvalidated on hardware
+
+These intentionally remain on the Phase 3 checklist:
+
+- NAM / PNAM / IR upload to a scratch slot, including the 2048-character final
+  marker and ACK pause behavior;
+- live snapshot polling for 10 minutes and reconnect after unplugging USB
+  mid-poll (the interim poller exists but has not been hardened on hardware);
+- external preset/chain changes from the pedal while the app is open;
+- tuner open/close restore;
+- EQ writes and chain move/link writes. Chain add/remove and the PNAM editor
+  were exercised; move/link and EQ writes still need a pass.
+- Save As to a new/empty preset slot (core and Python client support it; no
+  desktop dialog yet).
+- Android on a physical phone, including Wi-Fi mDNS discovery, one-client
+  behavior, and reconnect after screen lock;
+- factory reset (do not run without a fresh backup).

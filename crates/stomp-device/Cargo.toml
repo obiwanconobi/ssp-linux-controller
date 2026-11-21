@@ -1,0 +1,21 @@
+[package]
+name = "stomp-device"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["serial"]
+serial = ["stomp-transport/serial"]
+
+[dependencies]
+stomp-protocol = { path = "../stomp-protocol" }
+stomp-transport = { path = "../stomp-transport", default-features = false }
+stomp-upload = { path = "../stomp-upload" }
+stomp-eq = { path = "../stomp-eq" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

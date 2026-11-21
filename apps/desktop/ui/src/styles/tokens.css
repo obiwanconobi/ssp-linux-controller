@@ -1,0 +1,221 @@
+:root {
+  --font-ui: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --canvas: #12110f;
+  --surface: #1c1a16;
+  --raised: #29251f;
+  --raised-2: #322d26;
+  --hairline: #403a31;
+  --hairline-soft: #312d26;
+  --text: #f5ecdd;
+  --text-2: #ddd2c0;
+  --muted: #a19686;
+  --muted-2: #83796c;
+  --accent: #ef8548;
+  --accent-soft: #7a3f22;
+  --amber: #e3ae55;
+  --led: #6fd79b;
+  --led-dark: #2e6b4c;
+  --danger: #d56757;
+  --danger-soft: #5b2b26;
+  --info: #74a9c7;
+  --panel: #e9dfc8;
+  --panel-ink: #241f18;
+  --panel-line: #c9bca3;
+
+  --drive: #6d322b;
+  --drive-ink: #f3d7c9;
+  --mod: #2c4f49;
+  --mod-ink: #cbe9dd;
+  --delay: #2c3550;
+  --delay-ink: #d4dcf2;
+  --reverb: #4f3e5e;
+  --reverb-ink: #e6d9ef;
+  --cab: #d9cdb6;
+  --cab-ink: #2b241b;
+  --utility: #34302a;
+  --utility-ink: #ded5c6;
+
+  --band-1: #74a9c7;
+  --band-2: #6fd79b;
+  --band-3: #e3ae55;
+  --band-4: #e07a3f;
+
+  --shadow-panel: 0 8px 20px rgba(0, 0, 0, 0.34);
+  --shadow-pedal: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 9px rgba(0, 0, 0, 0.3);
+  --shadow-float: 0 18px 50px rgba(0, 0, 0, 0.46);
+
+  --radius-control: 6px;
+  --radius-panel: 8px;
+  --radius-window: 10px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --pedal-mini-w: 84px;
+  --pedal-standard-w: 104px;
+  --pedal-amp-w: 190px;
+  --pedal-h: 172px;
+  --knob-sm: 15px;
+  --knob-md: 20px;
+  --knob-lg: 30px;
+  --knob-xl: 44px;
+  --target-min: 32px;
+  --target-stage: 44px;
+
+  --chrome-h: 58px;
+  --tabs-h: 42px;
+  --status-h: 28px;
+
+  --texture-tolex:
+    radial-gradient(circle at 18% 24%, rgba(255, 255, 255, 0.035) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 78% 68%, rgba(0, 0, 0, 0.22) 0 1px, transparent 1.4px),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.045), transparent 38%),
+    linear-gradient(180deg, #2a261f, #1d1a16 58%, #171512);
+  --texture-grille:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.34) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 3px),
+    linear-gradient(160deg, #191713, #0f0e0c);
+  --texture-brushed:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 2px),
+    linear-gradient(180deg, #4a443a, #302b25);
+  --texture-panel:
+    radial-gradient(circle at 12% 19%, rgba(255, 255, 255, 0.35) 0 1px, transparent 1.3px),
+    radial-gradient(circle at 72% 55%, rgba(0, 0, 0, 0.045) 0 1px, transparent 1.4px),
+    linear-gradient(170deg, #efe7d3, #ddd2ba);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-ui: 160ms;
+}
+
+[data-theme='cream'] {
+  --canvas: #e9e2d2;
+  --surface: #f8f2e5;
+  --raised: #efe7d6;
+  --raised-2: #e7ddc9;
+  --hairline: #c4b7a0;
+  --hairline-soft: #d8ccb6;
+  --text: #241f18;
+  --text-2: #433a2e;
+  --muted: #7c7162;
+  --muted-2: #938577;
+  --accent: #b9542a;
+  --accent-soft: #e4b9a7;
+  --amber: #9a6a1e;
+  --led: #2f7d5c;
+  --led-dark: #1f5d42;
+  --danger: #a53b31;
+  --danger-soft: #ecd0c9;
+  --info: #2f6f8f;
+  --panel: #f3ead6;
+  --panel-ink: #241f18;
+  --panel-line: #c9bca3;
+  --drive: #7a352b;
+  --drive-ink: #f7e2d8;
+  --mod: #2f5b52;
+  --mod-ink: #d8efe8;
+  --delay: #334066;
+  --delay-ink: #dde4f7;
+  --reverb: #59476b;
+  --reverb-ink: #ece2f4;
+  --cab: #3a342b;
+  --cab-ink: #efe5cf;
+  --utility: #c9bda6;
+  --utility-ink: #2c261d;
+  --shadow-panel: 0 10px 24px rgba(53, 42, 26, 0.16);
+  --shadow-pedal: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 4px 9px rgba(53, 42, 26, 0.18);
+  --shadow-float: 0 18px 50px rgba(53, 42, 26, 0.26);
+  --texture-tolex:
+    radial-gradient(circle at 18% 24%, rgba(0, 0, 0, 0.06) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 78% 68%, rgba(255, 255, 255, 0.24) 0 1px, transparent 1.4px),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.3), transparent 38%),
+    linear-gradient(180deg, #f4ecd9, #e6dcc5 58%, #ddd1b8);
+  --texture-grille:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.26) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 3px),
+    linear-gradient(160deg, #3a342b, #262119);
+  --texture-brushed:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 2px),
+    linear-gradient(180deg, #d5c9b2, #bfb199);
+  --texture-panel:
+    radial-gradient(circle at 12% 19%, rgba(255, 255, 255, 0.45) 0 1px, transparent 1.3px),
+    radial-gradient(circle at 72% 55%, rgba(0, 0, 0, 0.05) 0 1px, transparent 1.4px),
+    linear-gradient(170deg, #f7efdc, #e8ddc6);
+}
+
+[data-theme='british'] {
+  --canvas: #101410;
+  --surface: #1a2018;
+  --raised: #222a20;
+  --raised-2: #293227;
+  --hairline: #3a4536;
+  --hairline-soft: #2b3328;
+  --text: #ece6d5;
+  --text-2: #cfc9b7;
+  --muted: #8b907e;
+  --muted-2: #6c7264;
+  --accent: #d6a347;
+  --accent-soft: #6c5122;
+  --amber: #e0b25b;
+  --led: #79c98f;
+  --led-dark: #356b43;
+  --danger: #cf6e5c;
+  --danger-soft: #542b25;
+  --info: #82b2c9;
+  --panel: #e7dfc9;
+  --panel-ink: #20251c;
+  --panel-line: #c4bda6;
+  --drive: #5c332b;
+  --drive-ink: #f2d9ce;
+  --mod: #31564a;
+  --mod-ink: #d2ebdf;
+  --delay: #323d55;
+  --delay-ink: #d9e0f0;
+  --reverb: #4f3f5d;
+  --reverb-ink: #e8ddf0;
+  --cab: #d8ceb5;
+  --cab-ink: #25281d;
+  --utility: #2f382c;
+  --utility-ink: #dce0cd;
+  --shadow-panel: 0 8px 20px rgba(0, 0, 0, 0.38);
+  --texture-tolex:
+    radial-gradient(circle at 18% 24%, rgba(255, 255, 255, 0.03) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 78% 68%, rgba(0, 0, 0, 0.25) 0 1px, transparent 1.4px),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.04), transparent 38%),
+    linear-gradient(180deg, #273021, #1b2219 58%, #141a13);
+}
+
+[data-density='compact'] {
+  --space-2: 6px;
+  --space-3: 9px;
+  --space-4: 12px;
+  --space-5: 18px;
+  --space-6: 24px;
+  --pedal-h: 170px;
+  --pedal-mini-w: 78px;
+  --pedal-standard-w: 96px;
+  --pedal-amp-w: 176px;
+  --chrome-h: 52px;
+  --tabs-h: 38px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-ui: 0ms;
+  }
+}
+
+[data-motion='reduced'] {
+  --dur-fast: 0ms;
+  --dur-ui: 0ms;
+}

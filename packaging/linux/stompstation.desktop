@@ -1,0 +1,12 @@
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Type=Application
+Name=StompStation
+GenericName=Pedalboard controller
+Comment=Pedalboard-first controller for the Sonulab StompStation PRO
+Exec=stompstation
+Icon=stompstation
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=guitar;pedal;amp;nam;ir;
+StartupWMClass=stompstation

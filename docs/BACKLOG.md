@@ -1,0 +1,137 @@
+# Backlog
+
+Last updated: 2026-11-20
+
+## UI feedback — this pass
+
+| # | Item | Status |
+| --- | --- | --- |
+| 1 | Signal-chain pedal text is obscured. | Fixed: wider/taller shells, reserved two-line model space, compact shell values, labels constrained to their knob column, mini shells capped at two knobs. |
+| 2 | UI is slightly cluttered; some text is hard to read; styling is too muted. | Fixed in this pass: larger micro-type, stronger muted/text contrast, more spacing, removed a redundant inspector hint. Further density polish stays on the list below. |
+| 3 | Hovering a knob shows the scroll/resize cursor. | Fixed: knob cursor is now `pointer`; dragging still works. |
+| 4 | Signal-chain blocks should be centered. | Fixed: chain content is centered when it fits and scrolls from the start when it overflows. |
+| 5 | NAM → Parametric NAM changes nothing. | Fixed: demo swaps to PNAM controls and model list; device mode refreshes the editor after the type write. |
+| 6 | Drag to reorder does not work. | Fixed: drag anywhere on a movable pedal (knobs, value fields, and footswitches opt out); fixed slots still refuse. |
+| 7 | Library needs a recursive local-folder scan. | Added: Local files tab, Tauri recursive scanner, browser directory picker, and one-click preflight. |
+| 8 | Dials are not smooth; values cannot be typed. | Fixed: local drag values at pointer rate with throttled writes; click the value text to type with range validation. |
+| 9 | Pedal bodies need full colour, not just accent strips. | Fixed: family chassis colours now fill each shell, with theme-aware ink tokens. |
+| 10 | Fixed-slot badge obscures the ON state. | Fixed: the badge is now a lock-only icon at the bottom-left with the foot state shifted clear. |
+| 11 | Bypass can appear to flip twice after one click. | Fixed: pending block writes and a revision guard prevent a stale poll snapshot from rewinding the local toggle. |
+| 12 | Demo board is the default startup state. | Fixed: Tauri starts disconnected and scans mDNS Wi-Fi first, then USB. Demo is opt-in with `--demo`/`STOMPSTATION_DEMO=1`; the browser preview remains the deterministic demo. |
+| 13 | Remove from chain does not work on the device. | Fixed: chain edits wrote the raw router matrix instead of `{"value": [...]}`. The payload is now wrapped, and add/remove/replace are covered by the simulator smoke. |
+| 14 | Add a Replace with action beside Remove from chain. | Added: a dropdown submenu swaps the selected block in one router write; fixed slots and empty replacement lists are disabled. |
+| 15 | Amp-room lanes read as large rectangles, not amps. | Restyled as tolex combo amps: strap handle, cream faceplate, knobs, jewel light, oxblood 2×12 grille, metal logo, and rubber feet. |
+| 16 | Saving resets the chain and loses changed parameters. | Fixed: `serde_json` was sorting object keys, so Rust sent `{"save":"save","value":"..."}`. The firmware applies fields in order, saved the old state, then loaded the stored preset. `preserve_order` now matches the device app’s `{"value":"...","save":"save"}` shape; coalesced knob writes are flushed before save. Chain edits now mark the preset dirty, and a refresh no longer clears that flag. |
+| 17 | Parametric NAM drive shows the normal NAM loader and no model parameters. | Fixed: the block mapper now chooses the visible model loader (`pmodel` for Parametric NAM, `model` for NAM) instead of always taking `model`; the pedal shell follows the active loader. Selecting a PNAM model rebrowses the editor so model-dependent `p1..pN` labels/ranges appear, and switching type with an empty PNAM slot selects the first available model like the Python client. |
+
+## This pass — live updates
+
+- Interim Tauri poller implemented: 500 ms `read root`, 2 s full browse on TCP,
+  `device://snapshot` events, `device://error` on sustained failure, and a
+  polling pause while an upload holds the transport.
+- UI event listener applies live master, meters, EQ, preset, list, and block
+  on/off updates; a changed preset/chain triggers the full editor rebrowse.
+- Snapshot polling has not yet been validated for 10 minutes of hardware idle
+  time; that remains on the hardware checklist.
+- Local capture indexing is implemented in Rust and the browser directory picker.
+  It has not been wired to the device upload yet; preflight from a local file
+  works, but the actual ACK upload still goes through the CLI/API.
+- Save now persists chain and parameter edits: the wire order is `value` then
+  `save`, coalesced writes are flushed first, and the dirty flag survives a
+  board refresh. Verified with a reversible hardware test.
+- Chain add/remove were exercised on hardware during the save test. The UI
+  Remove and Replace actions use the same router write path.
+- Parametric NAM now follows the active `pmodel` loader; model-dependent
+  `p1..pN` controls load after a model change and the first PNAM model is
+  selected automatically when needed.
+
+## Android
+
+- Tauri Android project generated under `apps/desktop/src-tauri/gen/android`;
+  `MainActivity` acquires a Wi-Fi `MulticastLock` for mDNS.
+- Mobile build disables the desktop `serialport` dependency and uses a
+  compile-only stub. The app is Wi-Fi/TCP only; USB serial/OTG is not exposed.
+- `scripts/build-android.sh` builds, zipaligns, and signs an APK. Artifacts are
+  under `dist/android/` (gitignored).
+- Release APKs build for `aarch64` and `x86_64`; the x86_64 release was run in a
+  Pixel 10 Pro API 37 emulator and loaded the full simulator board over TCP.
+- Remaining: physical-phone Wi-Fi/mDNS test, Play Store AAB/upload-key signing,
+  tablet/landscape layout, USB-OTG serial (optional), reconnect-on-resume, and
+  the Android 17 `ACCESS_LOCAL_NETWORK` runtime request before moving
+  `targetSdk` from 36 to 37.
+- Details: [`docs/ANDROID.md`](ANDROID.md).
+
+## Verified on hardware (2.4.4, 2026-11-20)
+
+- Wi-Fi mDNS discovery and auto-connect from the installed release.
+- Reversible Noise Gate bypass write/readback/restore.
+- Preset save after a router edit and parameter change, with fresh-read
+  verification; original preset restored.
+- Chain add/remove during that test.
+- Parametric NAM drive editor mapping: PNAM loader, shell model, and
+  model-dependent controls confirmed working.
+
+Open hardware checks remain in the section below.
+
+## Local installation
+
+- Installed release build at `~/.local/bin/stompstation`, desktop entry and
+  hicolor icons under `~/.local/share`. The release uses Tauri's
+  `custom-protocol` feature and embeds the production UI.
+- Re-run `scripts/install-local.sh` after changes. GitHub Actions now builds
+  Windows NSIS/MSI and Linux deb/AppImage artifacts; signing and an updater
+  remain Phase 4.
+
+## Next development
+
+### Device layer
+
+1. **Full single-owner actor.** Replace the current shared `Mutex<Device>` +
+   interim poller with the actor described in the dossier: one command queue,
+   one scheduler, revisions, patches, reconnect backoff, and explicit pending
+   writes. The interim poller emits snapshots but does not yet patch control
+   values or reconcile external edits.
+2. **External-change conflict UX.** Detect a changed preset/router on a poll,
+   rebrowse, and show “Changed on device — board reloaded.” If a local write is
+   pending, mark the affected control and let the user choose the winner.
+3. **Device-mode undo/redo.** Replay the changed controls to the device instead
+   of only restoring the local UI snapshot.
+4. **Upload file picker.** Wire `tauri-plugin-dialog` → preflight →
+   `begin_upload`, stream ACK progress, cancel after the current chunk, refresh
+   the target list, and highlight the new slot. Then validate NAM/PNAM/IR to a
+   scratch slot on real hardware.
+5. **Settings discovery panel.** Launch/manual discovery is done: `_http._tcp`
+   browse, VoidX TXT filtering, manual Wi-Fi list, Wi-Fi-first then USB
+   auto-connect, and a no-device error. An explicit Settings scan/manage surface
+   remains optional.
+6. **Tuner lifecycle polish.** Poll only while open, restore the prior state,
+   and handle firmware without a tuner gracefully.
+7. **Factory reset recovery.** After reset, clear cached views, rebrowse, and
+   show the post-reset state without losing diagnostics.
+
+### UI polish
+
+1. Density pass on the inspector and utility rail: group secondary values,
+   reduce repeated labels, and keep the “exactly one primary action” rule.
+2. Compare built-in themes against WCAG contrast tokens; add a visual test for
+   focused/pending/error states in all three themes.
+3. Virtualize the library table once slot lists exceed a few hundred rows.
+4. Add a narrow-window preset drawer (currently the rail hides below 900 px).
+5. Add a “compact chain” option for 12+ block chains: two knobs per standard
+   shell and a model-only plate.
+6. Visual regression baselines for Board, Amp room, EQ, Library, Settings, Stage,
+   tuner, and the three themes.
+7. **Save As dialog.** Core `save_preset(name)` and name validation already
+   exist; add the dialog, overwrite warning, and post-save list refresh.
+
+### Hardware validation still open
+
+- Upload NAM/PNAM/IR to a scratch slot and verify the final marker/ACK path.
+- Unplug/replug mid-poll and verify reconnect without stale writes.
+- Change a preset/chain on the pedal while the app is open.
+- Tuner open/close restore.
+- EQ writes and chain move/link writes. Chain add/remove are hardware-tested;
+  move/link share the same wrapped router payload but have not been exercised
+  through the UI.
+- Memory/poll stability over 10 minutes.
+- Factory reset only with a verified backup.

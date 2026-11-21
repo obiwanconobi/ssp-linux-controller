@@ -1,0 +1,19 @@
+[package]
+name = "stomp-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["serial"]
+serial = ["dep:serialport"]
+mdns = ["dep:mdns-sd"]
+
+[dependencies]
+stomp-protocol = { path = "../stomp-protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+serialport = { workspace = true, optional = true }
+mdns-sd = { workspace = true, optional = true }

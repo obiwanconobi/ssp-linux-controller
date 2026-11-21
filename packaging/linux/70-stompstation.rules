@@ -1,0 +1,6 @@
+# The pedal reports the shared Linux Foundation gadget IDs, so match the
+# manufacturer/product strings as well. uaccess grants the active seat user
+# access to the CDC-ACM node without a logout or a world-writable device.
+SUBSYSTEM=="tty", ATTRS{manufacturer}=="SONULAB", \
+  ATTRS{product}=="StompStation PRO", \
+  MODE="0660", TAG+="uaccess"
