@@ -61,12 +61,10 @@ GitHub Actions builds the desktop app on every push and pull request:
 
 The workflow lives in [`.github/workflows/build.yml`](.github/workflows/build.yml).
 Each run uploads the installers/packages as downloadable workflow artifacts.
-Pushing a `v*` tag also publishes a GitHub Release with the installers attached:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+Pushes to `master` publish or update the GitHub Release for the version in
+`apps/desktop/src-tauri/tauri.conf.json` (currently `v0.1.0`), with the
+installers attached. To cut a new release, bump that version and push; an
+explicit `v*` tag can also be pushed to publish or update that tag's release.
 
 The Linux AppImage is larger than the Windows bundle because it embeds
 GTK/WebKitGTK, while Windows uses the system WebView2 runtime.
