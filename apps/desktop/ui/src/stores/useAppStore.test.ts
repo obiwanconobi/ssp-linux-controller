@@ -348,4 +348,64 @@ describe('device connection integration', () => {
     expect(started).toBe(false);
     expect(client.beginUpload).not.toHaveBeenCalled();
   });
+
+  it('adds new blocks to the requested slot and defaults to the last slot', async () => {
+    client.getSnapshot.mockResolvedValue(hardware.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => hardware.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    expect(useAppStore.getState().emptySlots).toEqual([
+      { row: 0, col: 18 },
+      { row: 0, col: 26 },
+    ]);
+
+    useAppStore.getState().addBlock('root\\app\\flanger', { row: 0, col: 18 });
+    expect(client.editChain).toHaveBeenCalledWith({
+      type: 'add',
+      row: 0,
+      col: 18,
+      path: 'root\\app\\flanger',
+    });
+
+    client.editChain.mockClear();
+    useAppStore.getState().addBlock('root\\app\\rotary');
+    expect(client.editChain).toHaveBeenCalledWith({
+      type: 'add',
+      row: 0,
+      col: 26,
+      path: 'root\\app\\rotary',
+    });
+  });
+
+  it('moves a block into an empty slot when dropped on a neighbouring block', async () => {
+    client.getSnapshot.mockResolvedValue(hardware.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => hardware.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    useAppStore.getState().moveBlock('root\\app\\ir', 'root\\app\\eq');
+    expect(client.editChain).toHaveBeenCalledWith({
+      type: 'move',
+      from: [0, 14],
+      to: [0, 18],
+    });
+
+    const ids = useAppStore.getState().blocks.map((block) => block.id);
+    expect(ids.indexOf('root\\app\\ir')).toBe(ids.indexOf('root\\app\\eq') + 1);
+    expect(useAppStore.getState().emptySlots).toContainEqual({ row: 0, col: 14 });
+  });
+
+  it('moves a block directly into an empty slot drop target', async () => {
+    client.getSnapshot.mockResolvedValue(hardware.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => hardware.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    useAppStore.getState().moveBlock('root\\app\\ir', 'slot:0:18');
+    expect(client.editChain).toHaveBeenCalledWith({
+      type: 'move',
+      from: [0, 14],
+      to: [0, 18],
+    });
+    const ir = useAppStore.getState().blocks.find((block) => block.id === 'root\\app\\ir');
+    expect(ir?.slotCol).toBe(18);
+    expect(useAppStore.getState().emptySlots).toContainEqual({ row: 0, col: 14 });
+  });
 });

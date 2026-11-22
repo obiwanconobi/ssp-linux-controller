@@ -15,6 +15,13 @@ import {
   INITIAL_UPLOADS,
 } from '../data/demoDevice';
 import { applyAppearance, loadAppearance, saveAppearance } from '../theme/themes';
+import {
+  adjacentEmptySlot,
+  compareChainSlots,
+  parseChainSlotId,
+  slotOf,
+  type ChainSlotRef,
+} from '../lib/chainSlots';
 import { blockControl, getBlockKnobIds } from '../components/kit/knobMap';
 import {
   UPLOAD_TARGET_PATHS,
@@ -125,7 +132,7 @@ interface AppStore {
   setControl: (controlId: string, value: number | string | boolean) => void;
   setLink: (id: string, parallel: boolean) => void;
   moveBlock: (activeId: string, overId: string) => void;
-  addBlock: (id: string) => void;
+  addBlock: (id: string, slot?: ChainSlotRef) => void;
   removeBlock: (id: string) => void;
   clearChain: () => void;
   replaceBlock: (id: string, replacementId: string) => void;
@@ -894,52 +901,131 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     if (activeId === overId) return;
     const state = get();
     const from = state.blocks.findIndex((block) => block.id === activeId);
-    const to = state.blocks.findIndex((block) => block.id === overId);
-    if (from < 0 || to < 0) return;
-    if (state.blocks[from].fixed || state.blocks[to].fixed) {
+    if (from < 0) return;
+    const moved = state.blocks[from];
+    if (moved.fixed) {
       get().notify('Fixed blocks cannot be moved', 'warn');
       return;
     }
     const before = snapshotOf(state);
-    const blocks = [...state.blocks];
-    const [moved] = blocks.splice(from, 1);
-    blocks.splice(to, 0, moved);
+
+    if (state.connection.mode !== 'device') {
+      const to = state.blocks.findIndex((block) => block.id === overId);
+      if (to < 0) return;
+      if (state.blocks[to].fixed) {
+        get().notify('Fixed blocks cannot be moved', 'warn');
+        return;
+      }
+      const blocks = [...state.blocks];
+      const [item] = blocks.splice(from, 1);
+      blocks.splice(to, 0, item);
+      set({
+        blocks,
+        undoStack: [...state.undoStack, before].slice(-40),
+        redoStack: [],
+        save: { ...state.save, edited: true },
+      });
+      get().addActivity('Chain reordered', moved.label, 'neutral');
+      return;
+    }
+
+    const fromSlot = slotOf(moved);
+    if (!fromSlot) {
+      get().notify('This block has no router slot', 'warn');
+      return;
+    }
+
+    const targetBlock = state.blocks.find((block) => block.id === overId);
+    let target = targetBlock
+      ? adjacentEmptySlot(moved, targetBlock, state.blocks, state.emptySlots)
+      : parseChainSlotId(overId);
+    let swap = false;
+
+    if (targetBlock && !target) {
+      if (targetBlock.fixed) {
+        get().notify('No free slot beside that fixed block', 'warn');
+        return;
+      }
+      const targetSlot = slotOf(targetBlock);
+      if (!targetSlot) {
+        get().notify('This block has no router slot', 'warn');
+        return;
+      }
+      target = targetSlot;
+      swap = true;
+    }
+
+    if (!target) return;
+    const destination = target;
+
+    const blocks = state.blocks
+      .map((block) => {
+        if (block.id === activeId) {
+          return { ...block, slotRow: destination.row, slotCol: destination.col };
+        }
+        if (swap && block.id === overId) {
+          return { ...block, slotRow: fromSlot.row, slotCol: fromSlot.col };
+        }
+        return block;
+      })
+      .sort((left, right) => {
+        const leftSlot = slotOf(left);
+        const rightSlot = slotOf(right);
+        if (!leftSlot || !rightSlot) return 0;
+        return compareChainSlots(leftSlot, rightSlot);
+      });
+
+    const emptySlots = swap
+      ? state.emptySlots
+      : [
+          ...state.emptySlots.filter(
+            (slot) => slot.row !== destination.row || slot.col !== destination.col,
+          ),
+          fromSlot,
+        ].sort(compareChainSlots);
+
     set({
       blocks,
+      emptySlots,
+      selectedBlockId: activeId,
       undoStack: [...state.undoStack, before].slice(-40),
       redoStack: [],
       save: { ...state.save, edited: true },
     });
     get().addActivity('Chain reordered', moved.label, 'neutral');
-    if (get().connection.mode === 'device' && state.blocks[from].slotRow != null && state.blocks[to].slotRow != null) {
-      tauriClient
-        .editChain({
-          type: 'move',
-          from: [state.blocks[from].slotRow, state.blocks[from].slotCol],
-          to: [state.blocks[to].slotRow, state.blocks[to].slotCol],
-        })
-        .then(() => window.setTimeout(() => void get().refreshDevice(), 200))
-        .catch((error) => {
-          get().notify(ipcErrorMessage(error), 'bad');
-          void get().refreshDevice();
-        });
-    }
+    tauriClient
+      .editChain({
+        type: 'move',
+        from: [fromSlot.row, fromSlot.col],
+        to: [destination.row, destination.col],
+      })
+      .then(() => window.setTimeout(() => void get().refreshDevice(), 200))
+      .catch((error) => {
+        get().notify(ipcErrorMessage(error), 'bad');
+        void get().refreshDevice();
+      });
   },
 
-  addBlock: (id) => {
+  addBlock: (id, slot) => {
     const current = get();
     const available = current.availableBlocks.find((item) => item.id === id);
     if (!available) return;
     if (current.connection.mode === 'device') {
-      const slot = current.emptySlots[0];
-      if (!slot) {
+      const target = slot ?? current.emptySlots[current.emptySlots.length - 1];
+      if (!target) {
         current.notify('No free chain slot available', 'warn');
         return;
       }
       tauriClient
-        .editChain({ type: 'add', row: slot.row, col: slot.col, path: id })
+        .editChain({ type: 'add', row: target.row, col: target.col, path: id })
         .then(() => {
-          set((state) => ({ save: { ...state.save, edited: true } }));
+          set((state) => ({
+            save: { ...state.save, edited: true },
+            emptySlots: state.emptySlots.filter(
+              (item) => item.row !== target.row || item.col !== target.col,
+            ),
+            availableBlocks: state.availableBlocks.filter((item) => item.id !== id),
+          }));
           current.addActivity('Block added', available.label, 'good');
           current.notify(`${available.label} added to the chain`, 'good');
           return get().refreshDevice();
@@ -1363,7 +1449,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       set((state) => ({
         ...mapped,
         emptySlots: snapshot.chain.slots
-          .filter((slot) => !slot.path)
+          .filter((slot) => !slot.path && !slot.fixed)
           .map((slot) => ({ row: slot.row, col: slot.col })),
         selectedBlockId: selected,
         undoStack: [],
@@ -1438,7 +1524,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       set((state) => ({
         ...mapped,
         emptySlots: snapshot.chain.slots
-          .filter((slot) => !slot.path)
+          .filter((slot) => !slot.path && !slot.fixed)
           .map((slot) => ({ row: slot.row, col: slot.col })),
         selectedBlockId: selected,
         undoStack: [],
@@ -1504,7 +1590,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       set((state) => ({
         ...mapped,
         emptySlots: snapshot.chain.slots
-          .filter((slot) => !slot.path)
+          .filter((slot) => !slot.path && !slot.fixed)
           .map((slot) => ({ row: slot.row, col: slot.col })),
         selectedBlockId: selected,
         undoStack: [],
@@ -1584,7 +1670,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       meters: mapMeters(snapshot),
       availableBlocks: mapAvailableBlocks(snapshot),
       emptySlots: snapshot.chain.slots
-        .filter((slot) => !slot.path)
+        .filter((slot) => !slot.path && !slot.fixed)
         .map((slot) => ({ row: slot.row, col: slot.col })),
       connection: {
         ...current.connection,
