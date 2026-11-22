@@ -124,7 +124,9 @@ export const SettingsView = () => {
   const connection = useAppStore((state) => state.connection);
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
   const notify = useAppStore((state) => state.notify);
+  const copyDiagnostics = useAppStore((state) => state.copyDiagnostics);
   const appVersion = useAppStore((state) => state.appVersion);
+  const activity = useAppStore((state) => state.activity);
   const [transport, setTransport] = useState<'usb' | 'network'>('usb');
   const [autoReconnect, setAutoReconnect] = useState(true);
   const [reconnectLaunch, setReconnectLaunch] = useState(true);
@@ -208,13 +210,17 @@ export const SettingsView = () => {
 
   const diagnosticText = [
     `app      ${appVersion ? `v${appVersion}` : 'dev'}`,
-    'USB 1-4  1d6b:0104  StompStation',
-    'serial   STOMPPRO-10000000be183ca1-ACM',
-    'driver   cdc_acm bound',
-    'device   /dev/ttyACM0 · uucp ✓',
-    'firmware 2.5.3 · 694 nodes',
-    'poll     500 ms · 4.1 ms last',
-  ].join('\n');
+    `mode     ${connection.mode}`,
+    `transport ${connection.transport}`,
+    `address  ${connection.address || '—'}`,
+    `device   ${connection.deviceName}`,
+    `firmware ${connection.firmware || '—'}`,
+    `poll     ${connection.pollMs} ms · ${connection.lastPollMs.toFixed(1)} ms last`,
+    `state    ${connection.connected ? 'connected' : 'offline'}`,
+    connection.error ? `error    ${connection.error}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   return (
     <div className="settings-view">
@@ -497,7 +503,7 @@ export const SettingsView = () => {
                     <h2>USB diagnostics</h2>
                     <p className="hint">Ported from the current client — explain failure, don't hide it.</p>
                   </div>
-                  <button type="button" className="btn btn--sm" onClick={() => notify('Diagnostic report copied (demo)', 'good')}>
+                  <button type="button" className="btn btn--sm" onClick={() => copyDiagnostics()}>
                     <Copy size={12} /> Copy report
                   </button>
                 </header>
@@ -706,7 +712,7 @@ export const SettingsView = () => {
                     <h2>Diagnostics</h2>
                     <p className="hint">USB, kernel module, poll timing, and the recent log.</p>
                   </div>
-                  <button type="button" className="btn btn--sm" onClick={() => notify('Diagnostic report copied (demo)', 'good')}>
+                  <button type="button" className="btn btn--sm" onClick={() => copyDiagnostics()}>
                     <Copy size={12} /> Copy report
                   </button>
                 </header>
@@ -728,10 +734,19 @@ export const SettingsView = () => {
                   </div>
                   <div className="settings-row">
                     <div>
-                      <strong>Log policy</strong>
-                      <span className="hint">Rotating file · 5 MB cap · no device payloads</span>
+                      <strong>Activity history</strong>
+                      <span className="hint">In-memory session log · newest 80 entries · no payloads</span>
                     </div>
-                    <span className="mono">last 200 lines</span>
+                    <span className="mono">{activity.length} entries</span>
+                  </div>
+                  <div className="settings-row">
+                    <div>
+                      <strong>Crash reports</strong>
+                      <span className="hint">
+                        Off · no telemetry is sent; use Copy report to share manually
+                      </span>
+                    </div>
+                    <span className="chip">Off</span>
                   </div>
                 </div>
               </section>
@@ -744,7 +759,7 @@ export const SettingsView = () => {
                   <Keyboard size={15} />
                 </header>
                 <ul className="activity-list activity-list--full">
-                  {useAppStore.getState().activity.slice(0, 8).map((entry) => (
+                  {activity.slice(0, 8).map((entry) => (
                     <li key={entry.id} className="activity-item">
                       <span className={`activity-dot activity-dot--${entry.tone ?? 'neutral'}`} aria-hidden="true" />
                       <div className="activity-item__body">
@@ -794,7 +809,7 @@ export const SettingsView = () => {
                 <button type="button" className="btn btn--sm" onClick={() => notify('Licenses: MIT, Apache-2.0, OFL', 'neutral')}>
                   Licenses
                 </button>
-                <button type="button" className="btn btn--sm" onClick={() => notify('Diagnostic report copied (demo)', 'good')}>
+                <button type="button" className="btn btn--sm" onClick={() => copyDiagnostics()}>
                   <Copy size={12} /> Copy report
                 </button>
               </div>

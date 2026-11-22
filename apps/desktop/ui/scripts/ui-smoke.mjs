@@ -375,6 +375,17 @@ try {
     'compact chain setting did not turn off',
   );
 
+  await page.locator('.nav-tab', { hasText: 'Settings' }).click();
+  await page.locator('.settings-nav__item', { hasText: 'Diagnostics' }).click();
+  await page.waitForSelector('.code-block');
+  await page
+    .locator('.settings-card', { hasText: 'Diagnostics' })
+    .getByRole('button', { name: 'Copy report' })
+    .click();
+  await page
+    .locator('.toast', { hasText: 'Diagnostic report copied' })
+    .waitFor();
+
   await page.locator('.nav-tab', { hasText: 'Stage mode' }).click();
   await page.waitForSelector('.stage-tile');
   assert((await page.locator('.stage-tile').count()) === 9, 'stage mode should show eight bypass tiles plus tuner');

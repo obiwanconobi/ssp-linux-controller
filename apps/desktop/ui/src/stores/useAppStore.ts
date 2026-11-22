@@ -196,6 +196,7 @@ interface AppStore {
   recordDeviceOperation: (operation: DeviceOperation, coalesce?: boolean) => void;
   clearDeviceHistory: () => void;
   notify: (message: string, tone?: Toast['tone']) => void;
+  copyDiagnostics: () => void;
   addActivity: (title: string, detail?: string, tone?: ActivityEntry['tone']) => void;
   getSelectedBlock: () => Block | undefined;
   getKnobIds: (block: Block) => string[];
@@ -3186,6 +3187,55 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     window.setTimeout(() => {
       set((state) => (state.toast?.id === id ? { toast: null } : state));
     }, 2600);
+  },
+
+  copyDiagnostics: () => {
+    void (async () => {
+      try {
+        let text: string;
+        if (isTauriRuntime()) {
+          text = await tauriClient.copyDiagnostics();
+        } else {
+          const state = get();
+          text = [
+            'StompStation PRO diagnostic report (demo)',
+            `app: ${state.appVersion || 'dev'}`,
+            `mode: ${state.connection.mode}`,
+            `transport: ${state.connection.transport}`,
+            `address: ${state.connection.address || '—'}`,
+            `device: ${state.connection.deviceName}`,
+            `firmware: ${state.connection.firmware || '—'}`,
+            `poll: ${state.connection.pollMs} ms · ${state.connection.lastPollMs.toFixed(1)} ms last`,
+            `state: ${state.connection.connected ? 'connected' : 'offline'}`,
+          ].join('\n');
+        }
+        let copied = false;
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            copied = true;
+          }
+        } catch {
+          copied = false;
+        }
+        if (!copied) {
+          const area = document.createElement('textarea');
+          area.value = text;
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          copied = document.execCommand('copy');
+          area.remove();
+        }
+        if (!copied) {
+          throw new Error('the clipboard is not available');
+        }
+        get().notify('Diagnostic report copied', 'good');
+      } catch (error) {
+        get().notify(ipcErrorMessage(error), 'bad');
+      }
+    })();
   },
 
   addActivity: (title, detail, tone = 'neutral') => {

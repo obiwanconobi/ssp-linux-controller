@@ -204,7 +204,11 @@ part of the release candidate.
 - [ ] Windows code signing.
 - [ ] macOS Developer ID signing and notarization.
 - [ ] Signed updater and update channel.
-- [ ] Crash-report opt-in and diagnostic export review.
+- [x] Diagnostic export review: Copy report now uses the real backend, the
+      visible summary reflects the active connection, clipboard failures fall
+      back safely, and the UI states that crash reporting is off with no
+      telemetry.
+- [ ] Add an opt-in crash-reporting/telemetry pipeline.
 - [x] Final version-source CI guard from 0.3 (workspace, UI package, and
       Tauri config versions must match).
 

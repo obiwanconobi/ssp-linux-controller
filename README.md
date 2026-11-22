@@ -40,7 +40,7 @@ The project is deliberately split into two worlds:
 | Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, and the PNAM drive editor have been exercised on firmware 2.4.4. Firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, simultaneous Wi-Fi clients, and basic NAM A2/PNAM/IR uploads. Chain move/link, EQ writes, upload cancel/overwrite paths, and long idle polling remain open |
 | Android | Wi-Fi/TCP-only Tauri app; arm64/x86_64 release APKs build, and the x86_64 release runs in an API 37 emulator. USB serial and Play Store signing are not implemented; see [`docs/ANDROID.md`](docs/ANDROID.md) |
 | Local install | `scripts/install-local.sh` installs the release binary, desktop entry, and icons; rerun to update |
-| Phase 4–5 — hardening/release | Not started |
+| Phase 4–5 — hardening/release | P4 in progress: performance budgets, stale-write chaos tests, and diagnostic export review are in place; distro/clean-machine checks, signing, updater, and crash telemetry remain |
 
 The browser build runs against a deterministic demo device so every surface is
 inspectable without hardware. The Tauri shell starts disconnected: it scans

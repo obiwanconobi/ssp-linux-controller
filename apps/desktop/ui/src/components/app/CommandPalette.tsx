@@ -50,6 +50,7 @@ export const CommandPalette = () => {
   const setTheme = useAppStore((state) => state.setTheme);
   const theme = useAppStore((state) => state.theme);
   const notify = useAppStore((state) => state.notify);
+  const copyDiagnostics = useAppStore((state) => state.copyDiagnostics);
   const disconnect = useAppStore((state) => state.disconnect);
   const addActivity = useAppStore((state) => state.addActivity);
   const [query, setQuery] = useState('');
@@ -82,13 +83,14 @@ export const CommandPalette = () => {
       { id: 'offline', title: 'Disconnect from device', detail: 'Keep the board readable, disable writes', group: 'Device', icon: Unplug, run: () => disconnect() },
       { id: 'activity', title: 'Open activity log', group: 'Device', icon: Activity, run: () => setActivityOpen(true) },
       { id: 'theme', title: `Switch theme to ${nextTheme.name}`, detail: 'Theme changes stay local', group: 'Appearance', icon: theme === 'cream' ? Moon : Sun, run: () => setTheme(nextTheme.id) },
-      { id: 'copy', title: 'Copy diagnostic report', group: 'Support', icon: Copy, run: () => notify('Diagnostic report copied (demo)', 'good') },
+      { id: 'copy', title: 'Copy diagnostic report', group: 'Support', icon: Copy, run: () => copyDiagnostics() },
       { id: 'shortcuts', title: 'Open keyboard shortcuts', group: 'Support', icon: Check, shortcut: '?', run: () => setShortcutsOpen(true) },
       { id: 'refresh', title: 'Refresh snapshot from device', group: 'Device', icon: RefreshCw, run: () => { addActivity('Snapshot refreshed', 'demo simulator', 'neutral'); notify('Snapshot refreshed', 'neutral'); } },
     ];
   }, [
     addActivity,
     addPreset,
+    copyDiagnostics,
     disconnect,
     notify,
     redo,
