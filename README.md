@@ -400,9 +400,11 @@ cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
    command exist; the UI queue is still a preview. Wire the file dialog, real
    preflight, progress events, cancellation boundary, and list refresh.
 3. **Settings discovery panel.** Launch/manual discovery works (Wi-Fi → USB,
-   mDNS list); an explicit Settings scan/manage surface is still optional.
-4. **Save As.** Only save-current exists in the desktop UI. The core supports
-   `save_preset(name)` and the Python client has the dialog flow.
+   mDNS list), and Settings now re-scans real serial/mDNS results, shows the
+   active transport/address, and accepts a manual TCP target.
+4. **Save As hardware pass.** The desktop dialog, overwrite warning, and list
+   refresh are implemented; validate new-slot and overwrite behavior on real
+   firmware.
 5. **Device-mode undo/redo.** Undo currently restores the local UI snapshot; it
    does not replay writes to the device yet.
 6. **Hardware validation.** Uploads still need a scratch-slot pass; move/link,

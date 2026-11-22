@@ -324,8 +324,8 @@ These intentionally remain on the Phase 3 checklist:
   add/remove and the PNAM editor were exercised; move/link, clear, and EQ writes
   still need a pass. Clear Chain is covered by the simulator and UI smoke, and
   preserves fixed blocks/connectors by construction.
-- Save As to a new/empty preset slot (core and Python client support it; no
-  desktop dialog yet).
+- Save As to a new/empty preset slot and Save As over an existing name (desktop
+  dialog implemented; hardware pass pending).
 - Android on a physical phone, including Wi-Fi mDNS discovery, one-client
   behavior, and reconnect after screen lock;
 - factory reset (do not run without a fresh backup).

@@ -284,6 +284,17 @@ try {
 
   await page.locator('.nav-tab', { hasText: 'Settings' }).click();
   await page.waitForSelector('.settings-nav__item');
+  assert(
+    (await page.locator('.settings-meta').innerText()).includes('simulated:45678'),
+    'settings connection summary is missing the current address',
+  );
+  await page.locator('.settings-transport button', { hasText: 'Network' }).click();
+  await page.waitForSelector('.discovered-device');
+  assert(
+    (await page.locator('.discovered-device').first().innerText()).includes('StompStation PRO'),
+    'settings network discovery did not show the demo device',
+  );
+  assert((await page.locator('#manual-tcp').count()) === 1, 'settings manual TCP field is missing');
   await page.locator('.settings-nav__item', { hasText: 'Appearance' }).click();
   await page.waitForSelector('.theme-card');
   assert((await page.locator('.theme-card').count()) === 3, 'expected three built-in themes');
@@ -319,6 +330,39 @@ try {
   assert(
     (await page.locator('.signal-chain .pedal--fixed').count()) === afterClear,
     'clear chain removed a fixed block',
+  );
+
+  const presetName = page.locator('.preset-nav__name');
+  const originalPreset = await presetName.innerText();
+  await page.getByRole('button', { name: 'Patch actions' }).click();
+  await page.getByRole('menuitem', { name: /Save as/ }).click();
+  await page.locator('#preset-name').fill('Smoke Save As');
+  await page.getByRole('button', { name: 'Save as', exact: true }).click();
+  await page.waitForTimeout(650);
+  assert(
+    (await presetName.innerText()) === 'Smoke Save As',
+    'save-as did not select the new patch',
+  );
+
+  await page.getByRole('button', { name: 'Patch actions' }).click();
+  await page.getByRole('menuitem', { name: /Save as/ }).click();
+  await page.locator('#preset-name').fill(originalPreset);
+  assert(
+    (await page.locator('.dialog-content .preflight__warning').innerText()).includes(
+      'will be overwritten',
+    ),
+    'save-as did not warn about overwriting an existing patch',
+  );
+  await page.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.getByRole('button', { name: 'Patch actions' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  await page.locator('#preset-name').fill('Smoke Renamed');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await page.waitForTimeout(650);
+  assert(
+    (await presetName.innerText()) === 'Smoke Renamed',
+    'rename did not update the current patch',
   );
 
   await page.locator('.nav-tab', { hasText: 'Library' }).click();

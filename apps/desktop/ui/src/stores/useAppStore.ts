@@ -22,6 +22,7 @@ import {
   slotOf,
   type ChainSlotRef,
 } from '../lib/chainSlots';
+import { presetNameError } from '../lib/presetNames';
 import { blockControl, getBlockKnobIds } from '../components/kit/knobMap';
 import {
   UPLOAD_TARGET_PATHS,
@@ -120,6 +121,7 @@ interface AppStore {
   selectBlock: (id: string) => void;
   setPreset: (index: number) => void;
   savePreset: () => void;
+  savePresetAs: (name: string) => boolean;
   renamePreset: (oldName: string, newName: string) => void;
   deletePreset: (index: number) => void;
   deleteCapture: (listId: string, index: number) => void;
@@ -478,14 +480,99 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }, 420);
   },
 
+  savePresetAs: (name) => {
+    const trimmed = name.trim();
+    const problem = presetNameError(trimmed);
+    if (problem) {
+      get().notify(problem, 'bad');
+      return false;
+    }
+    const { save, connection } = get();
+    if (save.saving) return false;
+    set({ save: { ...save, saving: true } });
+
+    if (connection.mode === 'device') {
+      void (async () => {
+        // Never let the save command overtake a coalesced knob/model write.
+        await flushCoalesced((message) => get().notify(message, 'bad'));
+        try {
+          const snapshot = await tauriClient.savePreset(trimmed);
+          const mapped = mapPreset(snapshot, get().preset);
+          const names = mapped.names.some(
+            (item) => item.toLowerCase() === trimmed.toLowerCase(),
+          )
+            ? mapped.names
+            : [...mapped.names, trimmed];
+          const index = names.findIndex(
+            (item) => item.toLowerCase() === trimmed.toLowerCase(),
+          );
+          set((state) => ({
+            preset: {
+              ...mapped,
+              names,
+              current: index >= 0 ? names[index] : trimmed,
+              index: index >= 0 ? index : state.preset.index,
+            },
+            lists: mapLists(snapshot),
+            save: {
+              ...state.save,
+              saving: false,
+              edited: false,
+              lastSaved: now(),
+              revision: snapshot.revision,
+            },
+          }));
+          get().addActivity('Preset saved as', trimmed, 'good');
+          get().notify(`Saved as ${trimmed}`, 'good');
+          window.setTimeout(() => void get().refreshDevice(), 300);
+        } catch (error) {
+          set((state) => ({ save: { ...state.save, saving: false } }));
+          get().notify(ipcErrorMessage(error), 'bad');
+        }
+      })();
+      return true;
+    }
+
+    window.setTimeout(() => {
+      const state = get();
+      const names = [...state.preset.names];
+      const existing = names.findIndex(
+        (item) => item.toLowerCase() === trimmed.toLowerCase(),
+      );
+      let index = existing;
+      if (index >= 0) {
+        names[index] = trimmed;
+      } else {
+        const blank = names.findIndex((item) => !item.trim());
+        if (blank >= 0) {
+          names[blank] = trimmed;
+          index = blank;
+        } else {
+          names.push(trimmed);
+          index = names.length - 1;
+        }
+      }
+      set({
+        preset: { ...state.preset, names, current: trimmed, index },
+        save: {
+          ...state.save,
+          saving: false,
+          edited: false,
+          lastSaved: now(),
+          revision: state.save.revision + 1,
+        },
+      });
+      get().addActivity('Preset saved as', trimmed, 'good');
+      get().notify(`Saved as ${trimmed}`, 'good');
+    }, 420);
+    return true;
+  },
+
   renamePreset: (oldName, newName) => {
     const trimmed = newName.trim();
-    if (!trimmed) {
-      get().notify('Patch name cannot be empty', 'bad');
-      return;
-    }
-    if (trimmed.length > 63) {
-      get().notify('Patch name must be at most 63 bytes', 'bad');
+    const problem = presetNameError(trimmed);
+    if (problem) {
+      get().notify(problem, 'bad');
       return;
     }
     const { preset } = get();
@@ -1363,19 +1450,24 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         tauriClient
           .tunerOpen()
           .then((view) => {
-            const tuner = view as { note?: string; cents?: number; frequency?: number; reference?: number; level?: number };
             set((state) => ({
               tuner: {
                 ...state.tuner,
-                note: tuner.note ?? state.tuner.note,
-                cents: tuner.cents ?? state.tuner.cents,
-                frequency: tuner.frequency ?? state.tuner.frequency,
-                reference: tuner.reference ?? state.tuner.reference,
-                level: tuner.level ?? state.tuner.level,
+                available: view.available,
+                message: view.message ?? undefined,
+                enabled: view.available ? view.enabled : false,
+                note: view.note ?? state.tuner.note,
+                cents: view.cents ?? state.tuner.cents,
+                frequency: view.frequency ?? state.tuner.frequency,
+                reference: view.reference ?? state.tuner.reference,
+                level: view.level ?? state.tuner.level,
               },
             }));
           })
-          .catch((error) => get().notify(ipcErrorMessage(error), 'bad'));
+          .catch((error) => {
+            set((state) => ({ tuner: { ...state.tuner, enabled: false } }));
+            get().notify(ipcErrorMessage(error), 'bad');
+          });
       }
     } else {
       set((state) => ({ tuner: { ...state.tuner, enabled: false } }));
@@ -1922,7 +2014,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
 
   tickTuner: () => {
     const state = get();
-    const active = state.tunerOpen || state.view === 'stage';
+    const active = (state.tunerOpen || state.view === 'stage') && state.tuner.available;
     if (!active) return;
     if (state.connection.mode === 'device') {
       const nowMs = Date.now();
@@ -1931,21 +2023,17 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       tauriClient
         .tunerPoll()
         .then((view) => {
-          const tuner = view as {
-            note?: string;
-            cents?: number;
-            frequency?: number;
-            reference?: number;
-            level?: number;
-          };
           set((current) => ({
             tuner: {
               ...current.tuner,
-              note: tuner.note ?? current.tuner.note,
-              cents: tuner.cents ?? current.tuner.cents,
-              frequency: tuner.frequency ?? current.tuner.frequency,
-              reference: tuner.reference ?? current.tuner.reference,
-              level: tuner.level ?? current.tuner.level,
+              available: view.available,
+              message: view.message ?? undefined,
+              enabled: view.available ? view.enabled : false,
+              note: view.note ?? current.tuner.note,
+              cents: view.cents ?? current.tuner.cents,
+              frequency: view.frequency ?? current.tuner.frequency,
+              reference: view.reference ?? current.tuner.reference,
+              level: view.level ?? current.tuner.level,
             },
           }));
         })

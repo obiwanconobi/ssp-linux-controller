@@ -16,8 +16,10 @@ import {
   Wifi,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Knob } from '../../components/kit/Knob';
+import { ipcErrorMessage, isTauriRuntime, tauriClient } from '../../ipc/client';
+import type { DiscoveredDevice, PortInfo } from '../../ipc/client';
 import { THEMES } from '../../theme/themes';
 import { useAppStore } from '../../stores/useAppStore';
 import type { Density, Motion } from '../../types';
@@ -31,6 +33,27 @@ const SECTIONS: Array<{ id: Section; label: string; detail: string; icon: typeof
   { id: 'editor', label: 'Editor', detail: 'knobs, links, save state', icon: SlidersHorizontal },
   { id: 'diagnostics', label: 'Diagnostics', detail: 'USB, logs, support', icon: Cpu },
   { id: 'about', label: 'About', detail: 'version, licenses', icon: Info },
+];
+
+const DEMO_PORTS: PortInfo[] = [
+  {
+    device: '/dev/ttyACM0',
+    description: 'StompStation · CDC-ACM',
+    usb: true,
+    vendor_id: '1d6b',
+    product_id: '0104',
+  },
+];
+
+const DEMO_NETWORK: DiscoveredDevice[] = [
+  {
+    service: 'StompStation PRO._http._tcp.local',
+    name: 'StompStation PRO',
+    host: '192.168.1.97',
+    port: 8080,
+    mac: '88:A2:9E:9E:5D:7F',
+    valid: true,
+  },
 ];
 
 const Toggle = ({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) => (
@@ -100,6 +123,80 @@ export const SettingsView = () => {
   const [alias, setAlias] = useState('Studio board');
   const [resetOpen, setResetOpen] = useState(false);
   const [resetText, setResetText] = useState('');
+  const connectReal = useAppStore((state) => state.connectReal);
+  const disconnect = useAppStore((state) => state.disconnect);
+  const tauri = isTauriRuntime();
+  const [ports, setPorts] = useState<PortInfo[]>(tauri ? [] : DEMO_PORTS);
+  const [selectedPort, setSelectedPort] = useState(tauri ? '' : DEMO_PORTS[0].device);
+  const [networkDevices, setNetworkDevices] = useState<DiscoveredDevice[]>(
+    tauri ? [] : DEMO_NETWORK,
+  );
+  const [scanning, setScanning] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [manualAddress, setManualAddress] = useState('');
+
+  const scanDevices = async (announce = true) => {
+    if (!tauri) {
+      if (announce) notify('The browser preview uses the built-in demo device list.', 'neutral');
+      return;
+    }
+    setScanning(true);
+    try {
+      const [portResult, wifiResult] = await Promise.allSettled([
+        tauriClient.listPorts(),
+        tauriClient.discoverWifi(),
+      ]);
+      if (portResult.status === 'fulfilled') {
+        const found = portResult.value;
+        setPorts(found);
+        setSelectedPort((current) =>
+          found.some((port) => port.device === current) ? current : found[0]?.device ?? '',
+        );
+      }
+      if (wifiResult.status === 'fulfilled') setNetworkDevices(wifiResult.value);
+      if (announce) {
+        const usb = portResult.status === 'fulfilled' ? portResult.value.length : 0;
+        const wifi = wifiResult.status === 'fulfilled' ? wifiResult.value.length : 0;
+        const total = usb + wifi;
+        notify(
+          total
+            ? `Discovery: ${wifi} Wi-Fi · ${usb} USB port${usb === 1 ? '' : 's'}`
+            : 'No pedal found over mDNS or USB',
+          total ? 'good' : 'warn',
+        );
+      }
+    } catch (error) {
+      if (announce) notify(ipcErrorMessage(error), 'bad');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  useEffect(() => {
+    if (section !== 'connection' || !tauri) return;
+    void scanDevices(false);
+    // Re-scan when the connection panel opens; scanDevices is intentionally
+    // not a dependency because it closes over notify only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, tauri]);
+
+  const connectTarget = async (target: string) => {
+    if (!tauri) {
+      notify('The browser preview uses the simulator. Open the Tauri shell to use USB or TCP.', 'neutral');
+      return;
+    }
+    setConnecting(true);
+    try {
+      await connectReal(target);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const manualTarget = manualAddress
+    .trim()
+    .replace(/^tcp:\/\//i, '')
+    .replace(/^tcp:/i, '');
 
   const diagnosticText = [
     `app      ${appVersion ? `v${appVersion}` : 'dev'}`,
@@ -186,10 +283,41 @@ export const SettingsView = () => {
                         <strong>Serial port</strong>
                         <span className="hint">CDC-ACM · 115200 baud</span>
                       </div>
-                      <select className="select" defaultValue="/dev/ttyACM0">
-                        <option value="/dev/ttyACM0">/dev/ttyACM0</option>
-                        <option value="/dev/ttyACM1">/dev/ttyACM1</option>
-                      </select>
+                      <div className="settings-inline">
+                        <select
+                          className="select"
+                          aria-label="Serial port"
+                          value={selectedPort}
+                          onChange={(event) => setSelectedPort(event.target.value)}
+                        >
+                          {ports.length === 0 ? (
+                            <option value="">No serial ports found</option>
+                          ) : (
+                            ports.map((port) => (
+                              <option key={port.device} value={port.device}>
+                                {port.device} — {port.description}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn--sm"
+                          onClick={() => void scanDevices()}
+                          disabled={scanning || connecting}
+                          aria-label="Rescan serial ports"
+                        >
+                          <RefreshCw size={12} className={scanning ? 'spin' : undefined} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--primary"
+                          disabled={!selectedPort || connecting || connection.connected}
+                          onClick={() => void connectTarget(`serial:${selectedPort}`)}
+                        >
+                          {connecting ? 'Connecting…' : 'Connect'}
+                        </button>
+                      </div>
                     </div>
                     <div className="settings-row">
                       <div>
@@ -213,18 +341,73 @@ export const SettingsView = () => {
                         <strong>Network discovery</strong>
                         <span className="hint">mDNS · _http._tcp · voidx</span>
                       </div>
-                      <button type="button" className="btn btn--sm" onClick={() => notify('mDNS scan complete — 1 device found', 'good')}>
-                        <RefreshCw size={12} /> Scan
+                      <button
+                        type="button"
+                        className="btn btn--sm"
+                        onClick={() => void scanDevices()}
+                        disabled={scanning || connecting}
+                      >
+                        <RefreshCw size={12} className={scanning ? 'spin' : undefined} />
+                        {scanning ? 'Scanning…' : 'Scan'}
                       </button>
                     </div>
-                    <div className="discovered-device" style={{ marginTop: 8 }}>
-                      <span className="led led--on" aria-hidden="true" />
-                      <span>
-                        <strong>StompStation PRO</strong>
-                        <small>192.168.1.97:8080 · 88:A2:9E:9E:5D:7F</small>
-                      </span>
-                      <span className="mono">CONNECT</span>
-                    </div>
+                    {networkDevices.length === 0 ? (
+                      <p className="settings-note">
+                        {scanning
+                          ? 'Scanning Wi-Fi for _http._tcp devices…'
+                          : 'No Wi-Fi pedal answered mDNS. Enter an address below, or connect over USB.'}
+                      </p>
+                    ) : (
+                      networkDevices.map((device) => (
+                        <button
+                          key={device.service}
+                          type="button"
+                          className="discovered-device"
+                          disabled={connecting || connection.connected}
+                          onClick={() =>
+                            void connectTarget(`tcp:${device.host}:${device.port}`)
+                          }
+                        >
+                          <span
+                            className={`led ${device.valid ? 'led--on' : 'led--off'}`}
+                            aria-hidden="true"
+                          />
+                          <span>
+                            <strong>{device.name}</strong>
+                            <small>
+                              {device.valid ? 'VoidX · mDNS' : 'Not a VoidX device'}
+                              {device.mac ? ` · ${device.mac}` : ''}
+                            </small>
+                          </span>
+                          <span className="mono">{device.host}:{device.port}</span>
+                        </button>
+                      ))
+                    )}
+                    <form
+                      className="settings-inline"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (manualTarget) void connectTarget(`tcp:${manualTarget}`);
+                      }}
+                    >
+                      <label className="field-label" htmlFor="manual-tcp">
+                        Manual TCP
+                      </label>
+                      <input
+                        id="manual-tcp"
+                        className="input input--mono"
+                        placeholder="192.168.1.97:8080"
+                        value={manualAddress}
+                        onChange={(event) => setManualAddress(event.target.value)}
+                      />
+                      <button
+                        type="submit"
+                        className="btn btn--sm btn--primary"
+                        disabled={!manualTarget || connecting || connection.connected}
+                      >
+                        {connecting ? 'Connecting…' : 'Connect'}
+                      </button>
+                    </form>
                   </div>
                 )}
               </section>
@@ -243,18 +426,40 @@ export const SettingsView = () => {
                     <dd>StompStation PRO</dd>
                   </div>
                   <div>
+                    <dt>Device</dt>
+                    <dd>{connection.deviceName || 'StompStation PRO'}</dd>
+                  </div>
+                  <div>
                     <dt>Firmware</dt>
-                    <dd className="mono">{connection.firmware}</dd>
+                    <dd className="mono">{connection.firmware || '—'}</dd>
                   </div>
                   <div>
-                    <dt>Architecture</dt>
-                    <dd className="mono">aarch64</dd>
+                    <dt>Transport</dt>
+                    <dd className="mono">{connection.transport || '—'}</dd>
                   </div>
                   <div>
-                    <dt>Serial</dt>
-                    <dd className="mono">STOMPPRO-10000000be183ca1</dd>
+                    <dt>Address</dt>
+                    <dd className="mono">{connection.address || '—'}</dd>
                   </div>
                 </dl>
+                <div className="settings-row" style={{ marginTop: 10 }}>
+                  <div>
+                    <strong>{connection.connected ? 'Connected' : 'Offline'}</strong>
+                    <span className="hint">
+                      {connection.connected
+                        ? connection.address || connection.transport
+                        : 'No active session'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    disabled={!connection.connected}
+                    onClick={() => disconnect()}
+                  >
+                    Disconnect
+                  </button>
+                </div>
                 <div className="settings-inline">
                   <label className="field-label" htmlFor="device-alias">Alias</label>
                   <input

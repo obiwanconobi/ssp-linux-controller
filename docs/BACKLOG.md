@@ -116,12 +116,14 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
    A1 is covered by validator/simulator tests but still needs a hardware pass.
    Remaining checks are A1 hardware, cancel-after-ACK, overwriting a used slot,
    and audio readback.
-5. **Settings discovery panel.** Launch/manual discovery is done: `_http._tcp`
-   browse, VoidX TXT filtering, manual Wi-Fi list, Wi-Fi-first then USB
-   auto-connect, and a no-device error. An explicit Settings scan/manage surface
-   remains optional.
-6. **Tuner lifecycle polish.** Poll only while open, restore the prior state,
-   and handle firmware without a tuner gracefully.
+5. **Settings discovery panel.** Launch/manual discovery and the Settings
+   re-scan/manage surface are implemented: real serial-port and mDNS results,
+   direct connect, connection summary, and a manual TCP field. Physical USB
+   replug behavior still needs the hardware pass.
+6. **Tuner lifecycle hardware pass.** Polling is scoped to open/stage, the
+   prior on/off state is restored on close, and firmware without a tuner node
+   now shows an unavailable deck instead of a write error. Verify restore on
+   hardware.
 7. **Factory reset recovery.** After reset, clear cached views, rebrowse, and
    show the post-reset state without losing diagnostics.
 
@@ -137,8 +139,9 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
    shell and a model-only plate.
 6. Visual regression baselines for Board, Amp room, EQ, Library, Settings, Stage,
    tuner, and the three themes.
-7. **Save As dialog.** Core `save_preset(name)` and name validation already
-   exist; add the dialog, overwrite warning, and post-save list refresh.
+7. **Save As hardware pass.** The desktop dialog, overwrite warning, and
+   post-save list refresh are implemented; validate new-slot and overwrite
+   behavior on real firmware.
 
 ### Hardware validation still open
 

@@ -574,6 +574,7 @@ export const INITIAL_ACTIVITY: ActivityEntry[] = [
 
 export const INITIAL_TUNER: TunerState = {
   enabled: false,
+  available: true,
   note: 'A',
   cents: 0.8,
   frequency: 110,

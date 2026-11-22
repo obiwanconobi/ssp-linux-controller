@@ -1,7 +1,19 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { AlertTriangle, Plus, Search, Star, Trash2, X } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import {
+  AlertTriangle,
+  CopyPlus,
+  MoreHorizontal,
+  PenLine,
+  Plus,
+  Search,
+  Star,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
+import { PresetNameDialog } from './PresetNameDialog';
 
 type Filter = 'all' | 'star' | 'recent';
 
@@ -15,11 +27,14 @@ export const PresetRail = () => {
   const setPreset = useAppStore((state) => state.setPreset);
   const toggleFavorite = useAppStore((state) => state.toggleFavorite);
   const renamePreset = useAppStore((state) => state.renamePreset);
+  const savePresetAs = useAppStore((state) => state.savePresetAs);
+  const save = useAppStore((state) => state.save);
   const deletePreset = useAppStore((state) => state.deletePreset);
   const addPreset = useAppStore((state) => state.addPreset);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
-  const [rename, setRename] = useState<{ oldName: string; value: string } | null>(null);
+  const [rename, setRename] = useState<string | null>(null);
+  const [saveAs, setSaveAs] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
 
   const rows = useMemo<Row[]>(() => {
@@ -50,15 +65,56 @@ export const PresetRail = () => {
           <span>Patches</span>
           <span className="preset-rail__count mono">{totalNamed}</span>
         </div>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="New patch"
-          title="New patch"
-          onClick={() => addPreset()}
-        >
-          <Plus size={15} />
-        </button>
+        <div className="preset-rail__actions">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="New patch"
+            title="New patch"
+            onClick={() => addPreset()}
+          >
+            <Plus size={15} />
+          </button>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Patch actions"
+                title="Patch actions"
+              >
+                <MoreHorizontal size={15} />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="menu" sideOffset={6} align="end">
+                <DropdownMenu.Label className="menu__label">Current patch</DropdownMenu.Label>
+                <DropdownMenu.Item
+                  className="menu__item"
+                  disabled={!preset.current}
+                  onSelect={() => setRename(preset.current)}
+                >
+                  <span>
+                    <strong>Rename</strong>
+                    <small>{preset.current || 'No patch selected'}</small>
+                  </span>
+                  <PenLine size={12} />
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="menu__item"
+                  disabled={!preset.current || save.saving}
+                  onSelect={() => setSaveAs(preset.current)}
+                >
+                  <span>
+                    <strong>Save as…</strong>
+                    <small>Write the edit buffer under another name</small>
+                  </span>
+                  <CopyPlus size={12} />
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
       </div>
 
       <label className="search-field">
@@ -123,7 +179,7 @@ export const PresetRail = () => {
                   className="preset-row__main"
                   aria-current={active ? 'true' : undefined}
                   onClick={() => setPreset(row.index)}
-                  onDoubleClick={() => setRename({ oldName: row.name, value: row.name })}
+                  onDoubleClick={() => setRename(row.name)}
                   title="Double-click to rename"
                 >
                   <span className="preset-row__marker" aria-hidden="true" />
@@ -159,61 +215,33 @@ export const PresetRail = () => {
         <span>Synced · slot {preset.index + 1} / {preset.names.length}</span>
       </div>
 
-      <Dialog.Root open={Boolean(rename)} onOpenChange={(open) => !open && setRename(null)}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="dialog-overlay" />
-          <Dialog.Content className="dialog-content" aria-describedby={undefined}>
-            <div className="dialog-head">
-              <div>
-                <Dialog.Title className="dialog-title">Rename patch</Dialog.Title>
-                <p className="hint">The device stores names in a 63-byte slot.</p>
-              </div>
-              <Dialog.Close asChild>
-                <button type="button" className="icon-btn" aria-label="Close rename dialog">
-                  <X size={16} />
-                </button>
-              </Dialog.Close>
-            </div>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!rename) return;
-                renamePreset(rename.oldName, rename.value);
-                setRename(null);
-              }}
-            >
-              <div className="dialog-body">
-                <label className="field-label" htmlFor="rename-patch">
-                  Patch name
-                  <span className="mono">{rename?.value.length ?? 0} / 63</span>
-                </label>
-                <input
-                  id="rename-patch"
-                  className="input input--mono"
-                  autoFocus
-                  maxLength={63}
-                  value={rename?.value ?? ''}
-                  onChange={(event) =>
-                    setRename((current) =>
-                      current ? { ...current, value: event.target.value } : current,
-                    )
-                  }
-                />
-              </div>
-              <div className="dialog-foot">
-                <Dialog.Close asChild>
-                  <button type="button" className="btn">
-                    Cancel
-                  </button>
-                </Dialog.Close>
-                <button type="submit" className="btn btn--primary">
-                  Rename
-                </button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <PresetNameDialog
+        open={Boolean(rename)}
+        title="Rename patch"
+        description="The device stores names in a 63-byte slot."
+        initialName={rename ?? ''}
+        submitLabel="Rename"
+        names={preset.names}
+        excludeName={rename ?? undefined}
+        onOpenChange={(open) => !open && setRename(null)}
+        onSubmit={(name) => {
+          if (!rename) return false;
+          renamePreset(rename, name);
+        }}
+      />
+
+      <PresetNameDialog
+        open={Boolean(saveAs)}
+        title="Save patch as"
+        description="Save the current edit buffer under another name. An existing patch with the same name will be overwritten."
+        initialName={saveAs ?? ''}
+        submitLabel="Save as"
+        names={preset.names}
+        allowOverwrite
+        disabled={save.saving}
+        onOpenChange={(open) => !open && setSaveAs(null)}
+        onSubmit={(name) => savePresetAs(name)}
+      />
 
       <Dialog.Root open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <Dialog.Portal>

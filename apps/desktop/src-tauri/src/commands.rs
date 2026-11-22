@@ -60,6 +60,8 @@ pub struct UploadCompletion {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TunerView {
+    pub available: bool,
+    pub message: Option<String>,
     pub enabled: bool,
     pub note: String,
     pub cents: f64,
@@ -581,6 +583,9 @@ pub async fn tuner_open(state: State<'_, AppState>) -> IpcResult<TunerView> {
     let previous = state.tuner_previous.clone();
     with_device(state.device.clone(), move |device| {
         let on_path = r"root\settings\tuner\on_off";
+        if !device.nodes().contains(on_path) {
+            return Ok(unavailable_tuner());
+        }
         let was_on = device
             .nodes()
             .value_str(on_path)
@@ -605,21 +610,39 @@ pub async fn tuner_poll(state: State<'_, AppState>) -> IpcResult<TunerView> {
 pub async fn tuner_close(state: State<'_, AppState>) -> IpcResult<()> {
     let previous = state.tuner_previous.clone();
     with_device(state.device.clone(), move |device| {
+        let on_path = r"root\settings\tuner\on_off";
         let was_on = previous
             .lock()
             .map_err(|_| IpcError::internal("tuner state lock poisoned"))?
             .take()
             .unwrap_or(false);
-        device.set_value(
-            r"root\settings\tuner\on_off",
-            json!(if was_on { "ON" } else { "OFF" }),
-        )?;
+        if !device.nodes().contains(on_path) {
+            return Ok(());
+        }
+        device.set_value(on_path, json!(if was_on { "ON" } else { "OFF" }))?;
         Ok(())
     })
     .await
 }
 
+fn unavailable_tuner() -> TunerView {
+    TunerView {
+        available: false,
+        message: Some("This firmware does not expose a tuner.".to_string()),
+        enabled: false,
+        note: "—".to_string(),
+        cents: 0.0,
+        frequency: 0.0,
+        reference: 440.0,
+        level: -90.0,
+        in_tune: false,
+    }
+}
+
 fn read_tuner(device: &mut Device) -> IpcResult<TunerView> {
+    if !device.nodes().contains(r"root\settings\tuner\on_off") {
+        return Ok(unavailable_tuner());
+    }
     for path in [
         r"root\settings\tuner\on_off",
         r"root\settings\tuner\note",
@@ -633,6 +656,8 @@ fn read_tuner(device: &mut Device) -> IpcResult<TunerView> {
     let nodes = device.nodes();
     let cents = nodes.value_f64(r"root\settings\tuner\cents").unwrap_or(0.0);
     Ok(TunerView {
+        available: true,
+        message: None,
         enabled: nodes
             .value_str(r"root\settings\tuner\on_off")
             .is_some_and(|value| value.eq_ignore_ascii_case("ON")),

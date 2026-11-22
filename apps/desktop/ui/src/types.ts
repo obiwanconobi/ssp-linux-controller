@@ -155,6 +155,8 @@ export interface MeterState {
 
 export interface TunerState {
   enabled: boolean;
+  available: boolean;
+  message?: string;
   note: string;
   cents: number;
   frequency: number;

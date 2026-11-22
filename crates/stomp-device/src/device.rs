@@ -458,6 +458,9 @@ impl Device {
                 "there is no current preset to save".into(),
             ));
         }
+        if let Some(problem) = preset_name_error(&name) {
+            return Err(ProtocolError::InvalidRequest(problem.into()));
+        }
         self.write_payload(&target, json!({ "value": name, "save": "save" }))
     }
 
@@ -1414,5 +1417,25 @@ mod tests {
 
         assert!(result.is_none(), "cancelled upload should not complete");
         assert_eq!(callbacks, 2, "initial callback plus the first ACK");
+    }
+
+    #[test]
+    fn save_preset_rejects_invalid_names_before_writing() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            stomp_protocol::PRESET_PATH,
+            stomp_protocol::node::Node::new(
+                json!({"type":"plist","value":"Dumble","ref":"root\\presets"})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
+
+        let error = device.save_preset(Some("bad\nname")).unwrap_err();
+        assert!(error.to_string().contains("control characters"));
+        let error = device.save_preset(Some(&"x".repeat(64))).unwrap_err();
+        assert!(error.to_string().contains("63 bytes"));
     }
 }

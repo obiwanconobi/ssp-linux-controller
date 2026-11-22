@@ -24,6 +24,18 @@ const info = {
   node_count: 132,
 };
 
+const tuner = {
+  available: true,
+  message: null as string | null,
+  enabled: true,
+  note: 'A',
+  cents: 0,
+  frequency: 440,
+  reference: 440,
+  level: -20,
+  in_tune: true,
+};
+
 const client = {
   connect: vi.fn(async () => info),
   getSnapshot: vi.fn(async () => fixture.snapshot),
@@ -38,8 +50,8 @@ const client = {
   savePreset: vi.fn(async () => fixture.snapshot),
   renamePreset: vi.fn(async () => fixture.snapshot),
   editChain: vi.fn(async () => fixture.snapshot),
-  tunerOpen: vi.fn(async () => ({})),
-  tunerPoll: vi.fn(async () => ({})),
+  tunerOpen: vi.fn(async () => tuner),
+  tunerPoll: vi.fn(async () => tuner),
   tunerClose: vi.fn(async () => undefined),
   disconnect: vi.fn(async () => undefined),
   preflightUpload: vi.fn(),
@@ -407,5 +419,77 @@ describe('device connection integration', () => {
     const ir = useAppStore.getState().blocks.find((block) => block.id === 'root\\app\\ir');
     expect(ir?.slotCol).toBe(18);
     expect(useAppStore.getState().emptySlots).toContainEqual({ row: 0, col: 14 });
+  });
+
+  it('rejects empty and oversized names before saving as', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.savePreset.mockClear();
+
+    expect(useAppStore.getState().savePresetAs('')).toBe(false);
+    expect(useAppStore.getState().savePresetAs('   ')).toBe(false);
+    expect(useAppStore.getState().savePresetAs('x'.repeat(64))).toBe(false);
+    expect(client.savePreset).not.toHaveBeenCalled();
+    expect(useAppStore.getState().save.saving).toBe(false);
+  });
+
+  it('saves the current buffer under a new preset name', async () => {
+    const updated = structuredClone(fixture.snapshot);
+    updated.revision += 1;
+    updated.preset.current = 'Studio Lead';
+    updated.preset.names = [...updated.preset.names, 'Studio Lead'];
+    updated.preset.index = updated.preset.names.length - 1;
+
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    client.savePreset.mockResolvedValue(updated);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    client.getSnapshot.mockResolvedValue(updated);
+    expect(useAppStore.getState().savePresetAs('Studio Lead')).toBe(true);
+    await vi.waitFor(() =>
+      expect(client.savePreset).toHaveBeenCalledWith('Studio Lead'),
+    );
+    await vi.waitFor(() => {
+      const state = useAppStore.getState();
+      expect(state.save.saving).toBe(false);
+      expect(state.save.edited).toBe(false);
+      expect(state.preset.current).toBe('Studio Lead');
+      expect(state.preset.names).toContain('Studio Lead');
+    });
+  });
+
+  it('shows an unavailable tuner without polling when firmware has no tuner', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.tunerOpen.mockResolvedValueOnce({
+      available: false,
+      message: 'This firmware does not expose a tuner.',
+      enabled: false,
+      note: '—',
+      cents: 0,
+      frequency: 0,
+      reference: 440,
+      level: -90,
+      in_tune: false,
+    });
+    client.tunerPoll.mockClear();
+
+    useAppStore.getState().setTunerOpen(true);
+    await vi.waitFor(() => {
+      const state = useAppStore.getState();
+      expect(state.tuner.available).toBe(false);
+      expect(state.tuner.enabled).toBe(false);
+      expect(state.tuner.message).toContain('does not expose a tuner');
+    });
+
+    useAppStore.getState().tickTuner();
+    expect(client.tunerPoll).not.toHaveBeenCalled();
+
+    useAppStore.getState().setTunerOpen(false);
+    expect(client.tunerClose).toHaveBeenCalled();
+    expect(useAppStore.getState().tuner.enabled).toBe(false);
   });
 });

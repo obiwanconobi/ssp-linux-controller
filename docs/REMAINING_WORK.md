@@ -60,9 +60,9 @@ actor.
 
 ### 1.1 Save As dialog
 
-- [ ] Add a Save As action beside rename.
-- [ ] Use the existing `save_preset(name)` core and name validation.
-- [ ] Add overwrite warning, post-save list refresh, and dirty-state handling.
+- [x] Add a Save As action beside rename.
+- [x] Use the existing `save_preset(name)` core and name validation.
+- [x] Add overwrite warning, post-save list refresh, and dirty-state handling.
 - [ ] Validate Save As and overwrite on hardware.
 
 Why now: the core already supports it; this is the lowest-risk visible gap.
@@ -90,15 +90,15 @@ delete/clear hardware validation.
 
 ### 1.4 Tuner fallback polish
 
-- [ ] Poll only while the tuner is open (already mostly true).
+- [x] Poll only while the tuner is open (already mostly true).
 - [ ] Restore the pre-open tuner state (already implemented; verify on hardware).
-- [ ] Handle firmware without a tuner node gracefully instead of surfacing a
+- [x] Handle firmware without a tuner node gracefully instead of surfacing a
       write error.
 
 ### 1.5 Settings discovery surface — optional
 
-- [ ] Replace the placeholder Settings scan button with real mDNS/USB discovery.
-- [ ] Show transport, address, device name, firmware, and a manual TCP field.
+- [x] Replace the placeholder Settings scan button with real mDNS/USB discovery.
+- [x] Show transport, address, device name, firmware, and a manual TCP field.
 
 The connection sheet already discovers and connects; this is an optional
 manage/re-scan surface.
@@ -190,8 +190,10 @@ P1 defects.
 
 1. Run the 0.2 hardware validation on a backed-up device, starting with
    single-item delete, Clear Chain, and upload cancel/overwrite.
-2. Implement the Save As dialog.
-3. Polish the tuner fallback for firmware without a tuner node.
+2. Hardware-validate Save As to a new slot, overwrite of an existing slot, and
+   tuner open/close restore.
+3. Start P2.1, the single-owner device actor, once those hardware semantics are
+   confirmed.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.

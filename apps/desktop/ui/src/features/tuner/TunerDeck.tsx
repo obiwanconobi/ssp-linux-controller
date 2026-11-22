@@ -10,6 +10,36 @@ export const TunerDeck = () => {
   const setTuner = useAppStore((state) => state.setTuner);
   if (!open) return null;
 
+  if (!tuner.available) {
+    return (
+      <section className="tuner-deck panel" aria-label="Tuner">
+        <header className="tuner-deck__head">
+          <div>
+            <span className="eyebrow">Tuner deck</span>
+            <h2>{preset.current}</h2>
+          </div>
+          <div className="tuner-deck__nav">
+            <span className="chip chip--warn">UNAVAILABLE</span>
+            <button type="button" className="btn btn--sm" onClick={() => setOpen(false)}>
+              <X size={12} /> Close
+            </button>
+          </div>
+        </header>
+        <div className="tuner-deck__body tuner-deck__body--unavailable">
+          <strong>Tuner unavailable</strong>
+          <p className="hint">
+            {tuner.message ?? 'This firmware does not expose a tuner.'} The rest of the
+            board is unaffected.
+          </p>
+        </div>
+        <footer className="tuner-deck__foot">
+          <span className="hint">No tuner writes were sent.</span>
+          <span className="mono">T to toggle · Esc to close</span>
+        </footer>
+      </section>
+    );
+  }
+
   const inTune = Math.abs(tuner.cents) <= 3;
 
   return (

@@ -103,6 +103,18 @@ export interface RustSnapshot {
   lists: RustLibraryList[];
 }
 
+export interface RustTunerView {
+  available: boolean;
+  message: string | null;
+  enabled: boolean;
+  note: string;
+  cents: number;
+  frequency: number;
+  reference: number;
+  level: number;
+  in_tune: boolean;
+}
+
 export interface RustEditorNode {
   kind: string;
   path: string;
@@ -326,8 +338,8 @@ export const tauriClient = {
     invoke<RustSnapshot>('set_eq_type', { index, value }),
   setEqEnabled: (enabled: boolean) => invoke<RustSnapshot>('set_eq_enabled', { enabled }),
   setAlias: (alias: string) => invoke<RustSnapshot>('set_alias', { alias }),
-  tunerOpen: () => invoke('tuner_open'),
-  tunerPoll: () => invoke('tuner_poll'),
+  tunerOpen: () => invoke<RustTunerView>('tuner_open'),
+  tunerPoll: () => invoke<RustTunerView>('tuner_poll'),
   tunerClose: () => invoke('tuner_close'),
   copyDiagnostics: () => invoke<string>('copy_diagnostics'),
   scanCaptures: (directory: string) =>
