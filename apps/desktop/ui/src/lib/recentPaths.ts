@@ -4,7 +4,7 @@ const storageKey = (scope: string): string => `${STORAGE_PREFIX}.${scope}`;
 
 /** Return the parent directory for a POSIX, Windows, or UNC file path. */
 export const parentDirectory = (path: string): string | null => {
-  const trimmed = path.trim().replace(/[\\/]+$/, '');
+  const trimmed = path.replace(/[\\/]+$/, '');
   const slash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
   if (slash < 0) return null;
   if (slash === 0) return trimmed.startsWith('/') ? '/' : null;
