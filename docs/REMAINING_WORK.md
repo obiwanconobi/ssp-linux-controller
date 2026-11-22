@@ -217,6 +217,10 @@ part of the release candidate.
 Exit: signed installers on Linux/Windows/macOS, budgets met or documented, no
 P1 defects.
 
+## Next release — 0.6.0
+
+The next feature set is tracked in [`V0.6.0_PLAN.md`](V0.6.0_PLAN.md).
+
 ## P5 — Android, beta, and 1.0
 
 ### Android

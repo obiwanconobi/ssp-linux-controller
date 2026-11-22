@@ -42,6 +42,10 @@ The project is deliberately split into two worlds:
 | Local install | `scripts/install-local.sh` installs the release binary, desktop entry, and icons; rerun to update |
 | Phase 4–5 — hardening/release | P4 in progress: performance budgets, stale-write chaos tests, and diagnostic export review are in place; distro/clean-machine checks, signing, updater, and crash telemetry remain |
 
+The next release plan is in [`docs/V0.6.0_PLAN.md`](docs/V0.6.0_PLAN.md):
+input gain/connection settings, the scrolling Add-block menu, the Parametric EQ
+graph, preset export/import, and Library file downloads.
+
 The browser build runs against a deterministic demo device so every surface is
 inspectable without hardware. The Tauri shell starts disconnected: it scans
 mDNS `_http._tcp` for a VoidX device first, then probes USB serial ports, and
