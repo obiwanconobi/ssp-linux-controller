@@ -40,7 +40,17 @@ export const TunerDeck = () => {
     );
   }
 
-  const inTune = Math.abs(tuner.cents) <= 3;
+  const detecting = tuner.frequency > 0;
+  const inTune = tuner.enabled && detecting && Math.abs(tuner.cents) <= 3;
+  const status = !tuner.enabled
+    ? 'OFF'
+    : !detecting
+      ? 'NO PITCH'
+      : inTune
+        ? 'IN TUNE'
+        : tuner.cents < 0
+          ? 'FLAT'
+          : 'SHARP';
 
   return (
     <section className="tuner-deck panel" aria-label="Tuner">
@@ -50,7 +60,7 @@ export const TunerDeck = () => {
           <h2>{preset.current}</h2>
         </div>
         <div className="tuner-deck__nav">
-          <span className="chip">{inTune ? 'IN TUNE' : tuner.cents < 0 ? 'FLAT' : 'SHARP'}</span>
+          <span className={`chip${inTune ? ' chip--good' : ''}`}>{status}</span>
           <button type="button" className="btn btn--sm" onClick={() => setOpen(false)}>
             <X size={12} /> Close
           </button>

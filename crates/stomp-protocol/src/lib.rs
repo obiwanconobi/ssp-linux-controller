@@ -42,6 +42,11 @@ pub const MASTER_PATH: &str = r"root\app\output";
 pub const GLOBAL_EQ_PATH: &str = r"root\app\output\global_eq";
 pub const SETTINGS_PATH: &str = r"root\settings";
 pub const TUNER_PATH: &str = r"root\settings\tuner";
+pub const TUNER_ON_PATH: &str = r"root\settings\tuner\on_off";
+pub const TUNER_MODULE_PATH: &str = r"root\settings\tuner\tuner";
+pub const TUNER_FREQ_PATH: &str = r"root\settings\tuner\tuner\_freq";
+pub const TUNER_LEVEL_PATH: &str = r"root\settings\tuner\tuner\lvl";
+pub const TUNER_REF_PATH: &str = r"root\settings\tuner\tuner\ref";
 
 /// Known fallback chain for older firmware that does not expose a router.
 pub const DEFAULT_CHAIN: &[&str] = &[

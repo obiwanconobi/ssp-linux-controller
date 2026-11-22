@@ -94,6 +94,9 @@ delete/clear hardware validation.
 ### 1.4 Tuner fallback polish
 
 - [x] Poll only while the tuner is open (already mostly true).
+- [x] Read live frequency/level/reference from the `tuner\tuner` module and
+      compute note/cents.
+- [x] Serialize tuner polls so a slow read cannot delay close.
 - [x] Closing always writes OFF; opening is idempotent across duplicate opens.
 - [ ] Hardware-retest opening, toggling, and closing the tuner.
 - [x] Handle firmware without a tuner node gracefully instead of surfacing a

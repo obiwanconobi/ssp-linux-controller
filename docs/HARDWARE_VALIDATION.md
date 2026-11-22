@@ -103,9 +103,12 @@ issuing any write commands:
 - ten-minute idle `read root` polling: **PASS** — 1,179 successful reads, 0
   errors, meters updated continuously, preset and 7-block chain unchanged; the
   post-run snapshot matched the pre-run snapshot;
-- read-only tuner probe: the `on_off` node exists and reported `OFF`; the
-  note/cents/frequency/reference/level reads timed out while the tuner was off,
-  so full tuner readback and open/close require the write-based test.
+- read-only tuner probe: the `on_off` node exists and reported `OFF`. The live
+  values are under `root\settings\tuner\tuner\_freq`, `...\lvl`, and
+  `...\ref`; the guessed `...\note`, `...\cents`, `...\freq`, and
+  `...\level` paths used by 0.4.1 do not exist and timed out, which also
+  backlogged tuner polls ahead of the close write. v0.4.2 corrects the paths and
+  computes note/cents; full open/close still requires the write-based test.
 
 No user capture/preset names were committed. One UI-label nit was observed:
 the in-chain EQ block uses the generic `UTILITY` shell plate because there is
@@ -334,7 +337,7 @@ hardware.
 ## Save As (validated on 2.5.3)
 
 Save As creates a new preset slot on this firmware. Existing names are rejected
-in 0.4.1 by the dialog, the store, and the device core; the firmware does not
+since 0.4.1 by the dialog, the store, and the device core; the firmware does not
 overwrite an existing preset, and the UI no longer claims it will.
 
 ## Still unvalidated on hardware
@@ -356,10 +359,13 @@ These intentionally remain on the Phase 3 checklist:
 - external preset/chain/control changes from the pedal while the app is open,
   including a local edit pending at the same time (the conflict bar and
   stale-write rollback are simulator/unit tested);
-- tuner open/close; v0.4.1 makes the title-bar/palette tuner actions toggle,
-  opens idempotently, and always writes OFF on close instead of restoring the
-  pre-open state. The actor simulator test covers repeated open followed by
-  close-to-OFF; hardware retest pending;
+- tuner open/close; v0.4.2 reads live values from
+  `root\settings\tuner\tuner\_freq`, `...\lvl`, and `...\ref`, computes
+  note/cents, serializes polls so a slow read cannot delay close, and always
+  writes OFF on close. The actor simulator test covers live readback, repeated
+  open, and close-to-OFF; hardware retest pending. v0.4.1's close write was
+  correct, but tuner polls against guessed paths timed out and queued ahead of
+  the OFF write;
 - EQ writes, chain move/link writes, and Clear Chain on hardware. Chain
   add/remove and the PNAM editor were exercised; move/link, clear, and EQ writes
   still need a pass. Clear Chain is covered by the simulator and UI smoke, and

@@ -393,30 +393,29 @@ pub fn demo_store() -> NodeStore {
         r"root\settings\misc\action\factory",
         json!({"type":"action","desc":"Factory reset"}),
     );
-    add(r"root\settings\tuner", json!({"type":"item"}));
+    add(
+        r"root\settings\tuner",
+        json!({"type":"item","value":"","desc":"Tuner","item_type":"hfolder"}),
+    );
     add(
         r"root\settings\tuner\on_off",
-        json!({"type":"enum","value":"OFF","options":["ON","OFF"]}),
+        json!({"type":"enum","value":"OFF","def":"OFF","desc":"Enable","options":["ON","OFF"]}),
     );
     add(
-        r"root\settings\tuner\ref",
-        json!({"type":"float","value":440.0,"min":430.0,"max":450.0,"desc":"Reference"}),
+        r"root\settings\tuner\tuner",
+        json!({"type":"item","value":"tuner","def":"tuner","desc":"Tuner","item_type":"module"}),
     );
     add(
-        r"root\settings\tuner\note",
-        json!({"type":"item","value":"A"}),
+        r"root\settings\tuner\tuner\ref",
+        json!({"type":"enum","value":"440","def":"440","desc":"Ref","options":["432","434","436","438","440","442","444","446","448"]}),
     );
     add(
-        r"root\settings\tuner\cents",
-        json!({"type":"float","value":0.8,"min":-50.0,"max":50.0}),
+        r"root\settings\tuner\tuner\_freq",
+        json!({"type":"float","value":110.0,"def":0.0,"min":0.0,"max":2000.0,"desc":"Freq"}),
     );
     add(
-        r"root\settings\tuner\freq",
-        json!({"type":"float","value":110.0,"min":20.0,"max":1000.0}),
-    );
-    add(
-        r"root\settings\tuner\level",
-        json!({"type":"float","value":-18.0,"min":-90.0,"max":12.0}),
+        r"root\settings\tuner\tuner\lvl",
+        json!({"type":"float","value":-18.0,"def":0.0,"min":-60.0,"max":0.0,"desc":"Level","unit":"dB"}),
     );
 
     store

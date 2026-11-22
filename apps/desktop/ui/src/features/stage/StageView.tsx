@@ -34,7 +34,9 @@ export const StageView = () => {
     }
   };
 
-  const inTune = Math.abs(tuner.cents) <= 3;
+  const inTune =
+    tuner.enabled && tuner.frequency > 0 && Math.abs(tuner.cents) <= 3;
+  const tunerStatus = !tuner.enabled ? 'OFF' : inTune ? 'IN TUNE' : 'INPUT 1';
 
   return (
     <div className="stage-view">
@@ -142,7 +144,7 @@ export const StageView = () => {
         <button type="button" className="stage-tuner panel" onClick={() => setTunerOpen(true)}>
           <div className="stage-tuner__head">
             <span className="eyebrow">Tuner</span>
-            <span className={`chip ${inTune ? 'chip--good' : ''}`}>{inTune ? 'IN TUNE' : 'INPUT 1'}</span>
+            <span className={`chip ${inTune ? 'chip--good' : ''}`}>{tunerStatus}</span>
           </div>
           <TunerGauge cents={tuner.cents} inTune={inTune} compact />
           <div className="stage-tuner__readout">

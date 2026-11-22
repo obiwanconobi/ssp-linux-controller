@@ -406,7 +406,7 @@ cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
    replay inverse control/router writes; validate undo/redo and reconnect
    history clearing on real firmware.
 5. **Hardware validation.** Uploads still need a scratch-slot pass; move/link,
-   EQ writes, external-change handling, tuner restore, and unplug/replug remain
+   EQ writes, external-change handling, tuner open/close, and unplug/replug remain
    open. Ten-minute idle polling passed read-only. See the hardware checklist.
 6. **Android release.** Physical-phone Wi-Fi/mDNS validation, USB-OTG serial
    (optional), Play Store AAB/upload-key signing, tablet layout, and

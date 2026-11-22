@@ -123,10 +123,10 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
    re-scan/manage surface are implemented: real serial-port and mDNS results,
    direct connect, connection summary, and a manual TCP field. Physical USB
    replug behavior still needs the hardware pass.
-6. **Tuner lifecycle hardware pass.** Polling is scoped to open/stage, the
-   prior on/off state is restored on close, and firmware without a tuner node
-   now shows an unavailable deck instead of a write error. Verify restore on
-   hardware.
+6. **Tuner lifecycle hardware pass.** Polling is scoped to open/stage and
+   serialized so a slow read cannot delay close, live values use the firmware's
+   tuner module paths, and closing writes OFF. Firmware without a tuner node
+   shows an unavailable deck instead of a write error. Verify on hardware.
 7. **Factory reset recovery.** After reset, clear cached views, rebrowse, and
    show the post-reset state without losing diagnostics.
 

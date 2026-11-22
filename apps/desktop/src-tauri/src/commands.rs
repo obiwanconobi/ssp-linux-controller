@@ -6,7 +6,9 @@ use stomp_device::{
     validate_alias, ChainEdit, ConnectionInfo, Device, DeviceSnapshot, UploadResult,
 };
 use stomp_protocol::editor::BlockEditor;
-use stomp_protocol::ProtocolError;
+use stomp_protocol::{
+    ProtocolError, TUNER_FREQ_PATH, TUNER_LEVEL_PATH, TUNER_ON_PATH, TUNER_REF_PATH,
+};
 use stomp_upload::{Preflight, UploadKind};
 
 use crate::actor::ActorCommand;
@@ -440,39 +442,64 @@ pub(crate) fn unavailable_tuner() -> TunerView {
 }
 
 pub(crate) fn read_tuner(device: &mut Device) -> TunerView {
-    if !device.nodes().contains(r"root\settings\tuner\on_off") {
+    if !device.nodes().contains(TUNER_ON_PATH) {
         return unavailable_tuner();
     }
+    // Firmware exposes the live values under ...\tuner\tuner. Reading the
+    // old guessed paths timed out and queued up polls faster than they could
+    // finish, which delayed the OFF write until long after the deck closed.
     for path in [
-        r"root\settings\tuner\on_off",
-        r"root\settings\tuner\note",
-        r"root\settings\tuner\cents",
-        r"root\settings\tuner\freq",
-        r"root\settings\tuner\ref",
-        r"root\settings\tuner\level",
+        TUNER_ON_PATH,
+        TUNER_FREQ_PATH,
+        TUNER_LEVEL_PATH,
+        TUNER_REF_PATH,
     ] {
-        let _ = device.read_path(path, std::time::Duration::from_millis(700));
+        let _ = device.read_path(path, std::time::Duration::from_millis(300));
     }
-    let nodes = device.nodes();
-    let cents = nodes.value_f64(r"root\settings\tuner\cents").unwrap_or(0.0);
+    tuner_view(device.nodes())
+}
+
+pub(crate) fn tuner_view(nodes: &stomp_protocol::node::NodeStore) -> TunerView {
+    if !nodes.contains(TUNER_ON_PATH) {
+        return unavailable_tuner();
+    }
+    let frequency = nodes.value_f64(TUNER_FREQ_PATH).unwrap_or(0.0);
+    let reference = nodes
+        .value_f64(TUNER_REF_PATH)
+        .filter(|value| *value > 0.0)
+        .unwrap_or(440.0);
+    let (note, cents) = tuner_note(frequency, reference);
+    let enabled = nodes
+        .value_str(TUNER_ON_PATH)
+        .is_some_and(|value| value.eq_ignore_ascii_case("ON"));
     TunerView {
         available: true,
         message: None,
-        enabled: nodes
-            .value_str(r"root\settings\tuner\on_off")
-            .is_some_and(|value| value.eq_ignore_ascii_case("ON")),
-        note: nodes
-            .value_str(r"root\settings\tuner\note")
-            .unwrap_or("—")
-            .to_string(),
+        enabled,
+        note,
         cents,
-        frequency: nodes.value_f64(r"root\settings\tuner\freq").unwrap_or(0.0),
-        reference: nodes.value_f64(r"root\settings\tuner\ref").unwrap_or(440.0),
-        level: nodes
-            .value_f64(r"root\settings\tuner\level")
-            .unwrap_or(-90.0),
-        in_tune: cents.abs() <= 3.0,
+        frequency,
+        reference,
+        level: nodes.value_f64(TUNER_LEVEL_PATH).unwrap_or(-90.0),
+        in_tune: enabled && frequency > 0.0 && cents.abs() <= 3.0,
     }
+}
+
+/// Convert a detected frequency to the nearest note and cents deviation.
+fn tuner_note(frequency: f64, reference: f64) -> (String, f64) {
+    if frequency <= 0.0 {
+        return ("—".to_string(), 0.0);
+    }
+    let reference = if reference > 0.0 { reference } else { 440.0 };
+    let midi = 69.0 + 12.0 * (frequency / reference).log2();
+    let nearest = midi.round() as i32;
+    let cents = (midi - f64::from(nearest)) * 100.0;
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    let name = NAMES[nearest.rem_euclid(12) as usize];
+    let octave = nearest.div_euclid(12) - 1;
+    (format!("{name}{octave}"), cents)
 }
 
 #[tauri::command]
@@ -650,7 +677,51 @@ fn scan_captures_impl(directory: String) -> IpcResult<LocalScan> {
 
 #[cfg(test)]
 mod tests {
-    use super::scan_captures_impl;
+    use super::{scan_captures_impl, tuner_note, tuner_view};
+    use serde_json::json;
+    use stomp_protocol::node::{Node, NodeStore};
+    use stomp_protocol::{TUNER_FREQ_PATH, TUNER_LEVEL_PATH, TUNER_ON_PATH, TUNER_REF_PATH};
+
+    fn node(value: serde_json::Value) -> Node {
+        Node::new(value.as_object().unwrap().clone())
+    }
+
+    #[test]
+    fn reads_the_tuner_module_paths_and_computes_the_note() {
+        let mut nodes = NodeStore::new();
+        nodes.insert(
+            TUNER_ON_PATH,
+            node(json!({"type":"enum","value":"ON","options":["ON","OFF"]})),
+        );
+        nodes.insert(TUNER_FREQ_PATH, node(json!({"type":"float","value":110.0})));
+        nodes.insert(
+            TUNER_LEVEL_PATH,
+            node(json!({"type":"float","value":-18.0})),
+        );
+        nodes.insert(TUNER_REF_PATH, node(json!({"type":"enum","value":"440"})));
+
+        let view = tuner_view(&nodes);
+        assert!(view.available);
+        assert!(view.enabled);
+        assert_eq!(view.note, "A2");
+        assert!((view.frequency - 110.0).abs() < f64::EPSILON);
+        assert!((view.reference - 440.0).abs() < f64::EPSILON);
+        assert!((view.level + 18.0).abs() < f64::EPSILON);
+        assert!(view.cents.abs() < 0.01);
+        assert!(view.in_tune);
+    }
+
+    #[test]
+    fn reports_no_pitch_and_unavailable_tuners() {
+        assert_eq!(tuner_note(0.0, 440.0), ("—".to_string(), 0.0));
+        assert_eq!(tuner_note(440.0, 0.0).0, "A4");
+        assert_eq!(tuner_note(261.625_565, 440.0).0, "C4");
+
+        let view = tuner_view(&NodeStore::new());
+        assert!(!view.available);
+        assert!(!view.enabled);
+        assert_eq!(view.note, "—");
+    }
 
     #[test]
     fn scans_capture_files_recursively() {

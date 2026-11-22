@@ -530,6 +530,40 @@ describe('device connection integration', () => {
     expect(client.tunerClose).toHaveBeenCalled();
   });
 
+  it('does not queue a second tuner poll while one is still in flight', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.tunerOpen.mockClear();
+    client.tunerPoll.mockClear();
+
+    let resolvePoll!: (value: typeof tuner) => void;
+    client.tunerPoll.mockImplementationOnce(
+      () =>
+        new Promise<typeof tuner>((resolve) => {
+          resolvePoll = resolve;
+        }),
+    );
+
+    useAppStore.getState().setTunerOpen(true);
+    await vi.waitFor(() => expect(client.tunerOpen).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    useAppStore.getState().tickTuner();
+    expect(client.tunerPoll).toHaveBeenCalledTimes(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    useAppStore.getState().tickTuner();
+    expect(client.tunerPoll).toHaveBeenCalledTimes(1);
+
+    resolvePoll(tuner);
+    await vi.waitFor(() => expect(useAppStore.getState().tuner.frequency).toBe(440));
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    useAppStore.getState().tickTuner();
+    expect(client.tunerPoll).toHaveBeenCalledTimes(2);
+
+    useAppStore.getState().setTunerOpen(false);
+  });
+
   it('marks a master change as a conflict while a local write is pending', async () => {
     client.getSnapshot.mockResolvedValue(fixture.snapshot);
     client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);

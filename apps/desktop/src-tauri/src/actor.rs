@@ -21,6 +21,7 @@ use stomp_device::{
 };
 use stomp_protocol::editor::BlockEditor;
 use stomp_protocol::ProtocolError;
+use stomp_protocol::TUNER_ON_PATH;
 use stomp_upload::{Preflight, UploadKind};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
@@ -973,7 +974,7 @@ impl Actor {
             return Err(stale_error());
         }
         let result = self.with_device(|device| {
-            let on_path = r"root\settings\tuner\on_off";
+            let on_path = TUNER_ON_PATH;
             if !device.nodes().contains(on_path) {
                 return Ok((false, unavailable_tuner()));
             }
@@ -1009,7 +1010,7 @@ impl Actor {
         // Closing the deck is an explicit user action: always write OFF so the
         // pedal tuner cannot stay on because it was already on before opening.
         let result = self.with_device(|device| {
-            let on_path = r"root\settings\tuner\on_off";
+            let on_path = TUNER_ON_PATH;
             if !device.nodes().contains(on_path) {
                 return Ok(());
             }
@@ -1375,6 +1376,8 @@ mod tests {
                 .expect("tuner open");
             assert!(tuner.available);
             assert!(tuner.enabled);
+            assert_eq!(tuner.note, "A2");
+            assert!((tuner.frequency - 110.0).abs() < 0.1);
             let duplicate = handle
                 .call(|reply| ActorCommand::TunerOpen { reply })
                 .await
@@ -1394,7 +1397,7 @@ mod tests {
             // closing the deck must still turn it off.
             handle
                 .call(|reply| ActorCommand::SetValue {
-                    path: r"root\settings\tuner\on_off".to_string(),
+                    path: TUNER_ON_PATH.to_string(),
                     value: serde_json::json!("ON"),
                     reply,
                 })

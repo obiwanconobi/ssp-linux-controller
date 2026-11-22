@@ -402,6 +402,7 @@ async function collectDevice(
 }
 
 let lastTunerPoll = 0;
+let tunerPollInFlight = false;
 let lastExternalSignature = '';
 let lastDeviceSnapshot: RustSnapshot | null = null;
 const pendingBlockWrites = new Map<string, { on: boolean; until: number }>();
@@ -3111,9 +3112,14 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     const active = (state.tunerOpen || state.view === 'stage') && state.tuner.available;
     if (!active) return;
     if (state.connection.mode === 'device') {
+      // Only one poll may be queued at a time. Without this guard a slow read
+      // built up a backlog that delayed the tuner OFF write until well after
+      // the deck had closed.
+      if (tunerPollInFlight) return;
       const nowMs = Date.now();
       if (nowMs - lastTunerPoll < 500) return;
       lastTunerPoll = nowMs;
+      tunerPollInFlight = true;
       tauriClient
         .tunerPoll()
         .then((view) => {
@@ -3131,7 +3137,10 @@ export const useAppStore = create<AppStore>()((set, get) => ({
             },
           }));
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          tunerPollInFlight = false;
+        });
       return;
     }
     set((current) => {
