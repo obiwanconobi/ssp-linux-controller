@@ -353,6 +353,11 @@ Save As creates a new preset slot on this firmware. Existing names are rejected
 since 0.4.1 by the dialog, the store, and the device core; the firmware does not
 overwrite an existing preset, and the UI no longer claims it will.
 
+## Remaining validation procedure
+
+Use [`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md) for the step-by-step
+write tests, expected results, evidence to capture, and stop conditions.
+
 ## Still unvalidated on hardware
 
 These intentionally remain on the Phase 3 checklist:

@@ -228,7 +228,8 @@ P1 defects.
 
 1. Finish the remaining backed-up hardware validation: cancel-after-ACK,
    overwrite, single-item delete, EQ writes, chain move/link, USB unplug/replug,
-   external changes with a pending edit, and device undo/redo.
+   external changes with a pending edit, device undo/redo, and audio readback.
+   Follow [`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md).
 2. Start P3 with the WCAG contrast audit and axe-core/keyboard checks.
 3. P3 is complete; move to P4 hardening and release engineering.
 

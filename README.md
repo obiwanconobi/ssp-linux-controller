@@ -55,7 +55,9 @@ disabled until something is dirty; a refresh never clears the dirty flag, and
 pending coalesced knob/model writes are flushed before the save command.
 
 Hardware notes, the differential results, and the remaining hardware checklist
-live in [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md). Firmware
+live in [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md). The
+step-by-step remaining pass is in
+[`docs/REMAINING_VALIDATION.md`](docs/REMAINING_VALIDATION.md). Firmware
 2.5.3 verification and the client-side changes it required are in
 [`docs/FIRMWARE_2.5.3.md`](docs/FIRMWARE_2.5.3.md).
 
