@@ -110,8 +110,9 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
    conflict bar offers “Use device” or “Keep local”, and writes rejected after
    reconnect revert the optimistic value. Hardware external-change validation
    remains.
-3. **Device-mode undo/redo.** Replay the changed controls to the device instead
-   of only restoring the local UI snapshot.
+3. **Device-mode undo/redo.** Implemented as a typed device-operation log:
+   controls, models, bypass, master, EQ, and router edits replay their inverse
+   through the actor; rapid knob writes coalesce. Hardware validation remains.
 4. **Upload hardware validation.** The picker → preflight → `begin_upload`
    path, ACK progress, cancel boundary, refreshed target list, and new-slot
    highlight are wired. Basic NAM A2, PNAM, and IR uploads succeeded on 2.5.3;

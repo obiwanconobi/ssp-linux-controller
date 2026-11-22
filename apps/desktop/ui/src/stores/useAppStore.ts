@@ -65,8 +65,11 @@ import type {
   ControlGroup,
   Density,
   DeviceConflict,
+  DeviceChainEdit,
+  DeviceOperation,
   EqBand,
   LibraryList,
+  MasterField,
   MasterState,
   MeterState,
   Motion,
@@ -115,6 +118,8 @@ interface AppStore {
   motion: Motion;
   pending: string[];
   conflicts: DeviceConflict[];
+  deviceUndoStack: DeviceOperation[];
+  deviceRedoStack: DeviceOperation[];
   undoStack: Snapshot[];
   redoStack: Snapshot[];
   commandOpen: boolean;
@@ -184,6 +189,8 @@ interface AppStore {
   tickTuner: () => void;
   handleWriteFailure: (id: string, message: string, error: unknown) => void;
   resolveConflict: (id: string, choice: 'device' | 'local') => void;
+  recordDeviceOperation: (operation: DeviceOperation, coalesce?: boolean) => void;
+  clearDeviceHistory: () => void;
   notify: (message: string, tone?: Toast['tone']) => void;
   addActivity: (title: string, detail?: string, tone?: ActivityEntry['tone']) => void;
   getSelectedBlock: () => Block | undefined;
@@ -582,6 +589,219 @@ const conflictStatePatch = (
   return {};
 };
 
+let deviceReplaying = false;
+
+const mergeDeviceOperation = (
+  top: DeviceOperation,
+  operation: DeviceOperation,
+): DeviceOperation | null => {
+  if (top.key !== operation.key || top.kind !== operation.kind) return null;
+  if (top.kind === 'control' && operation.kind === 'control') {
+    return { ...top, after: operation.after };
+  }
+  if (top.kind === 'model' && operation.kind === 'model') {
+    return { ...top, after: operation.after };
+  }
+  if (top.kind === 'master' && operation.kind === 'master') {
+    return { ...top, after: operation.after };
+  }
+  if (top.kind === 'eq' && operation.kind === 'eq') {
+    return {
+      ...top,
+      before: { ...operation.before, ...top.before },
+      after: { ...top.after, ...operation.after },
+    };
+  }
+  if (top.kind === 'eq-enabled' && operation.kind === 'eq-enabled') {
+    return { ...top, after: operation.after };
+  }
+  return null;
+};
+
+const operationStatePatch = (
+  state: AppStore,
+  operation: DeviceOperation,
+  direction: 'undo' | 'redo',
+): Partial<AppStore> => {
+  const value = direction === 'undo' ? 'before' : 'after';
+  if (operation.kind === 'control') {
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === operation.blockId
+          ? withControlState(block, operation.path, operation[value], false)
+          : block,
+      ),
+    };
+  }
+  if (operation.kind === 'model') {
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === operation.blockId
+          ? withModelState(block, operation[value], operation.lane)
+          : block,
+      ),
+    };
+  }
+  if (operation.kind === 'toggle') {
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === operation.blockId
+          ? { ...block, on: operation[value] }
+          : block,
+      ),
+    };
+  }
+  if (operation.kind === 'lane-enabled') {
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === operation.blockId && block.secondLane
+          ? {
+              ...block,
+              secondLane: { ...block.secondLane, enabled: operation[value] },
+            }
+          : block,
+      ),
+    };
+  }
+  if (operation.kind === 'master') {
+    return {
+      master: {
+        ...state.master,
+        [operation.field]: operation[value],
+      } as MasterState,
+    };
+  }
+  if (operation.kind === 'eq') {
+    return {
+      eq: state.eq.map((band) =>
+        band.index === operation.index
+          ? { ...band, ...operation[value] } as EqBand
+          : band,
+      ),
+    };
+  }
+  if (operation.kind === 'eq-enabled') {
+    return {
+      eqEnabled: operation[value],
+      eq: state.eq.map((band) => ({ ...band, enabled: operation[value] })),
+    };
+  }
+  if (operation.kind === 'eq-bulk') {
+    return {
+      eq: state.eq.map((band) => {
+        const change = operation.changes.find((item) => item.index === band.index);
+        return change
+          ? { ...band, gain: direction === 'undo' ? change.before : change.after }
+          : band;
+      }),
+    };
+  }
+  return {};
+};
+
+async function applyDeviceOperation(
+  operation: DeviceOperation,
+  direction: 'undo' | 'redo',
+): Promise<void> {
+  let revision: number | null = null;
+  if (operation.kind === 'control') {
+    const snapshot = await tauriClient.setControl(
+      operation.path,
+      direction === 'undo' ? operation.before : operation.after,
+    );
+    revision = snapshot.revision;
+  } else if (operation.kind === 'model') {
+    const snapshot = await tauriClient.setControl(
+      operation.path,
+      direction === 'undo' ? operation.before : operation.after,
+    );
+    revision = snapshot.revision;
+  } else if (operation.kind === 'toggle') {
+    const snapshot = await tauriClient.setBlock(
+      operation.blockId,
+      direction === 'undo' ? operation.before : operation.after,
+    );
+    revision = snapshot.revision;
+  } else if (operation.kind === 'lane-enabled') {
+    const lane = useAppStore
+      .getState()
+      .blocks.find((block) => block.id === operation.blockId)?.secondLane;
+    if (lane?.onOffId) {
+      const snapshot = await tauriClient.setControl(
+        lane.onOffId,
+        (direction === 'undo' ? operation.before : operation.after) ? 'ON' : 'OFF',
+      );
+      revision = snapshot.revision;
+    }
+  } else if (operation.kind === 'master') {
+    const snapshot = await tauriClient.setMaster(
+      operation.field === 'presetLevel' ? 'preset_level' : operation.field,
+      direction === 'undo' ? operation.before : operation.after,
+    );
+    revision = snapshot.revision;
+  } else if (operation.kind === 'eq') {
+    const patch = direction === 'undo' ? operation.before : operation.after;
+    for (const [field, value] of Object.entries(patch)) {
+      const snapshot =
+        field === 'type'
+          ? await tauriClient.setEqType(operation.deviceIndex, String(value))
+          : await tauriClient.setEqBand(operation.deviceIndex, field, Number(value));
+      revision = snapshot.revision;
+    }
+  } else if (operation.kind === 'eq-enabled') {
+    const snapshot = await tauriClient.setEqEnabled(
+      direction === 'undo' ? operation.before : operation.after,
+    );
+    revision = snapshot.revision;
+  } else if (operation.kind === 'eq-bulk') {
+    for (const change of operation.changes) {
+      const snapshot = await tauriClient.setEqBand(
+        change.deviceIndex,
+        'gain',
+        direction === 'undo' ? change.before : change.after,
+      );
+      revision = snapshot.revision;
+    }
+  } else if (operation.kind === 'chain') {
+    await tauriClient.editChain(
+      (direction === 'undo'
+        ? operation.inverse
+        : operation.edit) as unknown as Record<string, unknown>,
+    );
+    await useAppStore.getState().refreshDevice();
+  } else if (operation.kind === 'chain-clear') {
+    if (direction === 'undo') {
+      for (const item of operation.restore) {
+        await tauriClient.editChain({
+          type: 'add',
+          row: item.row,
+          col: item.col,
+          path: item.path,
+        });
+      }
+    } else {
+      await tauriClient.editChain({ type: 'clear' });
+    }
+    await useAppStore.getState().refreshDevice();
+  }
+  if (
+    operation.kind === 'model' ||
+    (operation.kind === 'control' && operation.path.endsWith('\\type'))
+  ) {
+    await useAppStore.getState().refreshDevice();
+    revision = null;
+  }
+  const state = useAppStore.getState();
+  useAppStore.setState({
+    ...operationStatePatch(state, operation, direction),
+    save: {
+      ...state.save,
+      edited: true,
+      ...(revision != null ? { revision } : {}),
+    },
+  });
+}
+
 export const useAppStore = create<AppStore>()((set, get) => ({
   view: initialView(),
   ...initialBoot,
@@ -590,6 +810,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   motion: appearance.motion,
   pending: [],
   conflicts: [],
+  deviceUndoStack: [],
+  deviceRedoStack: [],
   undoStack: [],
   redoStack: [],
   commandOpen: false,
@@ -623,6 +845,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     set({
       preset: { ...preset, current: name, index, recent },
       conflicts: [],
+      deviceUndoStack: [],
+      deviceRedoStack: [],
       save: { ...get().save, edited: false, revision: get().save.revision + 1 },
     });
     get().addActivity('Preset loaded', `${name} · slot ${index + 1}`, 'neutral');
@@ -950,6 +1174,14 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       set((state) => ({ pending: state.pending.filter((item) => item !== id) }));
     }, 260);
     if (get().connection.mode === 'device') {
+      get().recordDeviceOperation({
+        kind: 'toggle',
+        key: `toggle:${id}`,
+        label: `${block.label} bypass`,
+        blockId: id,
+        before: block.on,
+        after: on,
+      });
       pendingBlockWrites.set(id, { on, until: Date.now() + 1600 });
       tauriClient
         .setBlock(block.id, on)
@@ -984,6 +1216,16 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     get().addActivity('Model changed', model, 'neutral');
     const updated = get().blocks.find((block) => block.id === blockId);
     if (get().connection.mode === 'device' && updated?.modelControlId) {
+      get().recordDeviceOperation({
+        kind: 'model',
+        key: `model.${blockId}`,
+        label: 'Model',
+        blockId,
+        lane: false,
+        path: updated.modelControlId,
+        before: previousModel,
+        after: model,
+      });
       const pendingEntry = rememberPendingWrite({
         id: `model.${blockId}`,
         kind: 'model',
@@ -1022,6 +1264,16 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     get().addActivity('Model changed', `${model} · lane 2`, 'neutral');
     const lane = get().blocks.find((block) => block.id === blockId)?.secondLane;
     if (get().connection.mode === 'device' && lane?.modelControlId) {
+      get().recordDeviceOperation({
+        kind: 'model',
+        key: `model.${blockId}.lane`,
+        label: 'Dual amp model',
+        blockId,
+        lane: true,
+        path: lane.modelControlId,
+        before: previousModel,
+        after: model,
+      });
       const pendingEntry = rememberPendingWrite({
         id: `model.${blockId}.lane`,
         kind: 'model',
@@ -1042,17 +1294,27 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   },
 
   setLaneEnabled: (blockId, enabled) => {
+    const block = get().blocks.find((item) => item.id === blockId);
+    const previous = block?.secondLane?.enabled ?? !enabled;
     set((state) => ({
-      blocks: state.blocks.map((block) =>
-        block.id === blockId && block.secondLane
-          ? { ...block, secondLane: { ...block.secondLane, enabled } }
-          : block,
+      blocks: state.blocks.map((item) =>
+        item.id === blockId && item.secondLane
+          ? { ...item, secondLane: { ...item.secondLane, enabled } }
+          : item,
       ),
       save: { ...state.save, edited: true },
     }));
     get().notify(`NAM 2 ${enabled ? 'enabled' : 'disabled'}`, 'neutral');
-    const lane = get().blocks.find((block) => block.id === blockId)?.secondLane;
+    const lane = get().blocks.find((item) => item.id === blockId)?.secondLane;
     if (get().connection.mode === 'device' && lane?.onOffId) {
+      get().recordDeviceOperation({
+        kind: 'lane-enabled',
+        key: `lane-on:${blockId}`,
+        label: `${block?.label ?? 'Dual amp'} lane 2`,
+        blockId,
+        before: previous,
+        after: enabled,
+      });
       coalesce(
         `lane-on.${blockId}`,
         () => tauriClient.setControl(lane.onOffId!, enabled ? 'ON' : 'OFF'),
@@ -1148,6 +1410,20 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }, 240);
     if (get().connection.mode === 'device') {
       const targetControl = target?.control;
+      if (target && targetControl) {
+        get().recordDeviceOperation(
+          {
+            kind: 'control',
+            key: controlId,
+            label: targetControl.label || targetControl.name || controlId,
+            blockId: target.block.id,
+            path: controlId,
+            before: targetControl.value,
+            after: value,
+          },
+          !firstInGroup,
+        );
+      }
       const pendingEntry = target && targetControl
         ? rememberPendingWrite({
             id: controlId,
@@ -1220,9 +1496,25 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     get().notify(`${parallel ? 'Parallel' : 'Series'} link set`, 'neutral');
     const block = get().blocks.find((item) => item.id === id);
     if (get().connection.mode === 'device' && block?.slotRow != null && block.slotCol != null) {
+      const edit = {
+        type: 'link' as const,
+        row: block.slotRow,
+        col: block.slotCol,
+        parallel,
+      };
+      const inverse = { ...edit, parallel: !parallel };
       tauriClient
-        .editChain({ type: 'link', row: block.slotRow, col: block.slotCol, parallel })
-        .then(() => window.setTimeout(() => void get().refreshDevice(), 200))
+        .editChain(edit)
+        .then(() => {
+          get().recordDeviceOperation({
+            kind: 'chain',
+            key: `link:${id}`,
+            label: `${block.label} link`,
+            edit,
+            inverse,
+          });
+          window.setTimeout(() => void get().refreshDevice(), 200);
+        })
         .catch((error) => get().notify(ipcErrorMessage(error), 'bad'));
     }
   },
@@ -1323,13 +1615,28 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       save: { ...state.save, edited: true },
     });
     get().addActivity('Chain reordered', moved.label, 'neutral');
+    const edit = {
+      type: 'move' as const,
+      from: [fromSlot.row, fromSlot.col] as [number, number],
+      to: [destination.row, destination.col] as [number, number],
+    };
+    const inverse = {
+      type: 'move' as const,
+      from: edit.to,
+      to: edit.from,
+    };
     tauriClient
-      .editChain({
-        type: 'move',
-        from: [fromSlot.row, fromSlot.col],
-        to: [destination.row, destination.col],
+      .editChain(edit)
+      .then(() => {
+        get().recordDeviceOperation({
+          kind: 'chain',
+          key: `move:${activeId}`,
+          label: `${moved.label} moved`,
+          edit,
+          inverse,
+        });
+        window.setTimeout(() => void get().refreshDevice(), 200);
       })
-      .then(() => window.setTimeout(() => void get().refreshDevice(), 200))
       .catch((error) => {
         get().notify(ipcErrorMessage(error), 'bad');
         void get().refreshDevice();
@@ -1346,9 +1653,23 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         current.notify('No free chain slot available', 'warn');
         return;
       }
+      const edit = {
+        type: 'add' as const,
+        row: target.row,
+        col: target.col,
+        path: id,
+      };
+      const inverse = { type: 'remove' as const, row: target.row, col: target.col };
       tauriClient
-        .editChain({ type: 'add', row: target.row, col: target.col, path: id })
+        .editChain(edit)
         .then(() => {
+          get().recordDeviceOperation({
+            kind: 'chain',
+            key: `add:${id}:${target.row}:${target.col}`,
+            label: `${available.label} added`,
+            edit,
+            inverse,
+          });
           set((state) => ({
             save: { ...state.save, edited: true },
             emptySlots: state.emptySlots.filter(
@@ -1385,9 +1706,27 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         get().notify('This block has no router slot', 'warn');
         return;
       }
+      const edit = {
+        type: 'remove' as const,
+        row: block.slotRow,
+        col: block.slotCol,
+      };
+      const inverse = {
+        type: 'add' as const,
+        row: block.slotRow,
+        col: block.slotCol,
+        path: id,
+      };
       tauriClient
-        .editChain({ type: 'remove', row: block.slotRow, col: block.slotCol })
+        .editChain(edit)
         .then(() => {
+          get().recordDeviceOperation({
+            kind: 'chain',
+            key: `remove:${id}`,
+            label: `${block.label} removed`,
+            edit,
+            inverse,
+          });
           set((state) => ({ save: { ...state.save, edited: true } }));
           get().addActivity('Block removed', block.label, 'warn');
           return get().refreshDevice();
@@ -1425,9 +1764,27 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       return;
     }
     if (current.connection.mode === 'device') {
+      const restore = movable
+        .filter(
+          (block): block is Block & { slotRow: number; slotCol: number } =>
+            block.slotRow != null && block.slotCol != null,
+        )
+        .map((block) => ({
+          row: block.slotRow,
+          col: block.slotCol,
+          path: block.id,
+        }));
       tauriClient
         .editChain({ type: 'clear' })
         .then(() => {
+          if (restore.length > 0) {
+            get().recordDeviceOperation({
+              kind: 'chain-clear',
+              key: 'chain.clear',
+              label: 'Chain cleared',
+              restore,
+            });
+          }
           set((state) => ({ save: { ...state.save, edited: true } }));
           get().addActivity(
             'Chain cleared',
@@ -1476,14 +1833,23 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         current.notify('This block has no router slot', 'warn');
         return;
       }
+      const edit = {
+        type: 'replace' as const,
+        row: block.slotRow,
+        col: block.slotCol,
+        path: replacementId,
+      };
+      const inverse = { ...edit, path: id };
       tauriClient
-        .editChain({
-          type: 'replace',
-          row: block.slotRow,
-          col: block.slotCol,
-          path: replacementId,
-        })
+        .editChain(edit)
         .then(() => {
+          get().recordDeviceOperation({
+            kind: 'chain',
+            key: `replace:${id}:${block.slotRow}:${block.slotCol}`,
+            label: `${block.label} replaced`,
+            edit,
+            inverse,
+          });
           set((state) => ({ save: { ...state.save, edited: true } }));
           get().addActivity('Block replaced', `${block.label} → ${replacement.label}`, 'good');
           get().notify(`${block.label} replaced with ${replacement.label}`, 'good');
@@ -1536,10 +1902,23 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       }));
     }, 260);
     if (get().connection.mode === 'device') {
+      const masterField: MasterField =
+        field === 'presetLevel' ? 'presetLevel' : field === 'tempo' ? 'tempo' : 'volume';
+      get().recordDeviceOperation(
+        {
+          kind: 'master',
+          key: `master.${masterField}`,
+          label: masterField === 'presetLevel' ? 'Preset level' : `Master ${masterField}`,
+          field: masterField,
+          before: Number(previousValue),
+          after: value,
+        },
+        !firstInGroup,
+      );
       const pendingEntry = rememberPendingWrite({
         id: `master.${field}`,
         kind: 'master',
-        label: field === 'presetLevel' ? 'Preset level' : `Master ${field}`,
+        label: masterField === 'presetLevel' ? 'Preset level' : `Master ${masterField}`,
         localValue: value,
         previousValue,
         field,
@@ -1557,6 +1936,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     const state = get();
     const before = snapshotOf(state);
     const previousBand = state.eq.find((band) => band.index === index);
+    const eqBefore: Record<string, ConflictValue> = {};
+    const eqAfter: Record<string, ConflictValue> = {};
     const key = `eq.${index}.${Object.keys(patch).join(',')}`;
     const firstInGroup = state.lastEdit.key !== key || Date.now() - state.lastEdit.at > 600;
     set({
@@ -1593,6 +1974,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           index,
           field,
         });
+        eqBefore[field] = previousValue;
+        eqAfter[field] = fieldValue as ConflictValue;
         coalesce(
           `eq.${index}.${field}`,
           () =>
@@ -1603,6 +1986,18 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           () => clearPendingWrite(pendingEntry),
         );
       }
+      get().recordDeviceOperation(
+        {
+          kind: 'eq',
+          key: `eq.${index}`,
+          label: `EQ band ${index + 1}`,
+          index,
+          deviceIndex,
+          before: eqBefore,
+          after: eqAfter,
+        },
+        !firstInGroup,
+      );
     }
   },
 
@@ -1615,6 +2010,13 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }));
     get().notify(`Global EQ ${enabled ? 'enabled' : 'bypassed'}`, 'neutral');
     if (get().connection.mode === 'device') {
+      get().recordDeviceOperation({
+        kind: 'eq-enabled',
+        key: 'eq.enabled',
+        label: 'Global EQ',
+        before: previous,
+        after: enabled,
+      });
       const pendingEntry = rememberPendingWrite({
         id: 'eq.enabled',
         kind: 'eq',
@@ -1643,6 +2045,18 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }));
     get().notify('Global EQ flattened — undo available', 'warn');
     if (get().connection.mode === 'device') {
+      get().recordDeviceOperation({
+        kind: 'eq-bulk',
+        key: 'eq.flatten',
+        label: 'EQ flattened',
+        changes: get().eq.map((band) => ({
+          index: band.index,
+          deviceIndex: band.deviceIndex ?? band.index,
+          before:
+            previousEq.find((item) => item.index === band.index)?.gain ?? band.gain,
+          after: 0,
+        })),
+      });
       get().eq.forEach((band) => {
         const pendingEntry = rememberPendingWrite({
           id: `eq.${band.index}.gain`,
@@ -1666,7 +2080,38 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   undo: () => {
     const state = get();
     if (state.connection.mode === 'device') {
-      get().notify('Device undo is not wired yet — change the value back on the board', 'warn');
+      void (async () => {
+        if (deviceReplaying) return;
+        if (!state.connection.connected) {
+          get().notify('Reconnect before undoing device edits', 'warn');
+          return;
+        }
+        if (state.conflicts.length > 0) {
+          get().notify('Resolve the device conflicts before undoing', 'warn');
+          return;
+        }
+        const operation = state.deviceUndoStack.at(-1);
+        if (!operation) {
+          get().notify('Nothing to undo', 'neutral');
+          return;
+        }
+        deviceReplaying = true;
+        try {
+          await flushCoalesced((message) => get().notify(message, 'bad'));
+          await applyDeviceOperation(operation, 'undo');
+          set((current) => ({
+            deviceUndoStack: current.deviceUndoStack.slice(0, -1),
+            deviceRedoStack: [...current.deviceRedoStack, operation].slice(-100),
+            save: { ...current.save, edited: true },
+          }));
+          get().addActivity('Undo', operation.label, 'neutral');
+        } catch (error) {
+          get().notify(ipcErrorMessage(error), 'bad');
+          void get().refreshDevice();
+        } finally {
+          deviceReplaying = false;
+        }
+      })();
       return;
     }
     const previous = state.undoStack[state.undoStack.length - 1];
@@ -1689,7 +2134,38 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   redo: () => {
     const state = get();
     if (state.connection.mode === 'device') {
-      get().notify('Device redo is not wired yet', 'warn');
+      void (async () => {
+        if (deviceReplaying) return;
+        if (!state.connection.connected) {
+          get().notify('Reconnect before redoing device edits', 'warn');
+          return;
+        }
+        if (state.conflicts.length > 0) {
+          get().notify('Resolve the device conflicts before redoing', 'warn');
+          return;
+        }
+        const operation = state.deviceRedoStack.at(-1);
+        if (!operation) {
+          get().notify('Nothing to redo', 'neutral');
+          return;
+        }
+        deviceReplaying = true;
+        try {
+          await flushCoalesced((message) => get().notify(message, 'bad'));
+          await applyDeviceOperation(operation, 'redo');
+          set((current) => ({
+            deviceRedoStack: current.deviceRedoStack.slice(0, -1),
+            deviceUndoStack: [...current.deviceUndoStack, operation].slice(-100),
+            save: { ...current.save, edited: true },
+          }));
+          get().addActivity('Redo', operation.label, 'neutral');
+        } catch (error) {
+          get().notify(ipcErrorMessage(error), 'bad');
+          void get().refreshDevice();
+        } finally {
+          deviceReplaying = false;
+        }
+      })();
       return;
     }
     const next = state.redoStack[state.redoStack.length - 1];
@@ -1785,6 +2261,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     set((state) => ({
       ...boot,
       conflicts: [],
+      deviceUndoStack: [],
+      deviceRedoStack: [],
       connection: { ...boot.connection, connected: false, connecting: true },
       save: { ...boot.save, revision: state.save.revision + 1 },
       undoStack: [],
@@ -1811,6 +2289,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     recentLocalBlockWrites.clear();
     set((state) => ({
       conflicts: [],
+      deviceUndoStack: [],
+      deviceRedoStack: [],
       connection: {
         ...state.connection,
         connected: false,
@@ -1890,6 +2370,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     recentLocalBlockWrites.clear();
     set((state) => ({
       conflicts: [],
+      deviceUndoStack: [],
+      deviceRedoStack: [],
       connection: {
         ...state.connection,
         connecting: true,
@@ -2071,7 +2553,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           'warn',
         );
       }
-      set({ conflicts: [] });
+      set({ conflicts: [], deviceUndoStack: [], deviceRedoStack: [] });
       void state.refreshDevice();
       return;
     }
@@ -2298,6 +2780,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }
     set((state) => ({
       conflicts: [],
+      deviceUndoStack: [],
+      deviceRedoStack: [],
       connection: {
         ...state.connection,
         connected: false,
@@ -2590,6 +3074,24 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       get().notify(`Using device value for ${conflict.label}`, 'neutral');
     }
   },
+
+  recordDeviceOperation: (operation, coalesce = false) => {
+    if (deviceReplaying || get().connection.mode !== 'device') return;
+    set((state) => {
+      const stack = [...state.deviceUndoStack];
+      const top = stack.at(-1);
+      const merged = coalesce && top ? mergeDeviceOperation(top, operation) : null;
+      if (merged) stack[stack.length - 1] = merged;
+      else stack.push(operation);
+      return {
+        deviceUndoStack: stack.slice(-100),
+        deviceRedoStack: [],
+        save: { ...state.save, edited: true },
+      };
+    });
+  },
+
+  clearDeviceHistory: () => set({ deviceUndoStack: [], deviceRedoStack: [] }),
 
   setTuner: (patch) => set((state) => ({ tuner: { ...state.tuner, ...patch } })),
 

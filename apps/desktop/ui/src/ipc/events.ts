@@ -42,6 +42,7 @@ export async function startDeviceEvents(): Promise<UnlistenFn> {
 
   const unlistenReconnected = await listen<string>('device://reconnected', (event) => {
     const state = useAppStore.getState();
+    state.clearDeviceHistory();
     state.addActivity('Device reconnected', event.payload, 'good');
     state.notify('Device reconnected', 'good');
   });

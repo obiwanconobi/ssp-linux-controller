@@ -23,8 +23,12 @@ export const TitleBar = () => {
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
   const setShortcutsOpen = useAppStore((state) => state.setShortcutsOpen);
   const setActivityOpen = useAppStore((state) => state.setActivityOpen);
-  const undoDepth = useAppStore((state) => state.undoStack.length);
-  const redoDepth = useAppStore((state) => state.redoStack.length);
+  const localUndoDepth = useAppStore((state) => state.undoStack.length);
+  const localRedoDepth = useAppStore((state) => state.redoStack.length);
+  const deviceUndoDepth = useAppStore((state) => state.deviceUndoStack.length);
+  const deviceRedoDepth = useAppStore((state) => state.deviceRedoStack.length);
+  const undoDepth = connection.mode === 'device' ? deviceUndoDepth : localUndoDepth;
+  const redoDepth = connection.mode === 'device' ? deviceRedoDepth : localRedoDepth;
 
   const previousIndex = (index: number) => {
     for (let offset = 1; offset <= preset.names.length; offset += 1) {
@@ -90,7 +94,7 @@ export const TitleBar = () => {
           aria-label={`Undo (${undoDepth} available)`}
           title="Undo (Ctrl+Z)"
           onClick={undo}
-          disabled={undoDepth === 0}
+          disabled={!connection.connected || undoDepth === 0}
         >
           <Undo2 size={15} />
         </button>
@@ -100,7 +104,7 @@ export const TitleBar = () => {
           aria-label={`Redo (${redoDepth} available)`}
           title="Redo (Ctrl+Shift+Z)"
           onClick={redo}
-          disabled={redoDepth === 0}
+          disabled={!connection.connected || redoDepth === 0}
         >
           <Redo2 size={15} />
         </button>

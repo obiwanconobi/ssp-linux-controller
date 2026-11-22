@@ -603,4 +603,122 @@ describe('device connection integration', () => {
       expect(useAppStore.getState().conflicts).toHaveLength(0);
     });
   });
+
+  it('coalesces rapid control writes and replays them on undo/redo', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    useAppStore.getState().setControl('root\\app\\drive\\gain', 7.2);
+    useAppStore.getState().setControl('root\\app\\drive\\gain', 7.4);
+
+    const operations = useAppStore.getState().deviceUndoStack;
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({
+      kind: 'control',
+      path: 'root\\app\\drive\\gain',
+      before: 6.4,
+      after: 7.4,
+    });
+
+    client.setControl.mockClear();
+    useAppStore.getState().undo();
+    await vi.waitFor(() =>
+      expect(client.setControl).toHaveBeenCalledWith('root\\app\\drive\\gain', 6.4),
+    );
+    await vi.waitFor(() =>
+      expect(useAppStore.getState().deviceUndoStack).toHaveLength(0),
+    );
+    expect(useAppStore.getState().deviceRedoStack).toHaveLength(1);
+
+    client.setControl.mockClear();
+    useAppStore.getState().redo();
+    await vi.waitFor(() =>
+      expect(client.setControl).toHaveBeenCalledWith('root\\app\\drive\\gain', 7.4),
+    );
+    await vi.waitFor(() =>
+      expect(useAppStore.getState().deviceUndoStack).toHaveLength(1),
+    );
+    expect(useAppStore.getState().deviceRedoStack).toHaveLength(0);
+  });
+
+  it('undoes a master write through the device operation log', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const before = useAppStore.getState().master.volume;
+
+    useAppStore.getState().setMaster('volume', 66);
+    expect(useAppStore.getState().deviceUndoStack[0]).toMatchObject({
+      kind: 'master',
+      field: 'volume',
+      before,
+      after: 66,
+    });
+
+    client.setMaster.mockClear();
+    useAppStore.getState().undo();
+    await vi.waitFor(() =>
+      expect(client.setMaster).toHaveBeenCalledWith('volume', before),
+    );
+    await vi.waitFor(() =>
+      expect(useAppStore.getState().master.volume).toBe(before),
+    );
+  });
+
+  it('undoes a chain move with the inverse router edit', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    useAppStore.getState().moveBlock('root\\app\\ir', 'slot:0:18');
+    await vi.waitFor(() =>
+      expect(useAppStore.getState().deviceUndoStack).toHaveLength(1),
+    );
+    expect(useAppStore.getState().deviceUndoStack[0]).toMatchObject({
+      kind: 'chain',
+      edit: { type: 'move', from: [0, 10], to: [0, 18] },
+      inverse: { type: 'move', from: [0, 18], to: [0, 10] },
+    });
+
+    client.editChain.mockClear();
+    useAppStore.getState().undo();
+    await vi.waitFor(() =>
+      expect(client.editChain).toHaveBeenCalledWith({
+        type: 'move',
+        from: [0, 18],
+        to: [0, 10],
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(useAppStore.getState().deviceUndoStack).toHaveLength(0),
+    );
+  });
+
+  it('undoes a bypass toggle through the device operation log', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const before = useAppStore
+      .getState()
+      .blocks.find((block) => block.id === 'root\\app\\amp')!.on;
+
+    useAppStore.getState().toggleBlock('root\\app\\amp');
+    expect(useAppStore.getState().deviceUndoStack[0]).toMatchObject({
+      kind: 'toggle',
+      before,
+      after: !before,
+    });
+
+    client.setBlock.mockClear();
+    useAppStore.getState().undo();
+    await vi.waitFor(() =>
+      expect(client.setBlock).toHaveBeenCalledWith('root\\app\\amp', before),
+    );
+    await vi.waitFor(() =>
+      expect(
+        useAppStore.getState().blocks.find((block) => block.id === 'root\\app\\amp')?.on,
+      ).toBe(before),
+    );
+  });
 });

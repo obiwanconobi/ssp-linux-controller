@@ -405,8 +405,9 @@ cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
 4. **Save As hardware pass.** The desktop dialog, overwrite warning, and list
    refresh are implemented; validate new-slot and overwrite behavior on real
    firmware.
-5. **Device-mode undo/redo.** Undo currently restores the local UI snapshot; it
-   does not replay writes to the device yet.
+5. **Device undo hardware pass.** Device edits now record typed operations and
+   replay inverse control/router writes; validate undo/redo and reconnect
+   history clearing on real firmware.
 6. **Hardware validation.** Uploads still need a scratch-slot pass; move/link,
    EQ writes, external-change handling, tuner restore, unplug/replug, and
    ten-minute polling remain open. See the hardware checklist.

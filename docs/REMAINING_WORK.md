@@ -138,11 +138,16 @@ the external-change hardware pass remains in 0.2.
 
 ### 2.3 Device-mode undo/redo
 
-- [ ] Record actual device operations, not just UI snapshots.
-- [ ] Replay the changed controls/router writes on undo/redo.
-- [ ] Coalesce rapid knob writes into one undo entry.
+- [x] Record actual device operations, not just UI snapshots.
+- [x] Replay the changed controls/router writes on undo/redo.
+- [x] Coalesce rapid knob writes into one undo entry.
 
-Depends on 2.1 and the conflict rules from 2.2.
+Depends on 2.1 and the conflict rules from 2.2. Device edits now push a typed
+operation log (control, model, bypass, master, EQ, router move/add/remove/
+replace/link/clear); undo/redo replays the inverse through the actor, blocks
+while conflicts are unresolved, flushes pending coalesced writes first, and
+clears history on reconnect or a preset/chain reload. Undo of router and EQ
+operations still needs a hardware pass.
 
 ## P3 — UI, accessibility, and polish
 
@@ -197,9 +202,9 @@ P1 defects.
 
 1. Run the 0.2 hardware validation on a backed-up device, starting with
    single-item delete, Clear Chain, and upload cancel/overwrite.
-2. Hardware-validate Save As, tuner restore, reconnect, and an external
-   preset/control change while a local edit is pending.
-3. Implement P2.3, device-mode undo/redo, on the actor's operation log.
+2. Hardware-validate Save As, tuner restore, reconnect, external changes with a
+   pending edit, and device undo/redo (especially router and EQ operations).
+3. Start P3: density, contrast, and visual/accessibility baselines.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.

@@ -329,6 +329,9 @@ These intentionally remain on the Phase 3 checklist:
   preserves fixed blocks/connectors by construction.
 - Save As to a new/empty preset slot and Save As over an existing name (desktop
   dialog implemented; hardware pass pending).
+- device undo/redo of control, master, EQ, bypass, and router edits, including
+  history clearing after reconnect (simulator/store tests cover the inverse
+  writes; hardware pass pending).
 - Android on a physical phone, including Wi-Fi mDNS discovery, one-client
   behavior, and reconnect after screen lock;
 - factory reset (do not run without a fresh backup).

@@ -181,6 +181,101 @@ export interface DeviceConflict {
   index?: number;
 }
 
+export type MasterField = 'volume' | 'tempo' | 'presetLevel';
+
+export type DeviceChainEdit =
+  | { type: 'add'; row: number; col: number; path: string }
+  | { type: 'remove'; row: number; col: number }
+  | { type: 'move'; from: [number, number]; to: [number, number] }
+  | { type: 'link'; row: number; col: number; parallel: boolean }
+  | { type: 'replace'; row: number; col: number; path: string }
+  | { type: 'clear' };
+
+export type DeviceOperation =
+  | {
+      kind: 'control';
+      key: string;
+      label: string;
+      blockId: string;
+      path: string;
+      before: ConflictValue;
+      after: ConflictValue;
+    }
+  | {
+      kind: 'model';
+      key: string;
+      label: string;
+      blockId: string;
+      lane: boolean;
+      path: string;
+      before: string;
+      after: string;
+    }
+  | {
+      kind: 'toggle';
+      key: string;
+      label: string;
+      blockId: string;
+      before: boolean;
+      after: boolean;
+    }
+  | {
+      kind: 'lane-enabled';
+      key: string;
+      label: string;
+      blockId: string;
+      before: boolean;
+      after: boolean;
+    }
+  | {
+      kind: 'master';
+      key: string;
+      label: string;
+      field: MasterField;
+      before: number;
+      after: number;
+    }
+  | {
+      kind: 'eq';
+      key: string;
+      label: string;
+      index: number;
+      deviceIndex: number;
+      before: Record<string, ConflictValue>;
+      after: Record<string, ConflictValue>;
+    }
+  | {
+      kind: 'eq-enabled';
+      key: string;
+      label: string;
+      before: boolean;
+      after: boolean;
+    }
+  | {
+      kind: 'eq-bulk';
+      key: string;
+      label: string;
+      changes: Array<{
+        index: number;
+        deviceIndex: number;
+        before: number;
+        after: number;
+      }>;
+    }
+  | {
+      kind: 'chain';
+      key: string;
+      label: string;
+      edit: DeviceChainEdit;
+      inverse: DeviceChainEdit;
+    }
+  | {
+      kind: 'chain-clear';
+      key: string;
+      label: string;
+      restore: Array<{ row: number; col: number; path: string }>;
+    };
+
 export interface ConnectionState {
   connected: boolean;
   connecting: boolean;
