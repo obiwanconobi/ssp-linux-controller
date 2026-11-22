@@ -51,6 +51,7 @@ const client = {
     }),
   ),
   cancelUpload: vi.fn(async () => true),
+  deleteListItem: vi.fn(async () => fixture.snapshot),
 };
 
 vi.mock('../ipc/client', () => ({
@@ -208,6 +209,24 @@ describe('device connection integration', () => {
       expect(client.getSnapshot.mock.calls.length).toBeGreaterThan(readsBefore),
     );
     expect(useAppStore.getState().save.edited).toBe(true);
+  });
+
+  it('deletes a capture list item through the IPC client', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const list = useAppStore
+      .getState()
+      .lists.find((item) => item.kind === 'nam' && item.slots.some((slot) => slot.used))!;
+    const slot = list.slots.find((entry) => entry.used)!;
+
+    useAppStore.getState().deleteCapture(list.id, slot.index);
+
+    expect(client.deleteListItem).toHaveBeenCalledWith(
+      `root\\${list.id}`,
+      slot.index,
+    );
+    await vi.waitFor(() =>
+      expect(client.deleteListItem).toHaveBeenCalledTimes(1),
+    );
   });
 
   it('clears the device chain through the router command', async () => {

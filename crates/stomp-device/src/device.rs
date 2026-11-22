@@ -13,8 +13,8 @@ use stomp_protocol::node::NodeStore;
 use stomp_protocol::preset::{preset_name_error, preset_state, rename_hex, PresetState};
 use stomp_protocol::router::{available_blocks, chain_blocks, load_chain, ChainSlot, LinkType};
 use stomp_protocol::{
-    normalize_path, path_name, path_parent, ProtocolError, DEFAULT_CHAIN, IR_PATH, NAM_DRIVE_PATH,
-    NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH, PRESET_PATH,
+    normalize_path, path_name, path_parent, ProtocolError, DEFAULT_CHAIN, IR_PATH, NAME_SIZE,
+    NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH, PRESET_LIST_PATH, PRESET_PATH,
 };
 use stomp_transport::{ScriptedTransport, SerialTransport, TcpTransport, Transport};
 use stomp_upload::{
@@ -927,6 +927,84 @@ impl Device {
         }))
     }
 
+    // ---- list deletion --------------------------------------------------
+
+    /// Delete one element from a preset or capture list using the official
+    /// app's generic zero-fill `dwrite`:
+    ///
+    /// `dwrite <listPath>:{"index":N,"chunk":-1,"value":"00" * 128}`
+    ///
+    /// The slot index is preserved; the device clears the name/content. The
+    /// list is read back so a failed/ignored delete is reported.
+    pub fn delete_list_item(&mut self, list_path: &str, index: usize) -> Result<(), ProtocolError> {
+        let path = normalize_path(list_path);
+        let preset_list = preset_state(&self.nodes).list_path;
+        let allowed = matches!(
+            path.as_str(),
+            NAM_PATH | NAM_DRIVE_PATH | PNAM_PATH | PNAM_DRIVE_PATH | IR_PATH | PRESET_LIST_PATH
+        ) || preset_list.as_deref() == Some(path.as_str());
+        if !allowed {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "{list_path} is not a deletable preset/capture list"
+            )));
+        }
+
+        let names = self
+            .nodes
+            .get(&path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+            .ok_or_else(|| ProtocolError::InvalidRequest(format!("{list_path} is not a list")))?;
+        if index >= names.len() {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "slot {index} is outside the {} slot list",
+                names.len()
+            )));
+        }
+        if names
+            .get(index)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
+            return Err(ProtocolError::InvalidRequest(
+                "the selected slot is already empty".into(),
+            ));
+        }
+
+        let zeros = "00".repeat(NAME_SIZE);
+        let (_, ack) = self.dwrite_ack(&path, index as i64, -1, &zeros)?;
+        if ack != -1 {
+            return Err(ProtocolError::Protocol(format!(
+                "delete did not finish (device asked for chunk {ack})"
+            )));
+        }
+
+        let read = self.read_path(&path, Duration::from_millis(3_000));
+        let cleared = self
+            .nodes
+            .get(&path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+            .and_then(|items| items.get(index))
+            .and_then(Value::as_str)
+            .is_some_and(str::is_empty);
+        if !cleared {
+            return match read {
+                Err(error) => Err(ProtocolError::Protocol(format!(
+                    "delete was acknowledged but could not be verified: {error}"
+                ))),
+                Ok(_) => Err(ProtocolError::Protocol(
+                    "device did not clear the list slot".into(),
+                )),
+            };
+        }
+
+        self.revision += 1;
+        Ok(())
+    }
+
     // ---- snapshot -------------------------------------------------------
 
     pub fn state(&self) -> DeviceSnapshot {
@@ -1189,6 +1267,45 @@ mod tests {
     fn clear_chain_edit_deserializes_from_the_ui_payload() {
         let edit: ChainEdit = serde_json::from_value(json!({"type":"clear"})).unwrap();
         assert_eq!(edit, ChainEdit::Clear);
+    }
+
+    #[test]
+    fn delete_list_item_zero_fills_and_verifies() {
+        let steps = vec![
+            Step::new(
+                command::dwrite(TARGET, 0, -1, &"00".repeat(NAME_SIZE)).unwrap(),
+                reply(format!(r#"dwrite {TARGET}:{{"index":0,"chunk":-1}}"#)),
+            ),
+            Step::new(
+                command::read(TARGET),
+                reply(format!(
+                    r#"{TARGET}:{{"type":"list","item_type":"nam","value":["","Second"],"size":65536}}"#
+                )),
+            ),
+        ];
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            TARGET,
+            stomp_protocol::node::Node::new(
+                json!({"type":"list","item_type":"nam","value":["First","Second"],"size":65536})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
+
+        device.delete_list_item(TARGET, 0).unwrap();
+        assert_eq!(
+            device
+                .nodes
+                .get(TARGET)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(Value::as_str),
+            Some("")
+        );
     }
 
     #[test]

@@ -28,6 +28,7 @@ Last updated: 2026-11-22
 | 20 | A legitimate NAM v0.7 A2 file was rejected as “no weights.” | Fixed: A2 `SlimmableContainer` keeps weights in `config.submodels`, not top-level `weights`. Validation now recurses through `config.models`/`config.submodels`, unwraps `{ "model": ... }` entries, and accepts object-map container forms. IR preflight also accepts WAVs larger than the decoded 8 KiB slot. |
 | 21 | IR upload was blocked because firmware reports the list type as `wav_48000`. | Fixed: capture-list matching accepts exact types plus rate-tagged variants (`wav_*`, `ir_*`, `nam_*`, `pnam_*`) and untyped known lists, while still rejecting wrong-kind and unknown targets. |
 | 22 | The official app and Python client have Clear Chain; the Tauri Board did not. | Added a Board “Chain…” menu with a destructive confirmation. `ChainEdit::Clear` writes one router payload that removes every movable block while preserving fixed blocks and links. Covered by a Rust layout test, CLI simulator smoke, demo-store test, and UI smoke. Hardware pass still pending. |
+| 23 | Lists had no delete action; the official app deletes via a zero-fill `dwrite`. | Added per-row delete buttons in the patch rail, Library presets tab, and NAM/PNAM/IR tables. Confirmation names the slot and warns if it is active/current. The backend sends the official `dwrite <list>:{"index":N,"chunk":-1,"value":"00"*128}`, validates the list/index, and reads the list back to verify the slot cleared. Covered by Rust, store, simulator, and UI tests; hardware delete semantics still need manual validation. |
 
 > Device-write incidents, format invariants, and the update-mode recovery
 > playbook are now maintained in
@@ -93,6 +94,9 @@ Open hardware checks remain in the section below.
   remain Phase 4.
 
 ## Next development
+
+The prioritized order for all remaining implementation, validation, and release
+work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
 
 ### Device layer
 

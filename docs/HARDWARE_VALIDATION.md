@@ -288,12 +288,31 @@ readback/verification, and the 10-minute idle polling pass.
 > by this firmware. Use files exported by a compatible NAM/PNAM version, and
 > keep a known-good file for the first hardware pass.
 
+## List deletion
+
+Preset and capture lists now expose per-row delete actions. The implementation
+uses the official VoidX-Control behavior documented in
+[`voidx-delete-button-behavior.md`](voidx-delete-button-behavior.md):
+
+```text
+dwrite <listPath>:{"index":N,"chunk":-1,"value":"<128 zero bytes as hex>"}
+```
+
+The backend permits only preset and capture lists, rejects empty/out-of-range
+slots, sends one command per item, reads the list back, and verifies the name
+was cleared. Indices are not shifted. The simulator and UI tests cover the
+flow; the firmware's exact zero-fill/ACK semantics are still unvalidated on
+hardware.
+
 ## Still unvalidated on hardware
 
 These intentionally remain on the Phase 3 checklist:
 
 - A1 NAM upload on real hardware. A1 is covered by the validator and simulator,
   but only A2/PNAM/IR uploads have been recorded on 2.5.3 so far;
+- list deletion on hardware (presets, NAM, PNAM, IR). Verify the slot empties,
+  indices do not shift, the ACK is completion, and deleting an active/current
+  item does not leave the app or a block in a broken state;
 - upload cancellation after an ACK, overwriting a used slot, and audio
   readback/verification. Basic NAM A2/PNAM/IR uploads were validated on 2.5.3
   (see the upload section above), including the A2 final marker;

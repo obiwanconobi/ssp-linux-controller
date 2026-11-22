@@ -1,3 +1,4 @@
+import * as Dialog from '@radix-ui/react-dialog';
 import {
   Activity,
   AlertTriangle,
@@ -8,6 +9,7 @@ import {
   HardDrive,
   RefreshCw,
   Search,
+  Trash2,
   UploadCloud,
   X,
 } from 'lucide-react';
@@ -15,7 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { formatBytes } from '../../data/demoDevice';
 import { ipcErrorMessage, isTauriRuntime, tauriClient } from '../../ipc/client';
 import { useAppStore } from '../../stores/useAppStore';
-import type { LibraryList, UploadTask } from '../../types';
+import type { LibraryList, LibrarySlot, UploadTask } from '../../types';
 
 type Tab = 'library' | 'presets' | 'local' | 'uploads' | 'activity';
 type CaptureKind = 'nam' | 'pnam' | 'ir';
@@ -103,6 +105,17 @@ interface LocalEntry {
   file?: File;
 }
 
+type DeleteTarget =
+  | { kind: 'preset'; index: number; name: string; active: boolean }
+  | {
+      kind: 'capture';
+      listId: string;
+      listLabel: string;
+      index: number;
+      name: string;
+      active: boolean;
+    };
+
 const kindFor = (name: string): CaptureKind | null => {
   const lower = name.toLowerCase();
   if (lower.endsWith('.pnam')) return 'pnam';
@@ -169,10 +182,12 @@ const LibraryTable = ({
   list,
   query,
   recentUpload,
+  onDelete,
 }: {
   list?: LibraryList;
   query: string;
   recentUpload: { target: string; slot: number; name: string } | null;
+  onDelete: (slot: LibrarySlot) => void;
 }) => {
   if (!list) {
     return (
@@ -197,6 +212,7 @@ const LibraryTable = ({
             <th scope="col">Target</th>
             <th scope="col">Slot</th>
             <th scope="col">Status</th>
+            <th scope="col"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -235,6 +251,19 @@ const LibraryTable = ({
                   <span className="chip">Free</span>
                 )}
               </td>
+              <td className="library-table__actions">
+                {slot.used && (
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn--danger"
+                    aria-label={`Delete ${slot.name}`}
+                    title="Delete capture"
+                    onClick={() => onDelete(slot)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -256,6 +285,8 @@ export const LibraryView = () => {
   const activity = useAppStore((state) => state.activity);
   const preset = useAppStore((state) => state.preset);
   const addUpload = useAppStore((state) => state.addUpload);
+  const deletePreset = useAppStore((state) => state.deletePreset);
+  const deleteCapture = useAppStore((state) => state.deleteCapture);
   const notify = useAppStore((state) => state.notify);
   const deviceMode = useAppStore((state) => state.connection.mode === 'device');
   const [tab, setTab] = useState<Tab>('library');
@@ -269,6 +300,7 @@ export const LibraryView = () => {
   const [localScanning, setLocalScanning] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localQuery, setLocalQuery] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
   const preflightSeq = useRef(0);
@@ -761,7 +793,22 @@ export const LibraryView = () => {
                   : 'list unavailable'}
               </span>
             </div>
-            <LibraryTable list={activeList} query={query} recentUpload={recentUpload} />
+            <LibraryTable
+              list={activeList}
+              query={query}
+              recentUpload={recentUpload}
+              onDelete={(slot) => {
+                if (!activeList) return;
+                setDeleteTarget({
+                  kind: 'capture',
+                  listId: activeList.id,
+                  listLabel: activeList.label,
+                  index: slot.index,
+                  name: slot.name,
+                  active: slot.active,
+                });
+              }}
+            />
           </section>
 
           <aside className="library-side">
@@ -1106,6 +1153,24 @@ export const LibraryView = () => {
                 <span className="mono">{String(index + 1).padStart(2, '0')}</span>
                 <span>{name || 'Empty slot'}</span>
                 {name === preset.current && <span className="chip chip--good">Current</span>}
+                {name && (
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn--danger"
+                    aria-label={`Delete ${name}`}
+                    title="Delete preset"
+                    onClick={() =>
+                      setDeleteTarget({
+                        kind: 'preset',
+                        index,
+                        name,
+                        active: name === preset.current,
+                      })
+                    }
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -1158,6 +1223,69 @@ export const LibraryView = () => {
           </ul>
         </section>
       )}
+
+      <Dialog.Root
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content" aria-describedby={undefined}>
+            <div className="dialog-head">
+              <div>
+                <Dialog.Title className="dialog-title">
+                  {deleteTarget?.kind === 'preset' ? 'Delete preset?' : 'Delete capture?'}
+                </Dialog.Title>
+                <Dialog.Description className="hint">
+                  {deleteTarget?.kind === 'preset'
+                    ? `Delete “${deleteTarget.name}” from slot ${deleteTarget.index + 1}? The slot will become empty.`
+                    : deleteTarget
+                      ? `Delete “${deleteTarget.name}” from ${deleteTarget.listLabel} slot ${deleteTarget.index + 1}? The slot will become empty.`
+                      : ''}
+                  {' '}This cannot be undone.
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild>
+                <button type="button" className="icon-btn" aria-label="Close delete dialog">
+                  <X size={16} />
+                </button>
+              </Dialog.Close>
+            </div>
+            {deleteTarget?.active && (
+              <div className="dialog-body">
+                <p className="preflight__warning">
+                  <AlertTriangle size={12} aria-hidden="true" />
+                  {deleteTarget.kind === 'preset'
+                    ? ' This is the current preset. The device will have no selected preset until you load another.'
+                    : ' This capture is currently active. The block may keep the old model until you select another.'}
+                </p>
+              </div>
+            )}
+            <div className="dialog-foot">
+              <Dialog.Close asChild>
+                <button type="button" className="btn">
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={() => {
+                  if (!deleteTarget) return;
+                  if (deleteTarget.kind === 'preset') {
+                    deletePreset(deleteTarget.index);
+                  } else {
+                    deleteCapture(deleteTarget.listId, deleteTarget.index);
+                  }
+                  setDeleteTarget(null);
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 };

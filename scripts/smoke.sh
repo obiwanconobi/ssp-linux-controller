@@ -248,5 +248,17 @@ assert len(remaining) < len(before["chain"]["blocks"]), "clear removed no blocks
 print("clear chain assertion passed")
 PY
 
+echo "== delete a NAM list item =="
+"$CLI" delete-list-item "$ADDR" 'root\nam_amp' 0 >"$TMP/delete-item.json" 2>"$TMP/delete-item.log"
+python3 - "$TMP/delete-item.json" <<'PY'
+import json, sys
+snapshot = json.load(open(sys.argv[1]))
+amp = next(item for item in snapshot["lists"] if item["path"] == r"root\nam_amp")
+assert amp["slots"][0]["name"] == "", amp["slots"][0]
+assert amp["slots"][0]["used"] is False, amp["slots"][0]
+assert amp["slots"][1]["name"] == "64 Vibroverb D 2", amp["slots"][1]
+print("delete list item assertion passed")
+PY
+
 echo
 echo "SMOKE PASSED"

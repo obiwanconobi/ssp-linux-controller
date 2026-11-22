@@ -59,6 +59,19 @@ try {
   await page.waitForSelector('.pedal');
   assert((await page.locator('.pedal').count()) === 9, 'expected nine pedal shells');
 
+  const presetList = page.locator('.preset-rail__list');
+  const presetBox = await presetList.boundingBox();
+  const presetScrollBefore = await presetList.evaluate((element) => element.scrollTop);
+  await page.mouse.move(presetBox.x + presetBox.width / 2, presetBox.y + presetBox.height / 2);
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(150);
+  const presetScrollAfter = await presetList.evaluate((element) => element.scrollTop);
+  assert(
+    presetScrollAfter > presetScrollBefore,
+    'preset rail mouse-wheel scroll did not move',
+  );
+  await presetList.evaluate((element) => element.scrollTo({ top: 0 }));
+
   const before = await page.locator('.knob__dial[aria-label^="Gain"]').first().getAttribute('aria-valuenow');
   const dial = page.locator('.knob__dial[aria-label^="Gain"]').first();
   const box = await dial.boundingBox();
@@ -306,6 +319,39 @@ try {
   assert(
     (await page.locator('.signal-chain .pedal--fixed').count()) === afterClear,
     'clear chain removed a fixed block',
+  );
+
+  await page.locator('.nav-tab', { hasText: 'Library' }).click();
+  await page.locator('.segmented button', { hasText: 'Presets' }).click();
+  const presetRows = page.locator('.preset-slot-list li');
+  const usedPresetIndex = await presetRows.evaluateAll((rows) =>
+    rows.findIndex((row) => row.querySelector('button')),
+  );
+  assert(usedPresetIndex >= 0, 'no deletable preset row found');
+  const usedPresetRow = presetRows.nth(usedPresetIndex);
+  await usedPresetRow.getByRole('button', { name: /^Delete / }).click();
+  await page.waitForSelector('.dialog-content');
+  await page.locator('.dialog-foot .btn--danger').click();
+  await page.waitForTimeout(150);
+  assert(
+    (await presetRows.nth(usedPresetIndex).innerText()).includes('Empty slot'),
+    'deleting a preset did not clear its slot',
+  );
+
+  await page.locator('.segmented button', { hasText: 'Models & IRs' }).click();
+  const captureRows = page.locator('.library-table tbody tr');
+  const usedCaptureIndex = await captureRows.evaluateAll((rows) =>
+    rows.findIndex((row) => row.querySelector('button')),
+  );
+  assert(usedCaptureIndex >= 0, 'no deletable capture row found');
+  const usedCaptureRow = captureRows.nth(usedCaptureIndex);
+  await usedCaptureRow.getByRole('button', { name: /^Delete / }).click();
+  await page.waitForSelector('.dialog-content');
+  await page.locator('.dialog-foot .btn--danger').click();
+  await page.waitForTimeout(150);
+  assert(
+    (await captureRows.nth(usedCaptureIndex).innerText()).includes('Empty slot'),
+    'deleting a capture did not clear its slot',
   );
 
   assert(errors.length === 0, `UI console errors:\n${errors.join('\n')}`);

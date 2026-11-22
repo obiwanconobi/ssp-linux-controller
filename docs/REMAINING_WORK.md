@@ -1,0 +1,196 @@
+# Remaining work — recommended delivery order
+
+Last updated: 2026-11-22
+
+Sources: [`README.md`](../README.md) status, [`BACKLOG.md`](BACKLOG.md),
+[`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md), and
+[`DEVICE_SAFETY.md`](DEVICE_SAFETY.md).
+
+The order below is chosen to reduce risk first, finish visible gaps while the
+device layer is stable, then take on the larger architectural work. Android and
+1.0 follow once desktop behaviour is settled.
+
+## P0 — Unblock releases and validate new writes
+
+These are gates, not new feature work. Do them before building more on top.
+
+### 0.1 Push the CI Rust setup fix and publish 0.2.0
+
+- [ ] Commit/push the workflow change that uses the runner’s installed Rust and
+      retries toolchain/target installs.
+- [ ] Confirm all four matrix jobs pass, especially macOS x64 Intel.
+- [ ] Confirm the release job creates `v0.2.0` and publishes the four bundles.
+
+Why first: the previous run failed at macOS Intel `Set up Rust` on a transient
+DNS error, so the release job was skipped and `v0.2.0` was never created.
+
+### 0.2 Hardware-validate the new write features
+
+Test on a scratch/backed-up state. No factory reset without a fresh backup.
+
+- [ ] NAM A1 upload.
+- [ ] Upload cancel after the second ACK; verify the slot list is unchanged.
+- [ ] Overwrite a used capture slot.
+- [ ] Delete one preset, NAM, PNAM, and IR entry; verify the slot empties,
+      indices do not shift, and deleting an active/current item is safe.
+- [ ] Clear Chain; verify fixed blocks and connectors remain.
+- [ ] EQ writes and chain move/link writes.
+- [ ] Ten-minute idle polling, USB unplug/replug, external preset/chain change,
+      and tuner open/close restore.
+
+Why first: these writes are already exposed in the app. Their real firmware
+semantics (especially delete and Clear Chain) must be confirmed before adding
+multi-select or more destructive actions.
+
+### 0.3 Release version consistency
+
+- [ ] Make the About screen and diagnostics use Tauri’s real app version instead
+      of separate hardcoded/Cargo sources.
+- [ ] Fail the release job when a pushed `v*` tag does not match
+      `v<tauri.conf.json version>`.
+- [ ] Optionally check the workspace Cargo and UI package versions in CI.
+
+This prevents a release tag, bundle filename, and in-app version from drifting
+apart.
+
+## P1 — Close small functional gaps
+
+These are user-visible, mostly isolated changes that do not need the device
+actor.
+
+### 1.1 Save As dialog
+
+- [ ] Add a Save As action beside rename.
+- [ ] Use the existing `save_preset(name)` core and name validation.
+- [ ] Add overwrite warning, post-save list refresh, and dirty-state handling.
+- [ ] Validate Save As and overwrite on hardware.
+
+Why now: the core already supports it; this is the lowest-risk visible gap.
+
+### 1.2 Multi-select list deletion
+
+- [ ] Add selection to the preset/Library list inspector.
+- [ ] Confirm once, then send one delete per selected index, awaiting each.
+- [ ] Refresh after the batch and preserve stable indices.
+- [ ] Hardware-check a two- or three-item batch delete.
+
+Prerequisite: 0.2 single-item delete verified on hardware.
+
+### 1.3 Factory reset flow
+
+- [ ] Wire the existing Rust factory-reset command to the Settings dialog.
+- [ ] Keep the typed `RESET` confirmation and consequence list.
+- [ ] After success, clear cached views, rebrowse, and show the empty/post-reset
+      state without losing diagnostics.
+- [ ] Require a verified backup in the documented procedure.
+- [ ] Hardware-test only with a fresh backup and a recovery plan.
+
+Why here: the backend exists, but this is destructive and should follow the
+delete/clear hardware validation.
+
+### 1.4 Tuner fallback polish
+
+- [ ] Poll only while the tuner is open (already mostly true).
+- [ ] Restore the pre-open tuner state (already implemented; verify on hardware).
+- [ ] Handle firmware without a tuner node gracefully instead of surfacing a
+      write error.
+
+### 1.5 Settings discovery surface — optional
+
+- [ ] Replace the placeholder Settings scan button with real mDNS/USB discovery.
+- [ ] Show transport, address, device name, firmware, and a manual TCP field.
+
+The connection sheet already discovers and connects; this is an optional
+manage/re-scan surface.
+
+## P2 — Device architecture
+
+This is the largest remaining block. Do it after the small gaps so the actor
+does not block visible improvements.
+
+### 2.1 Full single-owner device actor
+
+- [ ] Replace `Mutex<Device>` plus the interim poller with one command queue.
+- [ ] Add a scheduler, revisions/patches, reconnect backoff, and explicit
+      pending-write tracking.
+- [ ] Pause/resume polling around uploads and destructive writes.
+- [ ] Keep the existing simulator, command API, and UI snapshot contract.
+
+Exit: reconnect and external-change behaviour are deterministic; no stale write
+survives a reconnect.
+
+### 2.2 External-change conflict UX
+
+- [ ] Detect changed preset/router/control values via revisions.
+- [ ] Show “Changed on device — board reloaded.”
+- [ ] If a local write is pending, mark the affected control and let the user
+      choose the device or local value.
+- [ ] Roll back pending state on reconnect if the write was lost.
+
+Depends on 2.1.
+
+### 2.3 Device-mode undo/redo
+
+- [ ] Record actual device operations, not just UI snapshots.
+- [ ] Replay the changed controls/router writes on undo/redo.
+- [ ] Coalesce rapid knob writes into one undo entry.
+
+Depends on 2.1 and the conflict rules from 2.2.
+
+## P3 — UI, accessibility, and polish
+
+Do this before signing/notarization so visual baselines and accessibility are
+part of the release candidate.
+
+- [ ] Density pass on the inspector and utility rail.
+- [ ] WCAG contrast audit for all three themes; add focused/pending/error
+      visual tests.
+- [ ] Virtualize the Library table for very large lists.
+- [ ] Add a narrow-window preset drawer.
+- [ ] Add compact-chain mode for 12+ blocks.
+- [ ] Add visual regression baselines for Board, Amp room, EQ, Library,
+      Settings, Stage, tuner, and all themes.
+- [ ] Add axe-core to CI and complete a keyboard-only pass on every surface.
+
+## P4 — Hardening and release engineering
+
+- [ ] Performance budgets (startup, idle memory, upload memory).
+- [ ] Reconnect chaos tests and stale-write checks.
+- [ ] WebKitGTK distro matrix (Ubuntu, Fedora, Arch/CachyOS).
+- [ ] Confirm Windows NSIS/MSI and both macOS builds on clean machines.
+- [ ] Windows code signing.
+- [ ] macOS Developer ID signing and notarization.
+- [ ] Signed updater and update channel.
+- [ ] Crash-report opt-in and diagnostic export review.
+- [ ] Final version-source CI guard from 0.3.
+
+Exit: signed installers on Linux/Windows/macOS, budgets met or documented, no
+P1 defects.
+
+## P5 — Android, beta, and 1.0
+
+### Android
+
+- [ ] Physical-phone Wi-Fi/mDNS test.
+- [ ] Play Store AAB and upload-key signing.
+- [ ] Tablet/landscape layout.
+- [ ] Reconnect-on-resume.
+- [ ] Android 17 `ACCESS_LOCAL_NETWORK` runtime permission.
+- [ ] Optional USB-OTG serial.
+
+### Beta and 1.0
+
+- [ ] External beta with real pedal users.
+- [ ] Opt-in telemetry and crash triage.
+- [ ] Documentation and migration notes.
+- [ ] Release candidate and rollback path.
+- [ ] 1.0 tag with checksums and artifacts.
+
+## Suggested next three
+
+1. Push the CI fix and confirm the `v0.2.0` release is published.
+2. Hardware-test single-item delete, Clear Chain, and upload cancel/overwrite.
+3. Implement the Save As dialog.
+
+Those three unblock the release and close the highest-value safe gaps before
+the device-actor work begins.

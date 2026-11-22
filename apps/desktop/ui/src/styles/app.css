@@ -513,17 +513,13 @@
   min-height: 0;
   overflow-y: auto;
   padding: 0 6px;
-}
-
-.preset-rail__canvas {
-  position: relative;
-  width: 100%;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .preset-row {
-  position: absolute;
-  left: 0;
-  right: 0;
+  position: relative;
+  height: 36px;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -607,6 +603,27 @@
 .preset-row--active .preset-row__star,
 .preset-row__star--on {
   opacity: 1;
+}
+
+.preset-row__delete {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--muted-2);
+  opacity: 0;
+  transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+
+.preset-row:hover .preset-row__delete,
+.preset-row__delete:focus-visible {
+  opacity: 1;
+}
+
+.preset-row__delete:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
 }
 
 .preset-row__star--on {
@@ -2350,6 +2367,11 @@
 
 .library-table td:first-child {
   color: var(--text-2);
+}
+
+.library-table__actions {
+  width: 36px;
+  text-align: right;
 }
 
 .library-table tbody tr:hover {

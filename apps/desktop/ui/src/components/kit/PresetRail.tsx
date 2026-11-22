@@ -1,7 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import { Plus, Search, Star, X } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Plus, Search, Star, Trash2, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 
 type Filter = 'all' | 'star' | 'recent';
@@ -16,11 +15,12 @@ export const PresetRail = () => {
   const setPreset = useAppStore((state) => state.setPreset);
   const toggleFavorite = useAppStore((state) => state.toggleFavorite);
   const renamePreset = useAppStore((state) => state.renamePreset);
+  const deletePreset = useAppStore((state) => state.deletePreset);
   const addPreset = useAppStore((state) => state.addPreset);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [rename, setRename] = useState<{ oldName: string; value: string } | null>(null);
-  const parentRef = useRef<HTMLDivElement>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
 
   const rows = useMemo<Row[]>(() => {
     const named = preset.names
@@ -40,13 +40,6 @@ export const PresetRail = () => {
     }
     return filtered;
   }, [filter, preset.favorites, preset.names, preset.recent, query]);
-
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 36,
-    overscan: 14,
-  });
 
   const totalNamed = preset.names.filter((name) => name.trim()).length;
 
@@ -108,7 +101,7 @@ export const PresetRail = () => {
         ))}
       </div>
 
-      <div className="preset-rail__list" ref={parentRef}>
+      <div className="preset-rail__list">
         {rows.length === 0 ? (
           <div className="preset-rail__empty">
             <p>No patches match {query ? `“${query}”` : 'this filter'}.</p>
@@ -117,48 +110,47 @@ export const PresetRail = () => {
             </button>
           </div>
         ) : (
-          <div
-            className="preset-rail__canvas"
-            style={{ height: `${virtualizer.getTotalSize()}px` }}
-          >
-            {virtualizer.getVirtualItems().map((virtualRow) => {
-              const row = rows[virtualRow.index];
-              const active = row.name === preset.current;
-              const starred = preset.favorites.includes(row.name);
-              return (
-                <div
-                  key={`${row.name}-${row.index}`}
-                  className={`preset-row${active ? ' preset-row--active' : ''}`}
-                  style={{
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
+          rows.map((row) => {
+            const active = row.name === preset.current;
+            const starred = preset.favorites.includes(row.name);
+            return (
+              <div
+                key={`${row.name}-${row.index}`}
+                className={`preset-row${active ? ' preset-row--active' : ''}`}
+              >
+                <button
+                  type="button"
+                  className="preset-row__main"
+                  aria-current={active ? 'true' : undefined}
+                  onClick={() => setPreset(row.index)}
+                  onDoubleClick={() => setRename({ oldName: row.name, value: row.name })}
+                  title="Double-click to rename"
                 >
-                  <button
-                    type="button"
-                    className="preset-row__main"
-                    aria-current={active ? 'true' : undefined}
-                    onClick={() => setPreset(row.index)}
-                    onDoubleClick={() => setRename({ oldName: row.name, value: row.name })}
-                    title="Double-click to rename"
-                  >
-                    <span className="preset-row__marker" aria-hidden="true" />
-                    <span className="preset-row__name">{row.name}</span>
-                    <span className="preset-row__index mono">{String(row.index + 1).padStart(2, '0')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`preset-row__star${starred ? ' preset-row__star--on' : ''}`}
-                    aria-label={starred ? `Unstar ${row.name}` : `Star ${row.name}`}
-                    aria-pressed={starred}
-                    onClick={() => toggleFavorite(row.name)}
-                  >
-                    <Star size={11} fill={starred ? 'currentColor' : 'none'} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                  <span className="preset-row__marker" aria-hidden="true" />
+                  <span className="preset-row__name">{row.name}</span>
+                  <span className="preset-row__index mono">{String(row.index + 1).padStart(2, '0')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`preset-row__star${starred ? ' preset-row__star--on' : ''}`}
+                  aria-label={starred ? `Unstar ${row.name}` : `Star ${row.name}`}
+                  aria-pressed={starred}
+                  onClick={() => toggleFavorite(row.name)}
+                >
+                  <Star size={11} fill={starred ? 'currentColor' : 'none'} />
+                </button>
+                <button
+                  type="button"
+                  className="preset-row__delete"
+                  aria-label={`Delete ${row.name}`}
+                  title="Delete patch"
+                  onClick={() => setDeleteTarget(row)}
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -219,6 +211,53 @@ export const PresetRail = () => {
                 </button>
               </div>
             </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content" aria-describedby={undefined}>
+            <div className="dialog-head">
+              <div>
+                <Dialog.Title className="dialog-title">Delete patch?</Dialog.Title>
+                <Dialog.Description className="hint">
+                  Delete “{deleteTarget?.name}” from slot {(deleteTarget?.index ?? 0) + 1}? The
+                  slot will become empty. This cannot be undone.
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild>
+                <button type="button" className="icon-btn" aria-label="Close delete dialog">
+                  <X size={16} />
+                </button>
+              </Dialog.Close>
+            </div>
+            <div className="dialog-body">
+              {deleteTarget?.name === preset.current && (
+                <p className="preflight__warning">
+                  <AlertTriangle size={12} aria-hidden="true" /> This is the current patch. The
+                  device will have no selected preset until you load another.
+                </p>
+              )}
+            </div>
+            <div className="dialog-foot">
+              <Dialog.Close asChild>
+                <button type="button" className="btn">
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={() => {
+                  if (deleteTarget) deletePreset(deleteTarget.index);
+                  setDeleteTarget(null);
+                }}
+              >
+                Delete
+              </button>
+            </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

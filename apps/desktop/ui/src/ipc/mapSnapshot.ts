@@ -306,16 +306,32 @@ export const mapLists = (snapshot: RustSnapshot): LibraryList[] =>
     })),
   }));
 
+const sameStrings = (left: string[], right: string[]): boolean =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
+
 export const mapPreset = (
   snapshot: RustSnapshot,
   previous: PresetState,
-): PresetState => ({
-  current: snapshot.preset.current,
-  index: snapshot.preset.index ?? 0,
-  names: snapshot.preset.names,
-  favorites: previous.favorites,
-  recent: previous.recent,
-});
+): PresetState => {
+  const current = snapshot.preset.current;
+  const index = snapshot.preset.index ?? 0;
+  // Polling produces a fresh names array every 500 ms. Reuse the previous
+  // array/object when the content is unchanged so the preset rail and its
+  // scroll position do not re-render on every poll.
+  const names = sameStrings(previous.names, snapshot.preset.names)
+    ? previous.names
+    : snapshot.preset.names;
+  const listPath = snapshot.preset.list_path ?? previous.listPath;
+  if (
+    current === previous.current &&
+    index === previous.index &&
+    names === previous.names &&
+    listPath === previous.listPath
+  ) {
+    return previous;
+  }
+  return { ...previous, current, index, names, listPath };
+};
 
 export const mapMeters = (snapshot: RustSnapshot): MeterState => ({
   input: snapshot.meters.input,

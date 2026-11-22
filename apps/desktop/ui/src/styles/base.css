@@ -261,6 +261,15 @@ svg {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
+.icon-btn--danger {
+  color: var(--muted-2);
+}
+
+.icon-btn--danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
 .input {
   width: 100%;
   min-height: 34px;

@@ -58,9 +58,44 @@ jobs:
           cache-dependency-path: apps/desktop/ui/pnpm-lock.yaml
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Prefer the runner's installed stable toolchain. This avoids a
+          # needless rustup channel sync on every job and keeps transient
+          # static.rust-lang.org DNS failures from failing the build.
+          if ! command -v rustup >/dev/null 2>&1; then
+            rustc --version
+            cargo --version
+            exit 0
+          fi
+          if ! rustup toolchain list | grep -q '^stable'; then
+            for attempt in 1 2 3 4 5; do
+              if rustup toolchain install stable --profile minimal --no-self-update; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                exit 1
+              fi
+              echo "rustup toolchain install failed (attempt ${attempt}/5); retrying in 30s" >&2
+              sleep 30
+            done
+          fi
+          rustup default stable
+          if ! rustup target list --installed | grep -qx "${{ matrix.target }}"; then
+            for attempt in 1 2 3 4 5; do
+              if rustup target add "${{ matrix.target }}"; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                exit 1
+              fi
+              echo "rustup target add failed (attempt ${attempt}/5); retrying in 30s" >&2
+              sleep 30
+            done
+          fi
+          rustc --version
+          cargo --version
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2

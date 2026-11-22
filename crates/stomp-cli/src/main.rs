@@ -121,6 +121,16 @@ fn run() -> Result<(), Box<dyn Error>> {
             device.edit_chain(ChainEdit::Clear)?;
             println!("{}", serde_json::to_string_pretty(&device.state())?);
         }
+        "delete-list-item" => {
+            let values: Vec<String> = args.collect();
+            if values.len() != 3 {
+                usage_exit();
+            }
+            let mut device = open(&values[0])?;
+            device.connect()?;
+            device.delete_list_item(&values[1], values[2].parse()?)?;
+            println!("{}", serde_json::to_string_pretty(&device.state())?);
+        }
         "set-control" => {
             let values: Vec<String> = args.collect();
             if values.len() != 3 {
@@ -281,6 +291,7 @@ fn usage() {
   remove-block <addr> <row> <col>
   replace-block <addr> <row> <col> <block-path>
   clear-chain <addr>
+  delete-list-item <addr> <list-path> <index>
   set-control <addr> <node-path> <json-value>
   save-preset <addr> [name]
   preset <addr> <name>

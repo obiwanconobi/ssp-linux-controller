@@ -552,6 +552,19 @@ pub fn cancel_upload(state: State<'_, AppState>) -> bool {
     }
 }
 
+#[tauri::command]
+pub async fn delete_list_item(
+    state: State<'_, AppState>,
+    list_path: String,
+    index: usize,
+) -> IpcResult<DeviceSnapshot> {
+    with_device(state.device.clone(), move |device| {
+        device.delete_list_item(&list_path, index)?;
+        Ok(device.state())
+    })
+    .await
+}
+
 fn parse_upload_kind(kind: &str) -> IpcResult<UploadKind> {
     match kind {
         "nam" => Ok(UploadKind::Nam),

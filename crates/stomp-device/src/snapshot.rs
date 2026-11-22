@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use stomp_eq::{BandType, EqBand};
+use stomp_protocol::editor::block_model_type;
 use stomp_protocol::router::{ChainBlock, ChainSlot};
 use stomp_protocol::NodeStore;
 use stomp_protocol::{
@@ -331,7 +332,7 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
                     .collect()
             })
             .unwrap_or_default();
-        let active_slot = find_active_slot(store, &path);
+        let active_slot = find_active_slot(store, &path, &kind);
         let slots = names
             .into_iter()
             .enumerate()
@@ -362,25 +363,49 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
     out
 }
 
-fn find_active_slot(store: &NodeStore, list_path: &str) -> Option<usize> {
-    for (_, node) in store.iter() {
+fn find_active_slot(store: &NodeStore, list_path: &str, list_kind: &str) -> Option<usize> {
+    let names = store
+        .get(list_path)
+        .and_then(|list| list.value())
+        .and_then(|value| value.as_array());
+    let names = names?;
+
+    // Prefer the primary lane over a dual-lane selector (`nam2`/`ir2`) when
+    // both reference the same list.
+    let mut secondary_active = None;
+    for (plist_path, node) in store.iter() {
         if node.node_type() != "plist" || node.reference() != Some(list_path) {
             continue;
         }
-        let Some(name) = node.value_str() else {
+        // Empty selectors are not a selected model. In particular, the hidden
+        // `pmodel`/`model` field for the other NAM mode is often left empty and
+        // would otherwise match the first empty slot.
+        let Some(name) = node.value_str().filter(|name| !name.trim().is_empty()) else {
             continue;
         };
-        if let Some(names) = store
-            .get(list_path)
-            .and_then(|list| list.value())
-            .and_then(|value| value.as_array())
-        {
-            if let Some(index) = names.iter().position(|item| item.as_str() == Some(name)) {
-                return Some(index);
+        if list_kind != "ir" {
+            // A block in NAM mode can keep a stale non-empty value in the
+            // hidden pmodel (and vice versa). Only consider the selector that
+            // belongs to the block's current model type.
+            let model_type = block_model_type(plist_path, store);
+            if (model_type == "nam" && list_kind != "nam")
+                || (model_type == "pnam" && list_kind != "pnam")
+            {
+                continue;
             }
         }
+        let Some(index) = names.iter().position(|item| item.as_str() == Some(name)) else {
+            continue;
+        };
+        if plist_path.contains("\\nam2\\") || plist_path.contains("\\ir2\\") {
+            if secondary_active.is_none() {
+                secondary_active = Some(index);
+            }
+        } else {
+            return Some(index);
+        }
     }
-    None
+    secondary_active
 }
 
 fn list_label(path: &str, desc: &str) -> String {
@@ -435,5 +460,74 @@ pub fn capabilities(store: &NodeStore, chain: &ChainView) -> Capabilities {
         dual_nam,
         dual_ir,
         parametric_nam,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+    use stomp_protocol::node::Node;
+
+    fn put(store: &mut NodeStore, path: &str, value: Value) {
+        store.insert(path, Node::new(value.as_object().unwrap().clone()));
+    }
+
+    fn model_store() -> NodeStore {
+        let mut store = NodeStore::new();
+        put(
+            &mut store,
+            NAM_PATH,
+            json!({"type":"list","item_type":"nam","value":["","Amp A","Amp B"],"size":1048576}),
+        );
+        put(
+            &mut store,
+            PNAM_PATH,
+            json!({"type":"list","item_type":"pnam","value":["","PNAM A","PNAM B"],"size":2097152}),
+        );
+        put(
+            &mut store,
+            r"root\app\amp",
+            json!({"type":"item","item_type":"block","desc":"Amp"}),
+        );
+        put(
+            &mut store,
+            r"root\app\amp\type",
+            json!({"type":"enum","value":"NAM","options":["NAM","Parametric NAM"]}),
+        );
+        put(
+            &mut store,
+            r"root\app\amp\model",
+            json!({"type":"plist","value":"","ref":"root\\nam_amp"}),
+        );
+        put(
+            &mut store,
+            r"root\app\amp\pmodel",
+            json!({"type":"plist","value":"","ref":"root\\pnam_list"}),
+        );
+        store
+    }
+
+    fn active_slot(store: &NodeStore, path: &str) -> Option<usize> {
+        library_lists(store)
+            .into_iter()
+            .find(|list| list.path == path)
+            .and_then(|list| list.active_slot)
+    }
+
+    #[test]
+    fn active_slot_ignores_empty_and_hidden_model_selectors() {
+        let mut store = model_store();
+        assert_eq!(active_slot(&store, NAM_PATH), None);
+        assert_eq!(active_slot(&store, PNAM_PATH), None);
+
+        store.set_value(r"root\app\amp\model", json!("Amp B"));
+        assert_eq!(active_slot(&store, NAM_PATH), Some(2));
+        assert_eq!(active_slot(&store, PNAM_PATH), None);
+
+        store.set_value(r"root\app\amp\type", json!("Parametric NAM"));
+        store.set_value(r"root\app\amp\pmodel", json!("PNAM A"));
+        assert_eq!(active_slot(&store, NAM_PATH), None);
+        assert_eq!(active_slot(&store, PNAM_PATH), Some(1));
     }
 }

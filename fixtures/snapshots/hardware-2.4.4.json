@@ -13717,7 +13717,7 @@
         ]
       },
       {
-        "active_slot": 2,
+        "active_slot": null,
         "kind": "pnam",
         "label": "Parametric Amps",
         "path": "root\\pnam_list",
@@ -13736,7 +13736,7 @@
             "used": true
           },
           {
-            "active": true,
+            "active": false,
             "index": 2,
             "name": "",
             "used": false
@@ -14155,7 +14155,7 @@
         ]
       },
       {
-        "active_slot": 9,
+        "active_slot": null,
         "kind": "pnam",
         "label": "Parametric Drives",
         "path": "root\\pnam_drive",
@@ -14216,7 +14216,7 @@
             "used": true
           },
           {
-            "active": true,
+            "active": false,
             "index": 9,
             "name": "",
             "used": false

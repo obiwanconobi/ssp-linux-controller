@@ -108,6 +108,7 @@ export interface PresetState {
   names: string[];
   favorites: string[];
   recent: string[];
+  listPath?: string;
 }
 
 export interface LibrarySlot {

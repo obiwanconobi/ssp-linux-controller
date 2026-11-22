@@ -28,6 +28,7 @@ The project is deliberately split into two worlds:
 | Phase 3 — deep parity | Uploads are wired end-to-end for NAM, Parametric NAM, and IR only: native picker, device preflight with model/WAV structural validation, capture-list guard, slot selection, ACK progress, cancel-after-current-chunk, and refreshed-list highlighting. Both NAM A1 (flat WaveNet/LSTM weights) and NAM A2 (`SlimmableContainer` submodels) are supported and covered by validator/simulator tests; basic A2, PNAM, and IR uploads are validated on 2.5.3, including the `wav_48000` IR list type. A1 hardware upload, cancel-after-ACK, and overwrite paths remain to be exercised. Preset save, chain add/remove, Wi-Fi discovery, and the Parametric NAM editor are hardware-validated on 2.4.4; 2.5.3 PNAM switches and multi-client Wi-Fi were verified live |
 | Live updates | Interim Tauri poller emits snapshots every 500 ms, with a 2 s browse on TCP; uploads pause polling |
 | Local library | Sectioned Amps/Drives/IRs browser with NAM/Parametric NAM subsections, recursive `.nam`/`.pnam`/`.wav` folder indexing, preflight, and target/format validation |
+| List deletion | Per-row delete in the patch rail and Library lists uses the official zero-fill `dwrite` with confirmation and read-back verification; simulator-tested, hardware delete semantics pending |
 | Chain editing | Remove, replace, and clear use one router write per action; add/remove/replace/move/link/clear are covered by the simulator smoke. Clear chain preserves fixed blocks and connectors behind a destructive confirmation. The chain write payload is wrapped as `{"value": ...}` so the firmware accepts it |
 | Preset save | Saves the live chain and parameter edits; JSON field order matches the device (`value` before `save`), coalesced writes flush first, and router edits keep the preset dirty until saved |
 | Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, and the PNAM drive editor have been exercised on firmware 2.4.4. Firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, simultaneous Wi-Fi clients, and basic NAM A2/PNAM/IR uploads. Chain move/link, EQ writes, upload cancel/overwrite paths, and long idle polling remain open |
@@ -56,6 +57,11 @@ Before adding a device write or running a hardware upload test, read
 [`docs/DEVICE_SAFETY.md`](docs/DEVICE_SAFETY.md). It records the 2026-11-22
 soft-brick caused by a synthetic NAM upload, the format/list invariants that
 prevent a repeat, and the recovery playbook for update mode.
+
+The official VoidX-Control list-delete behavior is documented in
+[`docs/voidx-delete-button-behavior.md`](docs/voidx-delete-button-behavior.md).
+The prioritized plan for the remaining work is in
+[`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md).
 
 ## Downloads and CI
 
@@ -120,7 +126,7 @@ screenshots labelled “hardware” use the real 2.4.4 fixture.
 │  ├─ src-tauri/              # Tauri 2 app, typed commands, state
 │  │  └─ gen/android/         # Tauri Android project (source; build outputs ignored)
 │  └─ ui/                     # React 19 + TypeScript + Vite, design system
-├─ docs/                      # device safety, hardware validation, Android, screenshots
+├─ docs/                      # device safety, remaining work, hardware validation, Android, screenshots
 ├─ fixtures/
 │  └─ snapshots/              # generated snapshot + block editors
 ├─ Legacy/                    # original Python GTK client and protocol notes

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ConnectionInfo, RustBlockEditor, RustSnapshot } from './client';
-import { mapSnapshot } from './mapSnapshot';
+import { mapPreset, mapSnapshot } from './mapSnapshot';
 import type { ConnectionState, PresetState } from '../types';
 
 const loadFixture = (name: string) =>
@@ -171,6 +171,18 @@ describe('hardware 2.4.4 fixture', () => {
     expect(cab.model).toBeTruthy();
     const mod = mapped.blocks.find((block) => block.id.endsWith('\\mod'))!;
     expect(mod.groups.some((group) => group.id.endsWith('rate'))).toBe(true);
+  });
+
+  it('reuses the preset object when a poll has unchanged content', () => {
+    const first = mapPreset(fixture.snapshot, preset);
+    const polled = structuredClone(fixture.snapshot);
+    const second = mapPreset(polled, first);
+    expect(second).toBe(first);
+
+    polled.preset.current = 'Changed';
+    const third = mapPreset(polled, first);
+    expect(third).not.toBe(first);
+    expect(third.current).toBe('Changed');
   });
 
   it('maps the real 60-name preset list and five capture lists', () => {

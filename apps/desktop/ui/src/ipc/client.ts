@@ -359,4 +359,6 @@ export const tauriClient = {
       slot: slot ?? null,
     }),
   cancelUpload: () => invoke<boolean>('cancel_upload'),
+  deleteListItem: (listPath: string, index: number) =>
+    invoke<RustSnapshot>('delete_list_item', { listPath, index }),
 };

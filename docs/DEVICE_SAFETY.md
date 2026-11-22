@@ -73,6 +73,11 @@ fixtures only, never hardware uploads.
    behind a confirmation dialog; it removes every movable block while keeping
    fixed blocks and links.
 
+10. **List deletion is a device write.** Only preset and capture lists may be
+    deleted from. Validate the list path and index, send one zero-fill
+    `dwrite` per item, and verify the slot name cleared on read-back. Never
+    delete without a confirmation; active/current items get an extra warning.
+
 ## Format facts learned from real firmware
 
 ### NAM A1 (WaveNet / LSTM)
@@ -140,15 +145,36 @@ Firmware may use exact types (`nam`, `pnam`, `ir`, `wav`), rate-tagged types
 path allowlist and reject wrong-kind or unknown lists. Add new observed type
 variants with a regression test.
 
+## List deletion
+
+The official VoidX-Control behavior is documented in
+[`voidx-delete-button-behavior.md`](voidx-delete-button-behavior.md). The
+implementation follows it:
+
+```text
+dwrite <listPath>:{"index":N,"chunk":-1,"value":"00" * 128}
+```
+
+- Only presets and the five capture lists are allowed.
+- One command per index; indices are not shifted.
+- Empty and out-of-range slots are rejected.
+- The list is read back and the slot name must be empty; otherwise the delete
+  is reported as failed/unverified.
+- The UI requires confirmation and warns when the current preset or active
+  capture is selected for deletion.
+- The firmware's exact zero-fill and ACK behavior is still hardware-unverified;
+  test on a scratch/backed-up list first.
+
 ## Code map
 
 | Concern | Location |
 | --- | --- |
 | Model structure validation, preflight, chunking, gzip/marker | `crates/stomp-upload/src/lib.rs` |
-| Target-list guard, ACK loop, progress, cancel boundary | `crates/stomp-device/src/device.rs` |
+| Target-list guard, ACK loop, progress, cancel boundary, list deletion | `crates/stomp-device/src/device.rs` |
 | Poll pause, Tauri events, concurrent-upload guard | `apps/desktop/src-tauri/src/commands.rs` |
 | File picker, preflight panel, queue, highlight | `apps/desktop/ui/src/features/library/LibraryView.tsx` |
-| Upload state, progress, cancel, snapshot refresh | `apps/desktop/ui/src/stores/useAppStore.ts` |
+| Upload state, progress, cancel, delete actions, snapshot refresh | `apps/desktop/ui/src/stores/useAppStore.ts` |
+| Patch/list delete buttons and confirmation dialogs | `apps/desktop/ui/src/components/kit/PresetRail.tsx`, `apps/desktop/ui/src/features/library/LibraryView.tsx` |
 | Simulator regression cases | `scripts/smoke.sh` |
 
 The upload wire format is:

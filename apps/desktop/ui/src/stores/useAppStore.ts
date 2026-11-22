@@ -113,6 +113,8 @@ interface AppStore {
   setPreset: (index: number) => void;
   savePreset: () => void;
   renamePreset: (oldName: string, newName: string) => void;
+  deletePreset: (index: number) => void;
+  deleteCapture: (listId: string, index: number) => void;
   addPreset: () => void;
   toggleFavorite: (name: string) => void;
   toggleBlock: (id: string) => void;
@@ -505,6 +507,99 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           void get().refreshDevice();
         });
     }
+  },
+
+  deletePreset: (index) => {
+    const { preset, connection } = get();
+    const name = preset.names[index];
+    if (!name || !name.trim()) {
+      get().notify('That preset slot is already empty', 'warn');
+      return;
+    }
+    if (connection.mode === 'device') {
+      const listPath = preset.listPath ?? 'root\\presets';
+      tauriClient
+        .deleteListItem(listPath, index)
+        .then((snapshot) => {
+          get().applyDeviceSnapshot(snapshot);
+          set((state) => ({
+            preset: {
+              ...state.preset,
+              favorites: state.preset.favorites.filter((item) => item !== name),
+              recent: state.preset.recent.filter((item) => item !== name),
+            },
+          }));
+          get().addActivity('Preset deleted', `${name} · slot ${index + 1}`, 'warn');
+          get().notify(`${name} deleted`, 'good');
+        })
+        .catch((error) => {
+          get().notify(ipcErrorMessage(error), 'bad');
+          void get().refreshDevice();
+        });
+      return;
+    }
+    const wasCurrent = preset.current === name;
+    set({
+      preset: {
+        ...preset,
+        names: preset.names.map((item, itemIndex) => (itemIndex === index ? '' : item)),
+        current: wasCurrent ? '' : preset.current,
+        index: wasCurrent ? 0 : preset.index,
+        favorites: preset.favorites.filter((item) => item !== name),
+        recent: preset.recent.filter((item) => item !== name),
+      },
+    });
+    get().addActivity('Preset deleted', `${name} · slot ${index + 1}`, 'warn');
+    get().notify(`${name} deleted`, 'good');
+  },
+
+  deleteCapture: (listId, index) => {
+    const { lists, connection } = get();
+    const list = lists.find((item) => item.id === listId);
+    const slot = list?.slots[index];
+    if (!list || !slot?.used) {
+      get().notify('That capture slot is already empty', 'warn');
+      return;
+    }
+    if (connection.mode === 'device') {
+      tauriClient
+        .deleteListItem(uploadTargetPath(listId), index)
+        .then((snapshot) => {
+          get().applyDeviceSnapshot(snapshot);
+          get().addActivity(
+            'Capture deleted',
+            `${slot.name} · ${list.label} slot ${index + 1}`,
+            'warn',
+          );
+          get().notify(`${slot.name} deleted`, 'good');
+        })
+        .catch((error) => {
+          get().notify(ipcErrorMessage(error), 'bad');
+          void get().refreshDevice();
+        });
+      return;
+    }
+    set((state) => ({
+      lists: state.lists.map((item) =>
+        item.id === listId
+          ? {
+              ...item,
+              activeSlot: item.activeSlot === index ? undefined : item.activeSlot,
+              slots: item.slots.map((entry) =>
+                entry.index === index
+                  ? { ...entry, name: '', used: false, active: false }
+                  : entry,
+              ),
+            }
+          : item,
+      ),
+    }));
+    get().addActivity(
+      'Capture deleted',
+      `${slot.name} · ${list.label} slot ${index + 1}`,
+      'warn',
+    );
+    get().notify(`${slot.name} deleted`, 'good');
   },
 
   addPreset: () => {

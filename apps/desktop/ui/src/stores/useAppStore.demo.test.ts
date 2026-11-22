@@ -52,6 +52,32 @@ describe('demo chain editing', () => {
     expect(after.undoStack.length).toBe(before.undoStack.length + 1);
   });
 
+  it('deletes preset and capture slots without shifting indices', () => {
+    const before = useAppStore.getState();
+    const presetIndex = before.preset.names.findIndex((name) => name.trim());
+    const presetName = before.preset.names[presetIndex];
+    expect(presetName).toBeTruthy();
+
+    before.deletePreset(presetIndex);
+
+    const after = useAppStore.getState();
+    expect(after.preset.names[presetIndex]).toBe('');
+    expect(after.preset.names).toHaveLength(before.preset.names.length);
+    expect(after.preset.favorites).not.toContain(presetName);
+    expect(after.preset.recent).not.toContain(presetName);
+
+    const list = after.lists.find((item) => item.id === 'nam_amp')!;
+    const slot = list.slots.find((entry) => entry.used)!;
+    const slotName = slot.name;
+    useAppStore.getState().deleteCapture('nam_amp', slot.index);
+
+    const final = useAppStore.getState().lists.find((item) => item.id === 'nam_amp')!;
+    expect(final.slots[slot.index].name).toBe('');
+    expect(final.slots[slot.index].used).toBe(false);
+    expect(final.slots).toHaveLength(list.slots.length);
+    expect(slotName).toBeTruthy();
+  });
+
   it('swaps a block with an available one in place', () => {
     const before = useAppStore.getState();
     const gateIndex = before.blocks.findIndex((block) => block.id === 'gate');
