@@ -244,7 +244,6 @@ impl ActorHandle {
             reconnect_attempts: 0,
             consecutive_errors: 0,
             last_error: None,
-            tuner_previous: None,
         };
 
         thread::Builder::new()
@@ -372,14 +371,6 @@ fn is_connection_loss(error: &ProtocolError) -> bool {
     )
 }
 
-/// Preserve the state from before the first open. A repeated open while the
-/// tuner is already on must not turn the saved "off" state into "on".
-fn remember_tuner_previous(previous: &mut Option<bool>, was_on: bool) {
-    if previous.is_none() {
-        *previous = Some(was_on);
-    }
-}
-
 /// State signature used to bump revisions only when the board changes.
 /// Meters are intentionally excluded so a live meter update does not count as
 /// a device change; the snapshot is still emitted with the same revision.
@@ -415,7 +406,6 @@ struct Actor {
     reconnect_attempts: u32,
     consecutive_errors: u8,
     last_error: Option<String>,
-    tuner_previous: Option<bool>,
 }
 
 impl Actor {
@@ -785,7 +775,6 @@ impl Actor {
         self.connected.store(false, Ordering::SeqCst);
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.upload_active.store(false, Ordering::SeqCst);
-        self.tuner_previous = None;
         self.state_signature = None;
     }
 
@@ -795,7 +784,6 @@ impl Actor {
         self.last_info = None;
         self.reconnect_at = None;
         self.reconnect_attempts = 0;
-        self.tuner_previous = None;
         self.last_error = None;
         self.emit_status();
     }
@@ -987,24 +975,22 @@ impl Actor {
         let result = self.with_device(|device| {
             let on_path = r"root\settings\tuner\on_off";
             if !device.nodes().contains(on_path) {
-                return Ok((None, unavailable_tuner()));
+                return Ok((false, unavailable_tuner()));
             }
-            let was_on = device
+            // Opening is idempotent: a repeated open must not rewrite the
+            // tuner or leave the deck unable to close it.
+            let is_on = device
                 .nodes()
                 .value_str(on_path)
                 .is_some_and(|value| value.eq_ignore_ascii_case("ON"));
-            if !was_on {
+            if !is_on {
                 device.set_value(on_path, serde_json::json!("ON"))?;
             }
-            Ok((Some(was_on), read_tuner(device)))
+            Ok((true, read_tuner(device)))
         });
         match result {
-            Ok((previous, view)) => {
-                if let Some(was_on) = previous {
-                    // A second open while the deck is already open must not
-                    // replace the original pre-open state with "ON"; otherwise
-                    // closing would restore ON and leave the pedal tuner on.
-                    remember_tuner_previous(&mut self.tuner_previous, was_on);
+            Ok((available, view)) => {
+                if available {
                     self.after_write(WRITE_COOLDOWN);
                 }
                 Ok(view)
@@ -1020,16 +1006,14 @@ impl Actor {
         if generation != self.generation.load(Ordering::SeqCst) {
             return Err(stale_error());
         }
-        let was_on = self.tuner_previous.take().unwrap_or(false);
+        // Closing the deck is an explicit user action: always write OFF so the
+        // pedal tuner cannot stay on because it was already on before opening.
         let result = self.with_device(|device| {
             let on_path = r"root\settings\tuner\on_off";
             if !device.nodes().contains(on_path) {
                 return Ok(());
             }
-            device.set_value(
-                on_path,
-                serde_json::json!(if was_on { "ON" } else { "OFF" }),
-            )
+            device.set_value(on_path, serde_json::json!("OFF"))
         });
         self.after_write(WRITE_COOLDOWN);
         result
@@ -1222,16 +1206,6 @@ mod tests {
     }
 
     #[test]
-    fn repeated_tuner_open_preserves_the_original_state() {
-        let mut previous = None;
-        remember_tuner_previous(&mut previous, false);
-        assert_eq!(previous, Some(false));
-        // The second open sees ON, but must keep the original OFF.
-        remember_tuner_previous(&mut previous, true);
-        assert_eq!(previous, Some(false));
-    }
-
-    #[test]
     fn revisions_are_monotonic_across_a_reconnect() {
         let mut actor = test_actor();
         let first = actor.stamp(DeviceSnapshot::default());
@@ -1395,6 +1369,52 @@ mod tests {
                 .expect("actor alias write");
             assert!(alias.revision >= 1);
 
+            let tuner = handle
+                .call(|reply| ActorCommand::TunerOpen { reply })
+                .await
+                .expect("tuner open");
+            assert!(tuner.available);
+            assert!(tuner.enabled);
+            let duplicate = handle
+                .call(|reply| ActorCommand::TunerOpen { reply })
+                .await
+                .expect("second tuner open");
+            assert!(duplicate.enabled);
+            handle
+                .call(|reply| ActorCommand::TunerClose { reply })
+                .await
+                .expect("tuner close");
+            let polled = handle
+                .call(|reply| ActorCommand::TunerPoll { reply })
+                .await
+                .expect("tuner poll after close");
+            assert!(!polled.enabled, "tuner close must write OFF");
+
+            // Even when the pedal tuner was already on before the deck opened,
+            // closing the deck must still turn it off.
+            handle
+                .call(|reply| ActorCommand::SetValue {
+                    path: r"root\settings\tuner\on_off".to_string(),
+                    value: serde_json::json!("ON"),
+                    reply,
+                })
+                .await
+                .expect("turn the tuner on outside the deck");
+            let already_on = handle
+                .call(|reply| ActorCommand::TunerOpen { reply })
+                .await
+                .expect("tuner open while already on");
+            assert!(already_on.enabled);
+            handle
+                .call(|reply| ActorCommand::TunerClose { reply })
+                .await
+                .expect("tuner close while already on");
+            let polled_again = handle
+                .call(|reply| ActorCommand::TunerPoll { reply })
+                .await
+                .expect("tuner poll after closing an already-on tuner");
+            assert!(!polled_again.enabled, "tuner close must force OFF");
+
             let diagnostics = handle
                 .call(|reply| ActorCommand::Diagnostics { reply })
                 .await
@@ -1436,7 +1456,6 @@ mod tests {
             reconnect_attempts: 0,
             consecutive_errors: 0,
             last_error: None,
-            tuner_previous: None,
         }
     }
 }

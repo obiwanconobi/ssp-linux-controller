@@ -37,8 +37,7 @@ Test on a scratch/backed-up state. No factory reset without a fresh backup.
 - [ ] EQ writes and chain move/link writes.
 - [x] Ten-minute idle polling (v0.4.0 read-only pass: 1,179 reads, 0 errors,
       post-run snapshot unchanged).
-- [ ] USB unplug/replug, external preset/chain change, and tuner open/close
-      restore.
+- [ ] USB unplug/replug, external preset/chain change, and tuner open/close.
 
 Why first: these writes are already exposed in the app. Their real firmware
 semantics (especially delete and Clear Chain) must be confirmed before adding
@@ -95,8 +94,8 @@ delete/clear hardware validation.
 ### 1.4 Tuner fallback polish
 
 - [x] Poll only while the tuner is open (already mostly true).
-- [ ] Restore the pre-open tuner state; re-test after the duplicate-open
-      state-capture fix.
+- [x] Closing always writes OFF; opening is idempotent across duplicate opens.
+- [ ] Hardware-retest opening, toggling, and closing the tuner.
 - [x] Handle firmware without a tuner node gracefully instead of surfacing a
       write error.
 
@@ -207,7 +206,7 @@ P1 defects.
 
 1. Run the 0.2 hardware validation on a backed-up device, starting with
    single-item delete, Clear Chain, and upload cancel/overwrite.
-2. Hardware-validate tuner restore, reconnect, external changes with a pending
+2. Hardware-validate tuner open/close, reconnect, external changes with a pending
    edit, and device undo/redo (especially router and EQ operations).
 3. Start P3: density, contrast, and visual/accessibility baselines.
 

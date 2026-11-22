@@ -105,7 +105,7 @@ issuing any write commands:
   post-run snapshot matched the pre-run snapshot;
 - read-only tuner probe: the `on_off` node exists and reported `OFF`; the
   note/cents/frequency/reference/level reads timed out while the tuner was off,
-  so full tuner readback and open/close restore require the write-based test.
+  so full tuner readback and open/close require the write-based test.
 
 No user capture/preset names were committed. One UI-label nit was observed:
 the in-chain EQ block uses the generic `UTILITY` shell plate because there is
@@ -356,8 +356,10 @@ These intentionally remain on the Phase 3 checklist:
 - external preset/chain/control changes from the pedal while the app is open,
   including a local edit pending at the same time (the conflict bar and
   stale-write rollback are simulator/unit tested);
-- tuner open/close restore; v0.4.1 fixes duplicate-open state capture and makes
-  the title-bar/palette tuner actions toggle, pending hardware retest;
+- tuner open/close; v0.4.1 makes the title-bar/palette tuner actions toggle,
+  opens idempotently, and always writes OFF on close instead of restoring the
+  pre-open state. The actor simulator test covers repeated open followed by
+  close-to-OFF; hardware retest pending;
 - EQ writes, chain move/link writes, and Clear Chain on hardware. Chain
   add/remove and the PNAM editor were exercised; move/link, clear, and EQ writes
   still need a pass. Clear Chain is covered by the simulator and UI smoke, and

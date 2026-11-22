@@ -105,7 +105,7 @@ export const TunerDeck = () => {
         </div>
       </div>
       <footer className="tuner-deck__foot">
-        <span className="hint">Opening the tuner writes the device tuner state; closing restores it.</span>
+        <span className="hint">Opening the tuner turns it on; closing always turns it off.</span>
         <span className="mono">T to toggle · Esc to close</span>
       </footer>
     </section>
