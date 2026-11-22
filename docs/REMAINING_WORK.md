@@ -219,7 +219,9 @@ P1 defects.
 
 ## Next release — 0.6.0
 
-The next feature set is tracked in [`V0.6.0_PLAN.md`](V0.6.0_PLAN.md).
+The next feature set is tracked in [`V0.6.0_PLAN.md`](V0.6.0_PLAN.md):
+input settings, Preset Level, Add-block scrolling, the Parametric EQ graph,
+preset export/import, Library downloads, and Library rename.
 
 ## P5 — Android, beta, and 1.0
 

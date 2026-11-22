@@ -43,8 +43,9 @@ The project is deliberately split into two worlds:
 | Phase 4–5 — hardening/release | P4 in progress: performance budgets, stale-write chaos tests, and diagnostic export review are in place; distro/clean-machine checks, signing, updater, and crash telemetry remain |
 
 The next release plan is in [`docs/V0.6.0_PLAN.md`](docs/V0.6.0_PLAN.md):
-input gain/connection settings, the scrolling Add-block menu, the Parametric EQ
-graph, preset export/import, and Library file downloads.
+input gain/connection settings, Preset Level, the scrolling Add-block menu, the
+Parametric EQ graph, preset export/import, Library file downloads, and Library
+file renaming.
 
 The browser build runs against a deterministic demo device so every surface is
 inspectable without hardware. The Tauri shell starts disconnected: it scans

@@ -1,8 +1,8 @@
 # Backlog
 
 See [`V0.6.0_PLAN.md`](V0.6.0_PLAN.md) for the next release scope: input
-settings, Add-block scrolling, the Parametric EQ graph, preset export/import,
-and Library file downloads.
+settings, Preset Level, Add-block scrolling, the Parametric EQ graph, preset
+export/import, Library file downloads, and Library file renaming.
 
 Last updated: 2026-11-22
 
