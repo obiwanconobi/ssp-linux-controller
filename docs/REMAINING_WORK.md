@@ -16,10 +16,10 @@ These are gates, not new feature work. Do them before building more on top.
 
 ### 0.1 Push the CI Rust setup fix and publish 0.2.0
 
-- [ ] Commit/push the workflow change that uses the runner’s installed Rust and
+- [x] Commit/push the workflow change that uses the runner’s installed Rust and
       retries toolchain/target installs.
-- [ ] Confirm all four matrix jobs pass, especially macOS x64 Intel.
-- [ ] Confirm the release job creates `v0.2.0` and publishes the four bundles.
+- [x] Confirm all four matrix jobs pass, especially macOS x64 Intel.
+- [x] Confirm the release job creates `v0.2.0` and publishes the four bundles.
 
 Why first: the previous run failed at macOS Intel `Set up Rust` on a transient
 DNS error, so the release job was skipped and `v0.2.0` was never created.
@@ -44,11 +44,11 @@ multi-select or more destructive actions.
 
 ### 0.3 Release version consistency
 
-- [ ] Make the About screen and diagnostics use Tauri’s real app version instead
+- [x] Make the About screen and diagnostics use Tauri’s real app version instead
       of separate hardcoded/Cargo sources.
-- [ ] Fail the release job when a pushed `v*` tag does not match
+- [x] Fail the release job when a pushed `v*` tag does not match
       `v<tauri.conf.json version>`.
-- [ ] Optionally check the workspace Cargo and UI package versions in CI.
+- [x] Optionally check the workspace Cargo and UI package versions in CI.
 
 This prevents a release tag, bundle filename, and in-app version from drifting
 apart.
@@ -188,9 +188,10 @@ P1 defects.
 
 ## Suggested next three
 
-1. Push the CI fix and confirm the `v0.2.0` release is published.
-2. Hardware-test single-item delete, Clear Chain, and upload cancel/overwrite.
-3. Implement the Save As dialog.
+1. Run the 0.2 hardware validation on a backed-up device, starting with
+   single-item delete, Clear Chain, and upload cancel/overwrite.
+2. Implement the Save As dialog.
+3. Polish the tuner fallback for firmware without a tuner node.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.
