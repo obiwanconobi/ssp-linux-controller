@@ -70,6 +70,11 @@ pub struct PreparedUpload {
 }
 
 impl PreparedUpload {
+    /// Bytes held by the prepared hex/name payloads before transfer.
+    pub fn buffered_bytes(&self) -> usize {
+        self.chunks.iter().map(|chunk| chunk.value.len()).sum()
+    }
+
     pub fn total_chunks(&self) -> usize {
         self.chunks.len()
     }
@@ -665,6 +670,27 @@ mod tests {
         for chunk in &prepared.chunks[1..] {
             assert!(chunk.value.len() >= 2);
         }
+    }
+
+    #[test]
+    fn prepared_upload_buffers_stay_within_the_large_file_budget() {
+        // Worst case: incompressible gzip payload, so the prepared chunks are
+        // roughly twice the slot size. The test bypasses model validation to
+        // measure the buffering path itself rather than JSON structure.
+        let raw = vec![0xA5; 2 * 1024 * 1024];
+        let prepared = prepare_model_upload_unchecked(
+            UploadKind::Pnam,
+            &raw,
+            "Memory Budget",
+            Some(2 * 1024 * 1024),
+        )
+        .unwrap();
+        let budget = prepared.payload_bytes * 2 + prepared.chunks.len() * 64 + 4096;
+        assert!(
+            prepared.buffered_bytes() <= budget,
+            "prepared upload buffers used {} bytes, budget {budget}",
+            prepared.buffered_bytes()
+        );
     }
 
     #[test]

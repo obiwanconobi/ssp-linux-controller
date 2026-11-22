@@ -195,7 +195,9 @@ part of the release candidate.
 - [x] Startup, first-paint, DOM-node, and idle-heap budgets in CI. Local
       reference run: 643 ms ready, 24 ms FCP, 2,104 nodes, 6.3 MiB idle heap,
       0.0 MiB growth over 3 s.
-- [ ] Upload-memory budget for a real large-file upload path.
+- [x] Prepared-upload buffer budget for a 2 MiB incompressible PNAM: the
+      hex/name chunks stay within 2x payload plus overhead.
+- [ ] Measure peak process RSS during a real large-file upload on hardware.
 - [x] Reconnect chaos and stale-write tests: stale generations are rejected
       before touching the device, and rapid reconnect losses keep generation
       monotonic with capped backoff.
