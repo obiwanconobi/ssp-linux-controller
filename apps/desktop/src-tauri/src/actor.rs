@@ -1009,12 +1009,34 @@ impl Actor {
         }
         // Closing the deck is an explicit user action: always write OFF so the
         // pedal tuner cannot stay on because it was already on before opening.
+        // Read back once and retry so a silently ignored write is surfaced
+        // instead of leaving the pedal stuck in tuner mode.
         let result = self.with_device(|device| {
-            let on_path = TUNER_ON_PATH;
-            if !device.nodes().contains(on_path) {
+            if !device.nodes().contains(TUNER_ON_PATH) {
                 return Ok(());
             }
-            device.set_value(on_path, serde_json::json!("OFF"))
+            let mut still_on = false;
+            for attempt in 0..2 {
+                device.set_value(TUNER_ON_PATH, serde_json::json!("OFF"))?;
+                still_on = device
+                    .read_path(TUNER_ON_PATH, Duration::from_millis(300))
+                    .ok()
+                    .and_then(|_| device.nodes().value_str(TUNER_ON_PATH))
+                    .is_some_and(|value| value.eq_ignore_ascii_case("ON"));
+                if !still_on {
+                    break;
+                }
+                if attempt == 0 {
+                    thread::sleep(Duration::from_millis(80));
+                }
+            }
+            if still_on {
+                return Err(ProtocolError::InvalidRequest(
+                    "the device still reports the tuner as ON; press a footswitch on the pedal to close it"
+                        .into(),
+                ));
+            }
+            Ok(())
         });
         self.after_write(WRITE_COOLDOWN);
         result
