@@ -334,6 +334,15 @@ was cleared. Indices are not shifted. The simulator and UI tests cover the
 flow; the firmware's exact zero-fill/ACK semantics are still unvalidated on
 hardware.
 
+## Tuner open/close (validated 0.4.2 / 2.5.3)
+
+Opening the deck turns the pedal tuner on, and closing it with X, T, or Esc
+turns it off, including when the tuner was already on before opening. v0.4.2
+also reads the live tuner module paths and serializes polls; the actor simulator
+test covers live readback, repeated open, and close-to-OFF. The earlier 0.4.1
+close write was correct, but tuner polls against guessed paths timed out and
+queued ahead of the OFF write.
+
 ## Save As (validated on 2.5.3)
 
 Save As creates a new preset slot on this firmware. Existing names are rejected
@@ -359,13 +368,6 @@ These intentionally remain on the Phase 3 checklist:
 - external preset/chain/control changes from the pedal while the app is open,
   including a local edit pending at the same time (the conflict bar and
   stale-write rollback are simulator/unit tested);
-- tuner open/close; v0.4.2 reads live values from
-  `root\settings\tuner\tuner\_freq`, `...\lvl`, and `...\ref`, computes
-  note/cents, serializes polls so a slow read cannot delay close, and always
-  writes OFF on close. The actor simulator test covers live readback, repeated
-  open, and close-to-OFF; hardware retest pending. v0.4.1's close write was
-  correct, but tuner polls against guessed paths timed out and queued ahead of
-  the OFF write;
 - EQ writes, chain move/link writes, and Clear Chain on hardware. Chain
   add/remove and the PNAM editor were exercised; move/link, clear, and EQ writes
   still need a pass. Clear Chain is covered by the simulator and UI smoke, and

@@ -37,7 +37,9 @@ Test on a scratch/backed-up state. No factory reset without a fresh backup.
 - [ ] EQ writes and chain move/link writes.
 - [x] Ten-minute idle polling (v0.4.0 read-only pass: 1,179 reads, 0 errors,
       post-run snapshot unchanged).
-- [ ] USB unplug/replug, external preset/chain change, and tuner open/close.
+- [x] Tuner open/close (v0.4.2, 2.5.3: X, T, and Esc all write OFF, including
+      when the tuner was already on before opening).
+- [ ] USB unplug/replug and external preset/chain change.
 
 Why first: these writes are already exposed in the app. Their real firmware
 semantics (especially delete and Clear Chain) must be confirmed before adding
@@ -98,7 +100,8 @@ delete/clear hardware validation.
       compute note/cents.
 - [x] Serialize tuner polls so a slow read cannot delay close.
 - [x] Closing always writes OFF; opening is idempotent across duplicate opens.
-- [ ] Hardware-retest opening, toggling, and closing the tuner.
+- [x] Hardware-validated opening, toggling, and closing the tuner on 2.5.3
+      with v0.4.2.
 - [x] Handle firmware without a tuner node gracefully instead of surfacing a
       write error.
 
@@ -207,11 +210,13 @@ P1 defects.
 
 ## Suggested next three
 
-1. Run the 0.2 hardware validation on a backed-up device, starting with
-   single-item delete, Clear Chain, and upload cancel/overwrite.
-2. Hardware-validate tuner open/close, reconnect, external changes with a pending
-   edit, and device undo/redo (especially router and EQ operations).
-3. Start P3: density, contrast, and visual/accessibility baselines.
+1. Finish the remaining backed-up hardware validation: NAM A1 upload,
+   cancel-after-ACK, overwrite, single-item delete, Clear Chain, EQ writes,
+   chain move/link, USB unplug/replug, external changes with a pending edit,
+   and device undo/redo.
+2. Start P3 with the WCAG contrast audit and axe-core/keyboard checks.
+3. Then density, the narrow-window preset drawer, Library virtualization, and
+   visual regression baselines.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.
