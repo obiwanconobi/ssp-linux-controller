@@ -15,7 +15,8 @@
     "test:keyboard": "node scripts/keyboard-smoke.mjs",
     "test:states": "node scripts/visual-states-smoke.mjs",
     "test:visual": "node scripts/visual-baselines.mjs",
-    "test:visual:update": "node scripts/visual-baselines.mjs --update"
+    "test:visual:update": "node scripts/visual-baselines.mjs --update",
+    "test:perf": "node scripts/performance-smoke.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

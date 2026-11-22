@@ -1229,6 +1229,56 @@ mod tests {
     }
 
     #[test]
+    fn stale_generation_rejects_a_snapshot_write_before_touching_the_device() {
+        let mut actor = test_actor();
+        actor.generation.store(3, Ordering::SeqCst);
+        let (reply, mut response) = oneshot::channel();
+        actor.write_snapshot(2, reply, WRITE_COOLDOWN, |_device| {
+            panic!("a stale write reached the device");
+        });
+        let error = response
+            .try_recv()
+            .expect("stale write reply")
+            .expect_err("stale write should fail");
+        assert_eq!(error.code, "stale_connection");
+    }
+
+    #[test]
+    fn stale_generation_rejects_a_unit_write_before_touching_the_device() {
+        let mut actor = test_actor();
+        actor.generation.store(4, Ordering::SeqCst);
+        let (reply, mut response) = oneshot::channel();
+        actor.write_unit(3, reply, WRITE_COOLDOWN, |_device| {
+            panic!("a stale unit write reached the device");
+        });
+        let error = response
+            .try_recv()
+            .expect("stale unit write reply")
+            .expect_err("stale unit write should fail");
+        assert_eq!(error.code, "stale_connection");
+    }
+
+    #[test]
+    fn rapid_reconnect_losses_keep_generation_monotonic_and_backoff_capped() {
+        let mut actor = test_actor();
+        actor.device = Some(Device::scripted(Vec::new()));
+        actor.last_info = Some(test_info());
+        actor.connected.store(true, Ordering::SeqCst);
+        let generation = actor.generation.load(Ordering::SeqCst);
+
+        for _ in 0..20 {
+            actor.connection_lost("chaos socket close");
+        }
+
+        assert!(actor.generation.load(Ordering::SeqCst) > generation);
+        assert!(actor.reconnect_attempts >= 20);
+        assert!(actor.reconnect_at.is_some());
+        assert!(
+            actor.reconnect_at.unwrap() <= Instant::now() + MAX_BACKOFF + Duration::from_millis(50)
+        );
+    }
+
+    #[test]
     fn revisions_are_monotonic_across_a_reconnect() {
         let mut actor = test_actor();
         let first = actor.stamp(DeviceSnapshot::default());

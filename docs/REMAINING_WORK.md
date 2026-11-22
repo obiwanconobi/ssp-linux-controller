@@ -192,15 +192,21 @@ part of the release candidate.
 
 ## P4 — Hardening and release engineering
 
-- [ ] Performance budgets (startup, idle memory, upload memory).
-- [ ] Reconnect chaos tests and stale-write checks.
+- [x] Startup, first-paint, DOM-node, and idle-heap budgets in CI. Local
+      reference run: 643 ms ready, 24 ms FCP, 2,104 nodes, 6.3 MiB idle heap,
+      0.0 MiB growth over 3 s.
+- [ ] Upload-memory budget for a real large-file upload path.
+- [x] Reconnect chaos and stale-write tests: stale generations are rejected
+      before touching the device, and rapid reconnect losses keep generation
+      monotonic with capped backoff.
 - [ ] WebKitGTK distro matrix (Ubuntu, Fedora, Arch/CachyOS).
 - [ ] Confirm Windows NSIS/MSI and both macOS builds on clean machines.
 - [ ] Windows code signing.
 - [ ] macOS Developer ID signing and notarization.
 - [ ] Signed updater and update channel.
 - [ ] Crash-report opt-in and diagnostic export review.
-- [ ] Final version-source CI guard from 0.3.
+- [x] Final version-source CI guard from 0.3 (workspace, UI package, and
+      Tauri config versions must match).
 
 Exit: signed installers on Linux/Windows/macOS, budgets met or documented, no
 P1 defects.
@@ -230,8 +236,9 @@ P1 defects.
    overwrite, single-item delete, EQ writes, chain move/link, USB unplug/replug,
    external changes with a pending edit, device undo/redo, and audio readback.
    Follow [`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md).
-2. Start P3 with the WCAG contrast audit and axe-core/keyboard checks.
-3. P3 is complete; move to P4 hardening and release engineering.
+2. Continue P4: upload-memory budget, distro/clean-machine checks, signing,
+   updater, and crash-report/diagnostic review.
+3. Then Android/beta work in P5.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.

@@ -247,6 +247,7 @@ pnpm test:a11y
 pnpm test:keyboard
 pnpm test:states
 pnpm test:visual
+pnpm test:perf
 ```
 
 Relevant focused tests:

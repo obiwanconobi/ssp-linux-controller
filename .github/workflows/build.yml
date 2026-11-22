@@ -113,6 +113,10 @@ jobs:
         working-directory: apps/desktop/ui
         run: pnpm test:visual
 
+      - name: Performance budgets
+        working-directory: apps/desktop/ui
+        run: pnpm test:perf
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}

@@ -164,6 +164,7 @@ pnpm test:keyboard # keyboard-only pass: skip link, tabs, dialogs, knobs, shortc
 pnpm test:states   # focused, pending, conflict, and error state checks
 pnpm test:visual   # compare 21 screenshots against committed baselines
 pnpm test:visual:update # regenerate the visual baselines
+pnpm test:perf     # startup, paint, DOM-node, and idle-heap budgets
 ```
 
 The Playwright smokes start their own Vite preview server. Override the default
@@ -195,6 +196,7 @@ pnpm test:keyboard              # keyboard-only pass
 pnpm test:states                # focused/pending/conflict/error states
 pnpm test:visual                # screenshot baseline comparison
 pnpm test:visual:update         # regenerate baselines after an intended UI change
+pnpm test:perf                  # startup, paint, DOM-node, and idle-heap budgets
 ```
 
 Android packaging is checked separately:
