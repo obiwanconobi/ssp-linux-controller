@@ -56,6 +56,7 @@ pub fn run() {
             commands::factory_reset,
             commands::preflight_upload,
             commands::begin_upload,
+            commands::cancel_upload,
             commands::tuner_open,
             commands::tuner_poll,
             commands::tuner_close,

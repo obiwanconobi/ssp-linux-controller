@@ -1,6 +1,6 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useAppStore } from '../stores/useAppStore';
-import type { RustSnapshot } from './client';
+import type { RustSnapshot, RustUploadProgress } from './client';
 
 /**
  * Live device events from the interim Tauri poller. Writes still go through
@@ -9,6 +9,10 @@ import type { RustSnapshot } from './client';
 export async function startDeviceEvents(): Promise<UnlistenFn> {
   const unlistenSnapshot = await listen<RustSnapshot>('device://snapshot', (event) => {
     useAppStore.getState().applyDeviceSnapshot(event.payload);
+  });
+
+  const unlistenUpload = await listen<RustUploadProgress>('device://upload', (event) => {
+    useAppStore.getState().applyUploadProgress(event.payload);
   });
 
   const unlistenError = await listen<string>('device://error', (event) => {
@@ -22,6 +26,7 @@ export async function startDeviceEvents(): Promise<UnlistenFn> {
 
   return () => {
     unlistenSnapshot();
+    unlistenUpload();
     unlistenError();
   };
 }

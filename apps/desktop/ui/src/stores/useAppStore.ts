@@ -17,13 +17,23 @@ import {
 import { applyAppearance, loadAppearance, saveAppearance } from '../theme/themes';
 import { blockControl, getBlockKnobIds } from '../components/kit/knobMap';
 import {
+  UPLOAD_TARGET_PATHS,
+  uploadTargetId,
+  uploadTargetPath,
+} from '../lib/uploads';
+import {
   coalesce,
   flushCoalesced,
   ipcErrorMessage,
   isTauriRuntime,
   tauriClient,
 } from '../ipc/client';
-import type { ConnectionInfo, RustBlockEditor, RustSnapshot } from '../ipc/client';
+import type {
+  ConnectionInfo,
+  RustBlockEditor,
+  RustSnapshot,
+  RustUploadProgress,
+} from '../ipc/client';
 import {
   mapAvailableBlocks,
   mapEq,
@@ -80,6 +90,7 @@ interface AppStore {
   meters: MeterState;
   activity: ActivityEntry[];
   uploads: UploadTask[];
+  recentUpload: { target: string; slot: number; name: string } | null;
   tuner: TunerState;
   connection: ConnectionState;
   save: SaveState;
@@ -113,6 +124,7 @@ interface AppStore {
   moveBlock: (activeId: string, overId: string) => void;
   addBlock: (id: string) => void;
   removeBlock: (id: string) => void;
+  clearChain: () => void;
   replaceBlock: (id: string, replacementId: string) => void;
   setMaster: (field: keyof MasterState, value: number) => void;
   setEqBand: (index: number, patch: Partial<EqBand>) => void;
@@ -135,7 +147,16 @@ interface AppStore {
   refreshDevice: () => Promise<void>;
   applyDeviceSnapshot: (snapshot: RustSnapshot) => void;
   disconnect: () => void;
-  addUpload: (file: { name: string; size: number; kind: 'nam' | 'pnam' | 'ir'; target?: string; slot?: number }) => void;
+  addUpload: (file: {
+    name: string;
+    size: number;
+    kind: 'nam' | 'pnam' | 'ir';
+    target?: string;
+    slot?: number;
+    path?: string;
+  }) => boolean;
+  cancelUpload: (id?: string) => void;
+  applyUploadProgress: (payload: RustUploadProgress) => void;
   tickUploads: () => void;
   setTuner: (patch: Partial<TunerState>) => void;
   tickTuner: () => void;
@@ -189,6 +210,7 @@ const demoBoot = () => ({
   meters: { input: [...INITIAL_METERS.input], output: [...INITIAL_METERS.output] } as MeterState,
   activity: INITIAL_ACTIVITY.map((entry) => ({ ...entry })) as ActivityEntry[],
   uploads: INITIAL_UPLOADS.map((upload) => ({ ...upload })) as UploadTask[],
+  recentUpload: null as { target: string; slot: number; name: string } | null,
   tuner: { ...INITIAL_TUNER } as TunerState,
   save: {
     edited: false,
@@ -240,6 +262,7 @@ const emptyBoot = () => ({
   meters: { input: [-60, -60], output: [-60, -60] } as MeterState,
   activity: [] as ActivityEntry[],
   uploads: [] as UploadTask[],
+  recentUpload: null as { target: string; slot: number; name: string } | null,
   tuner: { ...INITIAL_TUNER } as TunerState,
   save: {
     edited: false,
@@ -880,6 +903,51 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     get().addActivity('Block removed', block.label, 'warn');
   },
 
+  clearChain: () => {
+    const current = get();
+    const movable = current.blocks.filter((block) => !block.fixed);
+    if (movable.length === 0) {
+      current.notify('The signal chain has no movable blocks', 'warn');
+      return;
+    }
+    if (current.connection.mode === 'device') {
+      tauriClient
+        .editChain({ type: 'clear' })
+        .then(() => {
+          set((state) => ({ save: { ...state.save, edited: true } }));
+          get().addActivity(
+            'Chain cleared',
+            `${movable.length} movable blocks removed`,
+            'warn',
+          );
+          get().notify('Signal chain cleared', 'good');
+          return get().refreshDevice();
+        })
+        .catch((error) => current.notify(ipcErrorMessage(error), 'bad'));
+      return;
+    }
+
+    const before = snapshotOf(current);
+    const remaining = current.blocks.filter((block) => block.fixed);
+    const restored = movable
+      .map((block) => ({ id: block.id, label: block.label, desc: block.model ?? '' }))
+      .filter(
+        (block) => !current.availableBlocks.some((available) => available.id === block.id),
+      );
+    set((state) => ({
+      blocks: remaining,
+      availableBlocks: [...state.availableBlocks, ...restored],
+      selectedBlockId: remaining.some((block) => block.id === state.selectedBlockId)
+        ? state.selectedBlockId
+        : (remaining[0]?.id ?? null),
+      undoStack: [...state.undoStack, before].slice(-40),
+      redoStack: [],
+      save: { ...state.save, edited: true },
+    }));
+    get().addActivity('Chain cleared', `${movable.length} movable blocks removed`, 'warn');
+    get().notify('Signal chain cleared', 'good');
+  },
+
   replaceBlock: (id, replacementId) => {
     const current = get();
     const block = current.blocks.find((item) => item.id === id);
@@ -1202,6 +1270,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         undoStack: [],
         redoStack: [],
         uploads: [],
+        recentUpload: null,
         activity: [],
         connection: {
           ...mapped.connection,
@@ -1276,6 +1345,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         undoStack: [],
         redoStack: [],
         uploads: [],
+        recentUpload: null,
         activity: [],
         connection: {
           ...mapped.connection,
@@ -1448,37 +1518,198 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   },
 
   addUpload: (file) => {
-    if (get().connection.mode === 'device') {
+    const state = get();
+    const kind = file.kind;
+    const target =
+      file.target ?? (kind === 'ir' ? 'ir_list' : kind === 'pnam' ? 'pnam_list' : 'nam_amp');
+    const list = state.lists.find((item) => item.id === target);
+    const targetLabel = list?.label ?? target;
+    const slot = file.slot ?? list?.slots.find((item) => !item.used)?.index ?? 0;
+    // Hardware safety: the backend re-checks this allowlist and validates the
+    // file. Do not bypass preflight or add other upload targets; see
+    // docs/DEVICE_SAFETY.md.
+    if (!(target in UPLOAD_TARGET_PATHS)) {
+      get().notify('Only NAM, Parametric NAM, and IR captures can be uploaded', 'bad');
+      return false;
+    }
+
+    if (state.connection.mode !== 'device') {
+      const upload: UploadTask = {
+        id: `upload-${Date.now()}`,
+        file: file.name,
+        kind,
+        target: targetLabel,
+        slot,
+        progress: 0,
+        state: 'uploading',
+        ack: 0,
+        totalAcks: Math.max(4, Math.ceil(file.size / 1024)),
+        detail: 'preflight ready',
+      };
+      set((current) => ({
+        uploads: [upload, ...current.uploads.filter((item) => item.state !== 'done')].slice(0, 4),
+      }));
+      get().addActivity('Upload started', `${file.name} · ${targetLabel} slot ${slot + 1}`, 'warn');
+      return true;
+    }
+
+    if (state.uploads.some((item) => item.state === 'uploading' || item.state === 'queued')) {
+      get().notify('An upload is already in flight — wait for its final ACK or cancel it', 'warn');
+      return false;
+    }
+    const path = file.path;
+    if (!path) {
       get().notify(
-        'Device uploads are not wired to the file picker yet; the Rust uploader is available through the CLI/API',
+        'Choose the file with the system picker so the uploader can read it from disk',
         'warn',
       );
-      return;
+      return false;
     }
-    const kind = file.kind;
-    const target = file.target ?? (kind === 'ir' ? 'ir_list' : kind === 'pnam' ? 'pnam_list' : 'nam_amp');
-    const list = get().lists.find((item) => item.id === target);
-    const slot = file.slot ?? list?.slots.find((item) => !item.used)?.index ?? 0;
+
+    const id = `upload-${Date.now()}`;
     const upload: UploadTask = {
-      id: `upload-${Date.now()}`,
+      id,
       file: file.name,
       kind,
-      target: list?.label ?? target,
+      target: targetLabel,
       slot,
       progress: 0,
-      state: 'uploading',
+      state: 'queued',
       ack: 0,
-      totalAcks: Math.max(4, Math.ceil(file.size / 1024)),
-      detail: 'preflight ready',
+      totalAcks: 0,
+      detail: 'starting upload',
     };
-    set((state) => ({
-      uploads: [upload, ...state.uploads.filter((item) => item.state !== 'done')].slice(0, 4),
+    set((current) => ({
+      uploads: [upload, ...current.uploads.filter((item) => item.state !== 'done')].slice(0, 4),
+      recentUpload: null,
     }));
-    get().addActivity('Upload started', `${file.name} · ${list?.label ?? target} slot ${slot}`, 'warn');
+    get().addActivity('Upload queued', `${file.name} · ${targetLabel} slot ${slot + 1}`, 'warn');
+
+    const targetPath = uploadTargetPath(target);
+    void (async () => {
+      set((current) => ({
+        uploads: current.uploads.map((item) =>
+          item.id === id ? { ...item, state: 'uploading' as const, detail: 'waiting for ACK' } : item,
+        ),
+      }));
+      try {
+        const completion = await tauriClient.beginUpload(id, kind, path, targetPath, slot);
+        const result = completion.result;
+        get().applyDeviceSnapshot(completion.snapshot);
+        if (completion.cancelled || !result) {
+          set((current) => ({
+            uploads: current.uploads.map((item) =>
+              item.id === id
+                ? { ...item, state: 'cancelled' as const, detail: 'cancelled after the last ACK' }
+                : item,
+            ),
+          }));
+          get().addActivity('Upload cancelled', `${file.name} · ${targetLabel}`, 'warn');
+          get().notify(`${file.name} upload cancelled`, 'warn');
+          return;
+        }
+
+        const resultTarget = uploadTargetId(result.target);
+        const resultLabel = get().lists.find((item) => item.id === resultTarget)?.label ?? targetLabel;
+        set((current) => ({
+          uploads: current.uploads.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  target: resultLabel,
+                  slot: result.slot,
+                  progress: 100,
+                  ack: item.totalAcks || item.ack,
+                  state: 'done' as const,
+                  detail: 'slot list refreshed',
+                }
+              : item,
+          ),
+          recentUpload: { target: resultTarget, slot: result.slot, name: result.name },
+        }));
+        get().addActivity(
+          'Upload complete',
+          `${result.name} · ${resultLabel} slot ${result.slot + 1}`,
+          'good',
+        );
+        get().notify(`${result.name} uploaded`, 'good');
+      } catch (error) {
+        const message = ipcErrorMessage(error);
+        set((current) => ({
+          uploads: current.uploads.map((item) =>
+            item.id === id ? { ...item, state: 'error' as const, detail: message } : item,
+          ),
+        }));
+        get().addActivity('Upload failed', `${file.name} · ${message}`, 'bad');
+        get().notify(message, 'bad');
+        // A failed chunk can leave the cached slot list out of date.
+        void get().refreshDevice();
+      }
+    })();
+
+    return true;
+  },
+
+  cancelUpload: (id) => {
+    const state = get();
+    const active = state.uploads.find(
+      (item) =>
+        (item.state === 'uploading' || item.state === 'queued') &&
+        (!id || item.id === id),
+    );
+    if (!active) return;
+
+    if (state.connection.mode !== 'device') {
+      set((current) => ({
+        uploads: current.uploads.map((item) =>
+          item.id === active.id
+            ? { ...item, state: 'cancelled' as const, detail: 'cancelled' }
+            : item,
+        ),
+      }));
+      get().addActivity('Upload cancelled', `${active.file} · slot ${active.slot + 1}`, 'warn');
+      return;
+    }
+
+    set((current) => ({
+      uploads: current.uploads.map((item) =>
+        item.id === active.id
+          ? { ...item, detail: 'cancelling after the current ACK' }
+          : item,
+      ),
+    }));
+    void tauriClient
+      .cancelUpload()
+      .then((accepted) => {
+        if (!accepted) get().notify('The upload already finished', 'warn');
+      })
+      .catch((error) => get().notify(ipcErrorMessage(error), 'bad'));
+  },
+
+  applyUploadProgress: (payload) => {
+    const total = payload.total_acks;
+    const progress = total > 0 ? Math.min(100, (payload.ack / total) * 100) : 0;
+    set((state) => ({
+      uploads: state.uploads.map((item) =>
+        item.id === payload.id && (item.state === 'queued' || item.state === 'uploading')
+          ? {
+              ...item,
+              state: 'uploading' as const,
+              ack: payload.ack,
+              totalAcks: payload.total_acks,
+              progress,
+              detail: `ACK ${payload.ack} / ${payload.total_acks}`,
+            }
+          : item,
+      ),
+    }));
   },
 
   tickUploads: () => {
     const state = get();
+    // Device uploads are driven by real ACK events; only the browser demo
+    // simulates progress.
+    if (state.connection.mode !== 'demo') return;
     if (!state.uploads.some((upload) => upload.state === 'uploading')) return;
     const uploads = state.uploads.map((upload) => {
       if (upload.state !== 'uploading') return upload;
@@ -1497,7 +1728,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       (upload) => upload.state === 'done' && state.uploads.find((old) => old.id === upload.id)?.state === 'uploading',
     );
     if (finished) {
-      get().addActivity('Upload complete', `${finished.file} · slot ${finished.slot}`, 'good');
+      get().addActivity('Upload complete', `${finished.file} · slot ${finished.slot + 1}`, 'good');
       get().notify(`${finished.file} uploaded`, 'good');
     }
   },

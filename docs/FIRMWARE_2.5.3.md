@@ -160,6 +160,33 @@ Live checks:
   `vtype: "switch"` and `options: ["ON","OFF"]`;
 - two concurrent TCP clients both browsed and polled successfully.
 
+## Upload compatibility notes (2026-11-22)
+
+These were found while testing the desktop uploader against a live 2.5.3 pedal:
+
+- **NAM A1 (WaveNet/LSTM) uses flat top-level `weights`** with a config such as
+  `{"layers": ..., "head": ..., "head_scale": ...}`. A1 must remain accepted;
+  do not require A2/PNAM-specific keys. A real 13,802-weight WaveNet A1 file
+  passed preflight and a 131-chunk simulator upload.
+- **NAM v0.7 A2 `SlimmableContainer` files have an empty top-level `weights`
+  array.** The trained weights are under `config.submodels[].model.weights`,
+  wrapped as `{ "max_value": ..., "model": { ... } }`. A flat-weights-only
+  validator rejects these legitimate files. Recurse through `config.models`,
+  `config.submodels`, and `{ "model": ... }` wrappers.
+- **The IR list item type may be `wav_48000`**, not `ir` or `wav`. Accept exact
+  types plus rate-tagged variants (`wav_*`, `ir_*`) and untyped known capture
+  paths, while still rejecting wrong-kind/unknown lists.
+- **Do not compare a source WAV's byte size to the 8192-byte IR slot.** IR slots
+  store 2048 decoded `f32` samples; a normal WAV is much larger. Decode first,
+  then upload the fixed 8192-byte payload.
+- **Firmware images do not erase captures or presets.** A bad NAM/PNAM/IR slot
+  survives a successful reflash. A synthetic stub upload soft-bricked a 2.5.3
+  pedal on 2026-11-22; it stayed in Update Mode until the company supplied a
+  new image and the device was reset. See
+  [`DEVICE_SAFETY.md`](DEVICE_SAFETY.md).
+- Use the simulator and known-good files for upload changes; never test
+  synthetic models on hardware.
+
 ## Remaining notes
 
 - Existing presets created on 2.4.4 may hold `0.5` for a two-position PNAM

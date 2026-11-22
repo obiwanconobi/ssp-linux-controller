@@ -133,7 +133,7 @@ export interface UploadTask {
   target: string;
   slot: number;
   progress: number;
-  state: 'preflight' | 'queued' | 'uploading' | 'done' | 'error';
+  state: 'preflight' | 'queued' | 'uploading' | 'done' | 'error' | 'cancelled';
   ack: number;
   totalAcks: number;
   detail?: string;

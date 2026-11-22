@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 use stomp_device::{
     parse_host_port, validate_alias, ChainEdit, ConnectionInfo, Device, DeviceSnapshot,
-    UploadResult,
+    UploadProgress, UploadResult,
 };
 use stomp_protocol::editor::BlockEditor;
 use stomp_protocol::ProtocolError;
@@ -35,6 +35,27 @@ pub struct SerialPort {
     pub usb: bool,
     pub vendor_id: Option<String>,
     pub product_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UploadProgressEvent {
+    pub id: String,
+    pub kind: UploadKind,
+    pub target: String,
+    pub slot: usize,
+    pub name: String,
+    pub ack: usize,
+    pub total_acks: usize,
+    pub progress: f64,
+    pub bytes_sent: usize,
+    pub total_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UploadCompletion {
+    pub cancelled: bool,
+    pub result: Option<UploadResult>,
+    pub snapshot: DeviceSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -449,16 +470,26 @@ pub async fn preflight_upload(
 
 #[tauri::command]
 pub async fn begin_upload(
+    app: AppHandle,
     state: State<'_, AppState>,
+    id: String,
     kind: String,
     file_path: String,
     target: String,
     slot: Option<usize>,
-) -> IpcResult<UploadResult> {
+) -> IpcResult<UploadCompletion> {
+    use std::sync::atomic::Ordering;
+
+    if state.upload_active.swap(true, Ordering::SeqCst) {
+        return Err(IpcError::from(ProtocolError::InvalidRequest(
+            "another upload is already in flight".into(),
+        )));
+    }
+    state.upload_cancel.store(false, Ordering::SeqCst);
     // Uploads own the transport. The poller must not steal chunk ACKs.
-    state
-        .poll_paused
-        .store(true, std::sync::atomic::Ordering::SeqCst);
+    state.poll_paused.store(true, Ordering::SeqCst);
+
+    let cancel = state.upload_cancel.clone();
     let result = with_device(state.device.clone(), move |device| {
         let kind = parse_upload_kind(&kind)?;
         let path = PathBuf::from(&file_path);
@@ -469,13 +500,56 @@ pub async fn begin_upload(
             .and_then(|name| name.to_str())
             .unwrap_or("upload")
             .to_string();
-        Ok(device.upload(kind, &raw, &file_name, &target, slot)?)
+        let event_app = app.clone();
+        let outcome = device.upload_with_progress(
+            kind,
+            &raw,
+            &file_name,
+            &target,
+            slot,
+            |progress: &UploadProgress| {
+                let total = progress.total_acks.max(1);
+                let _ = event_app.emit(
+                    "device://upload",
+                    UploadProgressEvent {
+                        id: id.clone(),
+                        kind: progress.kind,
+                        target: progress.target.clone(),
+                        slot: progress.slot,
+                        name: progress.name.clone(),
+                        ack: progress.ack,
+                        total_acks: progress.total_acks,
+                        progress: (progress.ack as f64 / total as f64) * 100.0,
+                        bytes_sent: progress.bytes_sent,
+                        total_bytes: progress.total_bytes,
+                    },
+                );
+                !cancel.load(Ordering::SeqCst)
+            },
+        )?;
+        Ok(UploadCompletion {
+            cancelled: outcome.is_none(),
+            result: outcome,
+            snapshot: device.state(),
+        })
     })
     .await;
-    state
-        .poll_paused
-        .store(false, std::sync::atomic::Ordering::SeqCst);
+
+    state.poll_paused.store(false, Ordering::SeqCst);
+    state.upload_active.store(false, Ordering::SeqCst);
     result
+}
+
+#[tauri::command]
+pub fn cancel_upload(state: State<'_, AppState>) -> bool {
+    use std::sync::atomic::Ordering;
+
+    if state.upload_active.load(Ordering::SeqCst) {
+        state.upload_cancel.store(true, Ordering::SeqCst);
+        true
+    } else {
+        false
+    }
 }
 
 fn parse_upload_kind(kind: &str) -> IpcResult<UploadKind> {

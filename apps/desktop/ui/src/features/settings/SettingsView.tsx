@@ -535,7 +535,7 @@ export const SettingsView = () => {
                   <h2>StompStation</h2>
                   <p className="hint">Pedalboard-first desktop controller for the Sonulab StompStation PRO.</p>
                 </div>
-                <span className="chip chip--good">v0.1.0</span>
+                <span className="chip chip--good">v0.2.0</span>
               </header>
               <dl className="settings-meta">
                 <div>

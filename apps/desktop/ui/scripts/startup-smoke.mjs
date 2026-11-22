@@ -80,7 +80,7 @@ try {
             if (command === 'get_bootstrap') {
               return {
                 product: 'StompStation',
-                version: '0.1.0',
+                version: '0.2.0',
                 platform: 'linux x86_64',
                 connected: false,
                 demo_allowed: mode === 'demo',

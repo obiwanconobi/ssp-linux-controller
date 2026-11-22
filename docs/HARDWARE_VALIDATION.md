@@ -1,5 +1,10 @@
 # Hardware validation — 2026-11-20
 
+> **Before any device write or upload test, read
+> [`DEVICE_SAFETY.md`](DEVICE_SAFETY.md).** It records the 2026-11-22
+> soft-brick, the format/list invariants, and the update-mode recovery
+> playbook.
+
 ## Device
 
 | Field | Value |
@@ -244,18 +249,62 @@ Android constraints:
 
 See [`ANDROID.md`](ANDROID.md) for build and install instructions.
 
+## Upload flow (wired 2026-11-22)
+
+The Library now drives the real uploader instead of a preview:
+
+- the Tauri file picker and native drag-drop pass real filesystem paths;
+- `preflight_upload` reads the device slot list, validates the file, and
+  returns the chosen slot plus overwrite warnings;
+- model validation requires valid JSON, an architecture, a config object, and
+  numeric weights; it accepts flat WaveNet/LSTM weights, Sequential
+  `config.models`, and v0.7 `SlimmableContainer`/`ParametricSlimmableContainer`
+  `config.submodels` (A2/PNAM), including `{ "model": ... }` wrappers. IR WAVs
+  are decoded before upload, and source WAVs may be larger than the 8 KiB
+  decoded slot; the target must be a `nam`, `pnam`, or `ir` capture list.
+  Firmware may label list types as `ir`, `wav`, or rate-tagged forms such as
+  `wav_48000`; known capture paths also accept an untyped list;
+- `begin_upload` pauses the poller, streams `device://upload` ACK events,
+  checks the cancel flag at each ACK boundary, then returns a fresh snapshot;
+- the UI applies that snapshot, refreshes the list, and highlights the new
+  slot. Browser/demo mode still simulates progress.
+
+### Validated on 2.5.3 (2026-11-22)
+
+- a known-good NAM v0.7 A2 `SlimmableContainer` upload to a free amp slot,
+  including the final 2048-character marker;
+- a NAM A1 WaveNet file with 13,802 flat weights through preflight and a
+  131-chunk simulator upload (hardware A1 upload still to be recorded);
+- a Parametric NAM container upload to a free PNAM slot;
+- a 24-bit/48 kHz mono IR WAV to a free IR slot, with the IR list reporting
+  `item_type: wav_48000`;
+- a synthetic stub NAM rejected before any bytes were sent, and a wrong-kind
+  target rejected before any write.
+
+Still open: cancel-after-ACK on hardware, overwriting a used slot, audio
+readback/verification, and the 10-minute idle polling pass.
+
+> Preflight is structural, not semantic: it cannot prove a model is loadable
+> by this firmware. Use files exported by a compatible NAM/PNAM version, and
+> keep a known-good file for the first hardware pass.
+
 ## Still unvalidated on hardware
 
 These intentionally remain on the Phase 3 checklist:
 
-- NAM / PNAM / IR upload to a scratch slot, including the 2048-character final
-  marker and ACK pause behavior;
+- A1 NAM upload on real hardware. A1 is covered by the validator and simulator,
+  but only A2/PNAM/IR uploads have been recorded on 2.5.3 so far;
+- upload cancellation after an ACK, overwriting a used slot, and audio
+  readback/verification. Basic NAM A2/PNAM/IR uploads were validated on 2.5.3
+  (see the upload section above), including the A2 final marker;
 - live snapshot polling for 10 minutes and reconnect after unplugging USB
   mid-poll (the interim poller exists but has not been hardened on hardware);
 - external preset/chain changes from the pedal while the app is open;
 - tuner open/close restore;
-- EQ writes and chain move/link writes. Chain add/remove and the PNAM editor
-  were exercised; move/link and EQ writes still need a pass.
+- EQ writes, chain move/link writes, and Clear Chain on hardware. Chain
+  add/remove and the PNAM editor were exercised; move/link, clear, and EQ writes
+  still need a pass. Clear Chain is covered by the simulator and UI smoke, and
+  preserves fixed blocks/connectors by construction.
 - Save As to a new/empty preset slot (core and Python client support it; no
   desktop dialog yet).
 - Android on a physical phone, including Wi-Fi mDNS discovery, one-client

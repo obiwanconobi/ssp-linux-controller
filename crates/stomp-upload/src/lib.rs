@@ -147,6 +147,132 @@ impl UploadState {
     }
 }
 
+/// Structural checks for a NAM or Parametric NAM model.
+///
+/// These are intentionally conservative: a missing architecture, or an empty
+/// `weights` array with no child models, is a stub rather than a loadable
+/// model, and the pedal's loader is not expected to survive one.
+///
+/// This guard exists because a 177-byte synthetic NAM with `weights: []` was
+/// accepted by an early build, uploaded to a live 2.5.3 pedal, and left the
+/// device in Update Mode. Never bypass it for hardware uploads. See
+/// `docs/DEVICE_SAFETY.md`.
+fn validate_model(kind: UploadKind, raw: &[u8]) -> Result<(), ProtocolError> {
+    let value: Value = serde_json::from_slice(raw).map_err(|error| {
+        ProtocolError::InvalidRequest(format!("{} file is not valid JSON: {error}", kind.label()))
+    })?;
+    validate_model_value(kind, &value, 0)
+}
+
+/// Validate a model, including container architectures used by NAM v0.7+.
+///
+/// `SlimmableContainer` and the parametric variants keep the real network
+/// weights in `config.submodels`/`config.models`, with each entry optionally
+/// wrapped as `{ "max_value": ..., "model": { ... } }`. Recurse through those
+/// wrappers so legitimate A2/PNAM files are accepted while empty stubs are
+/// still rejected.
+fn validate_model_value(
+    kind: UploadKind,
+    value: &Value,
+    depth: usize,
+) -> Result<(), ProtocolError> {
+    if depth > 4 {
+        return Err(ProtocolError::InvalidRequest(format!(
+            "{} model nesting is too deep",
+            kind.label()
+        )));
+    }
+    let model = value.as_object().ok_or_else(|| {
+        ProtocolError::InvalidRequest(format!("{} file must be a JSON object", kind.label()))
+    })?;
+    let architecture = model
+        .get("architecture")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ProtocolError::InvalidRequest(format!(
+                "{} file is missing an architecture",
+                kind.label()
+            ))
+        })?;
+    let config = model
+        .get("config")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            ProtocolError::InvalidRequest(format!(
+                "{} file is missing its config object",
+                kind.label()
+            ))
+        })?;
+    if let Some(metadata) = model.get("metadata") {
+        if !metadata.is_object() {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "{} metadata must be an object",
+                kind.label()
+            )));
+        }
+    }
+    if let Some(sample_rate) = model.get("sample_rate") {
+        let rate = sample_rate.as_f64().unwrap_or(0.0);
+        if rate <= 0.0 {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "{} sample_rate must be a positive number",
+                kind.label()
+            )));
+        }
+    }
+
+    // Some container variants keep the network weights in `config.weights`.
+    let weights = model
+        .get("weights")
+        .and_then(Value::as_array)
+        .or_else(|| config.get("weights").and_then(Value::as_array));
+    if let Some(weights) = weights {
+        if !weights.iter().all(Value::is_number) {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "{} weights must be numeric",
+                kind.label()
+            )));
+        }
+        if !weights.is_empty() {
+            return Ok(());
+        }
+    }
+
+    // Sequential/slimmable containers keep the weights on their child
+    // models. Both `models` and `submodels` are used by NAM v0.7 variants.
+    let mut children: Vec<&Value> = Vec::new();
+    for key in ["models", "submodels"] {
+        match config.get(key) {
+            Some(Value::Array(models)) => children.extend(models.iter()),
+            Some(Value::Object(models)) => {
+                children.extend(models.values().filter(|value| value.is_object()));
+            }
+            _ => {}
+        }
+    }
+    if let Some(single) = config.get("model").filter(|value| value.is_object()) {
+        children.push(single);
+    }
+    if children.is_empty() {
+        return Err(ProtocolError::InvalidRequest(format!(
+            "{} file has no weights; this looks like a stub, not a trained model ({architecture})",
+            kind.label()
+        )));
+    }
+
+    for child in children {
+        // Slimmable submodels wrap the model as { max_value, model }.
+        let candidate = child
+            .as_object()
+            .and_then(|object| object.get("model"))
+            .unwrap_or(child);
+        validate_model_value(kind, candidate, depth + 1)?;
+    }
+    Ok(())
+}
+
 pub fn preflight(
     kind: UploadKind,
     raw: &[u8],
@@ -156,12 +282,27 @@ pub fn preflight(
     target_slot_size: Option<usize>,
 ) -> Result<Preflight, ProtocolError> {
     let slot_size = target_slot_size.unwrap_or_else(|| kind.default_slot_size());
-    if raw.len() > slot_size {
+    // IR slots store 2048 decoded f32 samples, not the source WAV, so the
+    // source file may legitimately be larger than the slot.
+    if kind != UploadKind::Ir && raw.len() > slot_size {
         return Err(ProtocolError::InvalidRequest(format!(
             "{} file is larger than the {} byte slot",
             kind.label(),
             slot_size
         )));
+    }
+    // Validate before the device sees a single byte. A malformed model can
+    // crash the pedal's loader, so structural checks are not optional.
+    if kind == UploadKind::Ir {
+        let _ = decode_ir(raw)?;
+        if IR_LENGTH * std::mem::size_of::<f32>() > slot_size {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "decoded IR payload is {} bytes but the slot is only {slot_size} bytes",
+                IR_LENGTH * std::mem::size_of::<f32>()
+            )));
+        }
+    } else {
+        validate_model(kind, raw)?;
     }
     let slot = match slot {
         Some(slot) => slot,
@@ -172,18 +313,18 @@ pub fn preflight(
                 ProtocolError::InvalidRequest("no free slots; choose a slot to overwrite".into())
             })?,
     };
+    if !slot_names.is_empty() && slot >= slot_names.len() {
+        return Err(ProtocolError::InvalidRequest(format!(
+            "slot {slot} is outside the {} slot list",
+            slot_names.len()
+        )));
+    }
     let overwrite = slot_names
         .get(slot)
         .filter(|name| !name.is_empty())
         .map(|name| name.to_string());
     let name = display_name(raw, file_name, kind);
     let mut warnings = Vec::new();
-    if slot >= slot_names.len() && !slot_names.is_empty() {
-        warnings.push(format!(
-            "slot {slot} is beyond the current list ({} slots)",
-            slot_names.len()
-        ));
-    }
     if overwrite.is_some() {
         warnings.push(format!(
             "slot {slot} will be overwritten ({})",
@@ -258,6 +399,16 @@ pub fn prepare_model_upload(
             "use prepare_ir_upload for IR files".into(),
         ));
     }
+    validate_model(kind, raw)?;
+    prepare_model_upload_unchecked(kind, raw, name, target_slot_size)
+}
+
+fn prepare_model_upload_unchecked(
+    kind: UploadKind,
+    raw: &[u8],
+    name: &str,
+    target_slot_size: Option<usize>,
+) -> Result<PreparedUpload, ProtocolError> {
     let slot_size = target_slot_size.unwrap_or_else(|| kind.default_slot_size());
     if raw.len() > slot_size {
         return Err(ProtocolError::InvalidRequest(format!(
@@ -459,10 +610,33 @@ mod tests {
 
     fn nam_json(name: &str, gear: &str) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({
-            "version": 0.5,
+            "version": "0.5.4",
+            "architecture": "WaveNet",
+            "config": {},
+            "weights": [0.0, 0.1],
+            "sample_rate": 48000,
             "metadata": { "name": name, "gear_type": gear }
         }))
         .unwrap()
+    }
+
+    fn wav_bytes(frames: usize) -> Vec<u8> {
+        let data_len = (frames * 2) as u32;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&48_000u32.to_le_bytes());
+        wav.extend_from_slice(&96_000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_len.to_le_bytes());
+        wav.resize(wav.len() + data_len as usize, 0);
+        wav
     }
 
     #[test]
@@ -502,7 +676,8 @@ mod tests {
         for extra in 0..4096 {
             raw.resize(extra + 1, 0);
             let prepared =
-                prepare_model_upload(UploadKind::Nam, &raw, "x", Some(extra + 1)).unwrap();
+                prepare_model_upload_unchecked(UploadKind::Nam, &raw, "x", Some(extra + 1))
+                    .unwrap();
             if prepared.marker_chunk {
                 assert_eq!(prepared.chunks.last().unwrap().bytes, 0);
                 assert_eq!(prepared.chunks.last().unwrap().value, marker_value());
@@ -519,7 +694,8 @@ mod tests {
 
     #[test]
     fn ack_state_rejects_wrong_slot_and_bad_jump() {
-        let prepared = prepare_model_upload(UploadKind::Nam, b"{}", "x", Some(4096)).unwrap();
+        let prepared =
+            prepare_model_upload_unchecked(UploadKind::Nam, b"{}", "x", Some(4096)).unwrap();
         let mut state = UploadState::new(3, &prepared);
         assert!(state.on_ack(2, 1).is_err());
         assert!(state.on_ack(3, 9).is_err());
@@ -527,6 +703,134 @@ mod tests {
         assert_eq!(state.on_ack(3, 1).unwrap(), AckOutcome::Repeated(1));
         assert_eq!(state.on_ack(3, -1).unwrap(), AckOutcome::Complete);
         assert!(state.finished);
+    }
+
+    #[test]
+    fn preflight_rejects_stub_models_and_invalid_wavs() {
+        let names = vec![String::new()];
+        let stub = br#"{"version":"0.5.4","architecture":"WaveNet","config":{},"weights":[]}"#;
+        let error = preflight(UploadKind::Nam, stub, "stub.nam", &names, None, None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no weights"), "{error}");
+
+        let missing_architecture = br#"{"config":{},"weights":[0.1]}"#;
+        assert!(preflight(
+            UploadKind::Pnam,
+            missing_architecture,
+            "x.pnam",
+            &names,
+            None,
+            None,
+        )
+        .is_err());
+
+        let invalid_ir = b"not a wav";
+        assert!(preflight(UploadKind::Ir, invalid_ir, "cab.wav", &names, None, None,).is_err());
+
+        let valid = br#"{"version":"0.5.4","architecture":"WaveNet","config":{},"weights":[0.1],"metadata":{"name":"Valid"}}"#;
+        let checked = preflight(UploadKind::Nam, valid, "valid.nam", &names, None, None).unwrap();
+        assert_eq!(checked.name, "Valid");
+        assert!(checked.ready);
+
+        let sequential = br#"{"version":"0.7.0","architecture":"Sequential","config":{"models":[{"architecture":"Linear","config":{},"weights":[0.1]}]},"weights":[]}"#;
+        assert!(preflight(UploadKind::Pnam, sequential, "seq.pnam", &names, None, None,).is_ok());
+
+        let container_weights = br#"{"architecture":"ParametricSlimmableContainer","config":{"weights":[0.1]},"metadata":{"name":"Container"}}"#;
+        assert!(preflight(
+            UploadKind::Pnam,
+            container_weights,
+            "container.pnam",
+            &names,
+            None,
+            None,
+        )
+        .is_ok());
+
+        let slimmable = br#"{"version":"0.7.0","architecture":"SlimmableContainer","config":{"submodels":[{"max_value":0.5,"model":{"version":"0.7.0","architecture":"WaveNet","config":{},"weights":[0.1],"sample_rate":48000}},{"max_value":1,"model":{"version":"0.7.0","architecture":"WaveNet","config":{},"weights":[0.2]}}]},"weights":[],"sample_rate":48000,"metadata":{"name":"A2 Valid"}}"#;
+        let checked = preflight(UploadKind::Nam, slimmable, "a2.nam", &names, None, None).unwrap();
+        assert_eq!(checked.name, "A2 Valid");
+
+        let broken_slimmable = br#"{"version":"0.7.0","architecture":"SlimmableContainer","config":{"submodels":[{"max_value":0.5,"model":{"version":"0.7.0","architecture":"WaveNet","config":{},"weights":[]}}]},"weights":[]}"#;
+        let error = preflight(
+            UploadKind::Nam,
+            broken_slimmable,
+            "broken.nam",
+            &names,
+            None,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("no weights"), "{error}");
+
+        let error = preflight(UploadKind::Nam, valid, "valid.nam", &names, Some(3), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("outside the 1 slot list"), "{error}");
+
+        let error = preflight(
+            UploadKind::Ir,
+            &wav_bytes(10),
+            "cab.wav",
+            &names,
+            Some(0),
+            Some(4096),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("decoded IR payload"), "{error}");
+        assert!(preflight(
+            UploadKind::Ir,
+            &wav_bytes(10),
+            "cab.wav",
+            &names,
+            Some(0),
+            Some(8192),
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn preflight_accepts_a1_wavenet_with_flat_weights() {
+        let a1 = br#"{"version":"0.5.4","architecture":"WaveNet","config":{"layers":[{"input_size":1,"condition_size":1,"head_size":8,"channels":4,"kernel_size":3,"dilations":[1,2],"activation":"Tanh","gated":false}],"head":null,"head_scale":0.02},"weights":[0.1,0.2,0.3],"sample_rate":48000,"metadata":{"name":"A1 Test","gear_type":"amp"}}"#;
+        let checked =
+            preflight(UploadKind::Nam, a1, "a1.nam", &[String::new()], None, None).unwrap();
+        assert_eq!(checked.name, "A1 Test");
+        assert!(checked.ready);
+    }
+
+    #[test]
+    fn preflight_accepts_ir_wavs_larger_than_the_decoded_slot() {
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = hound::WavWriter::new(&mut cursor, spec).unwrap();
+            for _ in 0..3000 {
+                writer.write_sample::<i16>(0).unwrap();
+                writer.write_sample::<i16>(0).unwrap();
+            }
+            writer.finalize().unwrap();
+        }
+        assert!(cursor.get_ref().len() > IR_LENGTH * 4);
+
+        let checked = preflight(
+            UploadKind::Ir,
+            cursor.get_ref(),
+            "cab.wav",
+            &[String::new()],
+            None,
+            Some(IR_LENGTH * 4),
+        )
+        .unwrap();
+        assert_eq!(checked.slot, 0);
+        assert_eq!(checked.file_size, cursor.get_ref().len());
+        assert!(checked.ready);
     }
 
     #[test]

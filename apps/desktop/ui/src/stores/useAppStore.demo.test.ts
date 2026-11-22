@@ -34,6 +34,24 @@ describe('demo chain editing', () => {
     expect(after.availableBlocks.some((block) => block.id === 'drive')).toBe(true);
   });
 
+  it('clears every movable block and preserves fixed slots', () => {
+    const before = useAppStore.getState();
+    const fixed = before.blocks.filter((block) => block.fixed);
+    const movable = before.blocks.filter((block) => !block.fixed);
+    expect(movable.length).toBeGreaterThan(0);
+
+    before.clearChain();
+
+    const after = useAppStore.getState();
+    expect(after.blocks.map((block) => block.id)).toEqual(fixed.map((block) => block.id));
+    expect(after.blocks.every((block) => block.fixed)).toBe(true);
+    for (const block of movable) {
+      expect(after.availableBlocks.some((available) => available.id === block.id)).toBe(true);
+    }
+    expect(after.save.edited).toBe(true);
+    expect(after.undoStack.length).toBe(before.undoStack.length + 1);
+  });
+
   it('swaps a block with an available one in place', () => {
     const before = useAppStore.getState();
     const gateIndex = before.blocks.findIndex((block) => block.id === 'gate');

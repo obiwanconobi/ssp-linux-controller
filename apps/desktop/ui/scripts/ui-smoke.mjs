@@ -231,7 +231,7 @@ try {
   await page.locator('.library-scope__sub', { hasText: 'Parametric NAM' }).click();
   await libraryUpload.setInputFiles(join(localCaptures, 'Drive.pnam'));
   await page.waitForTimeout(150);
-  const targetSelect = page.locator('.preflight__list select');
+  const targetSelect = page.locator('select[aria-label="Upload target"]');
   const targetOptions = await targetSelect.locator('option').allTextContents();
   assert(
     targetOptions.includes('Amps — Parametric NAM') &&
@@ -243,6 +243,23 @@ try {
   assert(
     (await page.locator('.library-scope__category--active').innerText()).includes('Amps'),
     'changing the preflight target did not move the library section',
+  );
+  assert(
+    (await page.locator('select[aria-label="Upload slot"]').count()) === 1,
+    'preflight should offer a slot picker',
+  );
+
+  await page.locator('.preflight__actions .btn--primary').click();
+  await page.waitForSelector('.upload-list');
+  assert(
+    (await page.locator('.upload-card').first().innerText()).includes('Drive.pnam'),
+    'queued upload did not appear at the top of the queue',
+  );
+  await page.locator('.upload-card').first().getByRole('button', { name: 'Cancel' }).click();
+  await page.waitForTimeout(100);
+  assert(
+    (await page.locator('.upload-card').first().innerText()).toLowerCase().includes('cancelled'),
+    'cancelling a queued upload did not update its state',
   );
 
   await page.locator('.segmented button', { hasText: 'Local files' }).click();
@@ -273,6 +290,23 @@ try {
   await page.waitForSelector('.tuner-deck');
   assert(await page.locator('.tuner-deck').isVisible(), 'tuner deck did not open');
   await page.keyboard.press('Escape');
+
+  const beforeClear = await page.locator('.signal-chain .pedal').count();
+  await page.locator('button[aria-label="Chain actions"]').click();
+  await page.getByRole('menuitem', { name: /Clear chain/ }).click();
+  await page.waitForSelector('.dialog-content');
+  assert(
+    (await page.locator('.dialog-title').innerText()).includes('Clear signal chain'),
+    'clear-chain confirmation did not open',
+  );
+  await page.locator('.dialog-foot .btn--danger').click();
+  await page.waitForTimeout(200);
+  const afterClear = await page.locator('.signal-chain .pedal').count();
+  assert(afterClear < beforeClear, 'clear chain did not remove movable blocks');
+  assert(
+    (await page.locator('.signal-chain .pedal--fixed').count()) === afterClear,
+    'clear chain removed a fixed block',
+  );
 
   assert(errors.length === 0, `UI console errors:\n${errors.join('\n')}`);
   console.log('UI SMOKE PASSED');

@@ -2364,6 +2364,15 @@
   color: var(--text);
 }
 
+.library-row--recent {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.library-row--recent td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--text);
+}
+
 .library-name {
   display: flex;
   align-items: center;
@@ -2613,10 +2622,16 @@
 
 .upload-card__foot {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
   font-size: 8px;
+}
+
+.upload-card__foot .btn {
+  margin-left: auto;
 }
 
 .library-tab-panel {
@@ -3646,6 +3661,15 @@
 .menu__item[data-disabled] {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.menu__item--danger {
+  color: var(--danger);
+}
+
+.menu__item--danger[data-highlighted] {
+  background: color-mix(in srgb, var(--danger) 10%, var(--raised));
+  color: var(--danger);
 }
 
 .menu__item span {

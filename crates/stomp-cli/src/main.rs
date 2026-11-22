@@ -114,6 +114,13 @@ fn run() -> Result<(), Box<dyn Error>> {
             })?;
             println!("{}", serde_json::to_string_pretty(&device.state())?);
         }
+        "clear-chain" => {
+            let address = args.next().unwrap_or_else(usage_exit);
+            let mut device = open(&address)?;
+            device.connect()?;
+            device.edit_chain(ChainEdit::Clear)?;
+            println!("{}", serde_json::to_string_pretty(&device.state())?);
+        }
         "set-control" => {
             let values: Vec<String> = args.collect();
             if values.len() != 3 {
@@ -171,7 +178,15 @@ fn run() -> Result<(), Box<dyn Error>> {
             } else {
                 Some(values[3].parse::<usize>()?)
             };
-            let result = device.upload(kind, &raw, file_name, &values[4], slot)?;
+            let result = device
+                .upload_with_progress(kind, &raw, file_name, &values[4], slot, |progress| {
+                    eprintln!(
+                        "ack {}/{} ({} bytes sent)",
+                        progress.ack, progress.total_acks, progress.bytes_sent
+                    );
+                    true
+                })?
+                .ok_or("upload was cancelled")?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         "editor" => {
@@ -265,6 +280,7 @@ fn usage() {
   add-block <addr> <row> <col> <block-path>
   remove-block <addr> <row> <col>
   replace-block <addr> <row> <col> <block-path>
+  clear-chain <addr>
   set-control <addr> <node-path> <json-value>
   save-preset <addr> [name]
   preset <addr> <name>

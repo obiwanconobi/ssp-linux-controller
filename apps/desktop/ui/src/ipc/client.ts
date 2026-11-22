@@ -172,6 +172,44 @@ export interface RustLocalScan {
   truncated: boolean;
 }
 
+export interface RustUploadPreflight {
+  kind: 'nam' | 'pnam' | 'ir';
+  name: string;
+  file_size: number;
+  slot_size: number;
+  slot: number;
+  overwrite: string | null;
+  ready: boolean;
+  warnings: string[];
+}
+
+export interface RustUploadResult {
+  target: string;
+  slot: number;
+  name: string;
+  chunks: number;
+  payload_bytes: number;
+}
+
+export interface RustUploadProgress {
+  id: string;
+  kind: 'nam' | 'pnam' | 'ir';
+  target: string;
+  slot: number;
+  name: string;
+  ack: number;
+  total_acks: number;
+  progress: number;
+  bytes_sent: number;
+  total_bytes: number;
+}
+
+export interface RustUploadCompletion {
+  cancelled: boolean;
+  result: RustUploadResult | null;
+  snapshot: RustSnapshot;
+}
+
 export interface DiscoveredDevice {
   service: string;
   name: string;
@@ -294,4 +332,31 @@ export const tauriClient = {
   copyDiagnostics: () => invoke<string>('copy_diagnostics'),
   scanCaptures: (directory: string) =>
     invoke<RustLocalScan>('scan_captures', { directory }),
+  preflightUpload: (
+    kind: 'nam' | 'pnam' | 'ir',
+    filePath: string,
+    target: string,
+    slot?: number,
+  ) =>
+    invoke<RustUploadPreflight>('preflight_upload', {
+      kind,
+      filePath,
+      target,
+      slot: slot ?? null,
+    }),
+  beginUpload: (
+    id: string,
+    kind: 'nam' | 'pnam' | 'ir',
+    filePath: string,
+    target: string,
+    slot?: number,
+  ) =>
+    invoke<RustUploadCompletion>('begin_upload', {
+      id,
+      kind,
+      filePath,
+      target,
+      slot: slot ?? null,
+    }),
+  cancelUpload: () => invoke<boolean>('cancel_upload'),
 };

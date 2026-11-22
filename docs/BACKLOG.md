@@ -1,6 +1,6 @@
 # Backlog
 
-Last updated: 2026-11-20
+Last updated: 2026-11-22
 
 ## UI feedback — this pass
 
@@ -23,6 +23,15 @@ Last updated: 2026-11-20
 | 15 | Amp-room lanes read as large rectangles, not amps. | Restyled as tolex combo amps: strap handle, cream faceplate, knobs, jewel light, oxblood 2×12 grille, metal logo, and rubber feet. |
 | 16 | Saving resets the chain and loses changed parameters. | Fixed: `serde_json` was sorting object keys, so Rust sent `{"save":"save","value":"..."}`. The firmware applies fields in order, saved the old state, then loaded the stored preset. `preserve_order` now matches the device app’s `{"value":"...","save":"save"}` shape; coalesced knob writes are flushed before save. Chain edits now mark the preset dirty, and a refresh no longer clears that flag. |
 | 17 | Parametric NAM drive shows the normal NAM loader and no model parameters. | Fixed: the block mapper now chooses the visible model loader (`pmodel` for Parametric NAM, `model` for NAM) instead of always taking `model`; the pedal shell follows the active loader. Selecting a PNAM model rebrowses the editor so model-dependent `p1..pN` labels/ranges appear, and switching type with an empty PNAM slot selects the first available model like the Python client. |
+| 18 | Device uploads were preview-only; the picker never called the Rust uploader. | Fixed: the Library file picker and native drag-drop now resolve real paths, call `preflight_upload`, let the user choose a slot, run `begin_upload`, stream `device://upload` ACK progress, cancel after the current chunk, and apply the returned snapshot so the new slot is highlighted. The browser demo keeps its simulated queue. |
+| 19 | A minimal stub `.nam` was accepted and could reach the pedal’s loader. | Fixed: preflight now validates that NAM/PNAM files are JSON objects with an architecture, config, numeric weights, and a valid sample rate; malformed IR WAVs are decoded before upload. The target must be a `nam`, `pnam`, or `ir` capture list, so no other list or wrong-kind target can be written. |
+| 20 | A legitimate NAM v0.7 A2 file was rejected as “no weights.” | Fixed: A2 `SlimmableContainer` keeps weights in `config.submodels`, not top-level `weights`. Validation now recurses through `config.models`/`config.submodels`, unwraps `{ "model": ... }` entries, and accepts object-map container forms. IR preflight also accepts WAVs larger than the decoded 8 KiB slot. |
+| 21 | IR upload was blocked because firmware reports the list type as `wav_48000`. | Fixed: capture-list matching accepts exact types plus rate-tagged variants (`wav_*`, `ir_*`, `nam_*`, `pnam_*`) and untyped known lists, while still rejecting wrong-kind and unknown targets. |
+| 22 | The official app and Python client have Clear Chain; the Tauri Board did not. | Added a Board “Chain…” menu with a destructive confirmation. `ChainEdit::Clear` writes one router payload that removes every movable block while preserving fixed blocks and links. Covered by a Rust layout test, CLI simulator smoke, demo-store test, and UI smoke. Hardware pass still pending. |
+
+> Device-write incidents, format invariants, and the update-mode recovery
+> playbook are now maintained in
+> [`DEVICE_SAFETY.md`](DEVICE_SAFETY.md). Read it before any hardware write.
 
 ## This pass — live updates
 
@@ -33,9 +42,10 @@ Last updated: 2026-11-20
   on/off updates; a changed preset/chain triggers the full editor rebrowse.
 - Snapshot polling has not yet been validated for 10 minutes of hardware idle
   time; that remains on the hardware checklist.
-- Local capture indexing is implemented in Rust and the browser directory picker.
-  It has not been wired to the device upload yet; preflight from a local file
-  works, but the actual ACK upload still goes through the CLI/API.
+- Local capture indexing is implemented in Rust and the browser directory
+  picker. Local entries and native-picked files now preflight against the
+  connected device and upload through the ACK path; the simulated browser queue
+  remains available without hardware.
 - Save now persists chain and parameter edits: the wire order is `value` then
   `save`, coalesced writes are flushed first, and the dirty flag survives a
   board refresh. Verified with a reversible hardware test.
@@ -96,10 +106,12 @@ Open hardware checks remain in the section below.
    pending, mark the affected control and let the user choose the winner.
 3. **Device-mode undo/redo.** Replay the changed controls to the device instead
    of only restoring the local UI snapshot.
-4. **Upload file picker.** Wire `tauri-plugin-dialog` → preflight →
-   `begin_upload`, stream ACK progress, cancel after the current chunk, refresh
-   the target list, and highlight the new slot. Then validate NAM/PNAM/IR to a
-   scratch slot on real hardware.
+4. **Upload hardware validation.** The picker → preflight → `begin_upload`
+   path, ACK progress, cancel boundary, refreshed target list, and new-slot
+   highlight are wired. Basic NAM A2, PNAM, and IR uploads succeeded on 2.5.3;
+   A1 is covered by validator/simulator tests but still needs a hardware pass.
+   Remaining checks are A1 hardware, cancel-after-ACK, overwriting a used slot,
+   and audio readback.
 5. **Settings discovery panel.** Launch/manual discovery is done: `_http._tcp`
    browse, VoidX TXT filtering, manual Wi-Fi list, Wi-Fi-first then USB
    auto-connect, and a no-device error. An explicit Settings scan/manage surface

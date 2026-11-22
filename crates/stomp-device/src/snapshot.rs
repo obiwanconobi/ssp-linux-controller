@@ -288,13 +288,13 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
         }
     }
     for (path, node) in store.iter() {
-        if node.node_type() == "list"
-            && matches!(
-                node.item_type().to_ascii_lowercase().as_str(),
-                "nam" | "pnam" | "ir" | "wav"
-            )
-            && !paths.contains(path)
-        {
+        let item_type = node.item_type().to_ascii_lowercase();
+        let supported = matches!(item_type.as_str(), "nam" | "pnam" | "ir" | "wav")
+            || item_type.starts_with("nam_")
+            || item_type.starts_with("pnam_")
+            || item_type.starts_with("ir_")
+            || item_type.starts_with("wav_");
+        if node.node_type() == "list" && supported && !paths.contains(path) {
             paths.push(path.clone());
         }
     }
@@ -311,9 +311,12 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
         } else if path == IR_PATH {
             "ir"
         } else {
-            match node.item_type().to_ascii_lowercase().as_str() {
+            let item_type = node.item_type().to_ascii_lowercase();
+            match item_type.as_str() {
                 "pnam" => "pnam",
                 "ir" => "ir",
+                value if value.starts_with("pnam") => "pnam",
+                value if value.starts_with("ir") || value.starts_with("wav") => "ir",
                 _ => "nam",
             }
         }

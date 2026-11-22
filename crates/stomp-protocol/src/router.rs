@@ -209,6 +209,25 @@ impl ChainLayout {
         Ok(())
     }
 
+    /// Remove every movable block, preserving fixed slots and chain links.
+    /// This mirrors the Python client's `clear_chain` exactly.
+    pub fn clear(&mut self) {
+        for row_index in 0..self.matrix.len() {
+            for col_index in 0..self.matrix[row_index].len() {
+                let fixed = self
+                    .fixed
+                    .get(row_index)
+                    .and_then(|row| row.get(col_index))
+                    .copied()
+                    .unwrap_or(false);
+                if fixed || is_link_cell(&self.matrix[row_index][col_index]) {
+                    continue;
+                }
+                self.matrix[row_index][col_index] = Value::String(String::new());
+            }
+        }
+    }
+
     pub fn value(&self) -> Value {
         Value::Array(self.matrix.iter().cloned().map(Value::Array).collect())
     }
@@ -539,6 +558,28 @@ mod tests {
             (r"root\app\output", json!({"type":"item"})),
         ]);
         assert_eq!(find_router(&store).as_deref(), Some(r"root\app\router"));
+    }
+
+    #[test]
+    fn clear_preserves_fixed_blocks_and_links() {
+        let store = store_from_pairs(vec![
+            (
+                r"root\app\router",
+                json!({
+                    "type": "router",
+                    "value": [["root\\\\app\\\\amp", "s", "root\\\\app\\\\drive", ""]],
+                    "fixed": [[true, false, false, false]]
+                }),
+            ),
+            (r"root\app\amp", json!({"item_type":"block"})),
+            (r"root\app\drive", json!({"item_type":"block"})),
+        ]);
+        let mut layout = load_chain(&store).unwrap();
+        layout.clear();
+        assert_eq!(layout.matrix[0][0], json!("root\\\\app\\\\amp"));
+        assert_eq!(layout.matrix[0][1], "s");
+        assert_eq!(layout.matrix[0][2], "");
+        assert_eq!(layout.matrix[0][3], "");
     }
 
     #[test]

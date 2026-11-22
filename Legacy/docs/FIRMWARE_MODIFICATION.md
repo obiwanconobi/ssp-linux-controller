@@ -14,6 +14,15 @@ The main caveat is recovery: the same ELF appears to provide both the normal
 application and the update/recovery mode. A custom image that does not preserve
 or reimplement that logic can remove the software recovery path.
 
+> **Upload safety (2026-11-22):** firmware updates replace only
+> `/home/app_run`; they do not erase NAM, PNAM, IR, or preset data. A malformed
+> capture can crash the application and leave the pedal in Update Mode, and a
+> successful reflash will not remove it. Update Mode exposes no capture lists
+> and no user-data reset action, so do not send guessed `dwrite`/`write`
+> commands there. See
+> [`../../docs/DEVICE_SAFETY.md`](../../docs/DEVICE_SAFETY.md) for the full
+> incident and recovery playbook.
+
 ## Evidence
 
 From the repository notes:

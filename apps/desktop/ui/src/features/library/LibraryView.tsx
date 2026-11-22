@@ -11,7 +11,7 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatBytes } from '../../data/demoDevice';
 import { ipcErrorMessage, isTauriRuntime, tauriClient } from '../../ipc/client';
 import { useAppStore } from '../../stores/useAppStore';
@@ -24,6 +24,7 @@ type SubId = 'nam' | 'pnam' | 'ir';
 
 interface TargetDef {
   id: string;
+  path: string;
   label: string;
   kind: CaptureKind;
   category: CategoryId;
@@ -39,11 +40,11 @@ interface CategoryDef {
 const KIND_LABEL: Record<string, string> = { nam: 'NAM', pnam: 'PNAM', ir: 'IR' };
 
 const TARGETS: TargetDef[] = [
-  { id: 'nam_amp', label: 'Amps — NAM', kind: 'nam', category: 'amps', sub: 'nam' },
-  { id: 'pnam_list', label: 'Amps — Parametric NAM', kind: 'pnam', category: 'amps', sub: 'pnam' },
-  { id: 'nam_drive', label: 'Drives — NAM', kind: 'nam', category: 'drives', sub: 'nam' },
-  { id: 'pnam_drive', label: 'Drives — Parametric NAM', kind: 'pnam', category: 'drives', sub: 'pnam' },
-  { id: 'ir_list', label: 'IRs', kind: 'ir', category: 'irs', sub: 'ir' },
+  { id: 'nam_amp', path: 'root\\nam_amp', label: 'Amps — NAM', kind: 'nam', category: 'amps', sub: 'nam' },
+  { id: 'pnam_list', path: 'root\\pnam_list', label: 'Amps — Parametric NAM', kind: 'pnam', category: 'amps', sub: 'pnam' },
+  { id: 'nam_drive', path: 'root\\nam_drive', label: 'Drives — NAM', kind: 'nam', category: 'drives', sub: 'nam' },
+  { id: 'pnam_drive', path: 'root\\pnam_drive', label: 'Drives — Parametric NAM', kind: 'pnam', category: 'drives', sub: 'pnam' },
+  { id: 'ir_list', path: 'root\\ir_list', label: 'IRs', kind: 'ir', category: 'irs', sub: 'ir' },
 ];
 
 const CATEGORIES: CategoryDef[] = [
@@ -89,6 +90,8 @@ interface PendingFile {
   error?: string;
   file?: File;
   path?: string;
+  captureName?: string;
+  checking?: boolean;
 }
 
 interface LocalEntry {
@@ -108,40 +111,68 @@ const kindFor = (name: string): CaptureKind | null => {
   return null;
 };
 
-const UploadCard = ({ upload }: { upload: UploadTask }) => (
-  <div className="upload-card">
-    <div className="upload-card__head">
-      <span className={`upload-card__icon upload-card__icon--${upload.kind}`}>
-        {upload.kind === 'ir' ? <FileMusic size={15} /> : <FileAudio size={15} />}
-      </span>
-      <div className="upload-card__meta">
-        <strong>{upload.file}</strong>
-        <span className="mono">
-          {KIND_LABEL[upload.kind]} · {upload.target} · slot {upload.slot + 1}
+const UploadCard = ({ upload }: { upload: UploadTask }) => {
+  const cancelUpload = useAppStore((state) => state.cancelUpload);
+  const active = upload.state === 'uploading' || upload.state === 'queued';
+  const label =
+    upload.state === 'done'
+      ? 'Complete'
+      : upload.state === 'cancelled'
+        ? 'Cancelled'
+        : upload.state === 'error'
+          ? 'Failed'
+          : `${Math.round(upload.progress)}%`;
+  const chipClass =
+    upload.state === 'done'
+      ? 'chip--good'
+      : upload.state === 'error'
+        ? 'chip--bad'
+        : 'chip--warn';
+
+  return (
+    <div className="upload-card">
+      <div className="upload-card__head">
+        <span className={`upload-card__icon upload-card__icon--${upload.kind}`}>
+          {upload.kind === 'ir' ? <FileMusic size={15} /> : <FileAudio size={15} />}
         </span>
+        <div className="upload-card__meta">
+          <strong>{upload.file}</strong>
+          <span className="mono">
+            {KIND_LABEL[upload.kind]} · {upload.target} · slot {upload.slot + 1}
+          </span>
+        </div>
+        <span className={`chip ${chipClass}`}>{label}</span>
       </div>
-      <span className={`chip ${upload.state === 'done' ? 'chip--good' : 'chip--warn'}`}>
-        {upload.state === 'done' ? 'Complete' : `${Math.round(upload.progress)}%`}
-      </span>
+      <div className="progress-bar progress-bar--lg" aria-label={`Upload ${Math.round(upload.progress)} percent`}>
+        <span style={{ width: `${upload.progress}%` }} />
+      </div>
+      <div className="upload-card__foot">
+        <span className="mono">
+          ACK {upload.ack} / {upload.totalAcks}
+        </span>
+        <span className="hint">{upload.detail}</span>
+        {active && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => cancelUpload(upload.id)}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
     </div>
-    <div className="progress-bar progress-bar--lg" aria-label={`Upload ${Math.round(upload.progress)} percent`}>
-      <span style={{ width: `${upload.progress}%` }} />
-    </div>
-    <div className="upload-card__foot">
-      <span className="mono">
-        ACK {upload.ack} / {upload.totalAcks}
-      </span>
-      <span className="hint">{upload.detail}</span>
-    </div>
-  </div>
-);
+  );
+};
 
 const LibraryTable = ({
   list,
   query,
+  recentUpload,
 }: {
   list?: LibraryList;
   query: string;
+  recentUpload: { target: string; slot: number; name: string } | null;
 }) => {
   if (!list) {
     return (
@@ -170,7 +201,17 @@ const LibraryTable = ({
         </thead>
         <tbody>
           {rows.map((slot) => (
-            <tr key={`${list.id}-${slot.index}`} className={slot.active ? 'library-row--active' : ''}>
+            <tr
+              key={`${list.id}-${slot.index}`}
+              className={[
+                slot.active ? 'library-row--active' : '',
+                recentUpload?.target === list.id && recentUpload.slot === slot.index
+                  ? 'library-row--recent'
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
               <td>
                 <span className="library-name">
                   <span className={`library-type-dot library-type-dot--${list.kind}`} aria-hidden="true" />
@@ -211,6 +252,7 @@ const LibraryTable = ({
 export const LibraryView = () => {
   const lists = useAppStore((state) => state.lists);
   const uploads = useAppStore((state) => state.uploads);
+  const recentUpload = useAppStore((state) => state.recentUpload);
   const activity = useAppStore((state) => state.activity);
   const preset = useAppStore((state) => state.preset);
   const addUpload = useAppStore((state) => state.addUpload);
@@ -229,6 +271,7 @@ export const LibraryView = () => {
   const [localQuery, setLocalQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
+  const preflightSeq = useRef(0);
   const tauri = isTauriRuntime();
 
   const activeCategory = CATEGORIES.find((item) => item.id === category) ?? CATEGORIES[0];
@@ -276,6 +319,9 @@ export const LibraryView = () => {
   );
   const slotsTotal = lists.reduce((sum, list) => sum + list.slots.length, 0);
   const pendingTargets = pending ? compatibleTargets(pending.kind) : [];
+  const pendingSlots = pending
+    ? (lists.find((item) => item.id === pending.target)?.slots ?? [])
+    : [];
   const activeTargetLabel = activeTarget?.label ?? activeSub.target;
 
   const preparePending = (
@@ -284,11 +330,12 @@ export const LibraryView = () => {
     kind: CaptureKind,
     target: string,
     source: { file?: File; path?: string },
+    slotOverride?: number,
   ) => {
     const targetInfo = targetDef(target);
     const list = lists.find((item) => item.id === target);
-    const slot = list?.slots.find((item) => !item.used)?.index ?? 0;
-    const warnings: string[] = [];
+    const slot = slotOverride ?? list?.slots.find((item) => !item.used)?.index ?? 0;
+    const staticWarnings: string[] = [];
     let error: string | undefined;
     if (!targetInfo) {
       error = 'This upload target is not known to the app.';
@@ -297,26 +344,87 @@ export const LibraryView = () => {
     }
     if (kind === 'nam' && size > 1024 * 1024) error = 'NAM files must be ≤ 1 MiB.';
     if (kind === 'pnam' && size > 2 * 1024 * 1024) error = 'PNAM files must be ≤ 2 MiB.';
-    if (kind === 'ir' && size > 64 * 1024) warnings.push('IR will be reduced to the first 2048 samples.');
-    if (list?.slots[slot]?.used) warnings.push(`Slot ${slot + 1} already contains a capture and will be overwritten.`);
-    if (kind === 'ir') warnings.push('Sample rate is read from the WAV; 48 kHz is expected.');
-    setPending({ name, size, kind, target, slot, warnings, error, ...source });
+    if (kind === 'ir') {
+      staticWarnings.push('IR will be reduced to the first 2048 samples.');
+      staticWarnings.push('Sample rate is read from the WAV; 48 kHz is expected.');
+    }
+    const warnings = [...staticWarnings];
+    if (list?.slots[slot]?.used) {
+      warnings.push(`Slot ${slot + 1} already contains a capture and will be overwritten.`);
+    }
+
+    const checking = deviceMode && Boolean(source.path) && !error;
+    setPending({
+      name,
+      size,
+      kind,
+      target,
+      slot,
+      warnings,
+      error,
+      checking,
+      ...source,
+    });
+    if (!checking || !source.path) return;
+
+    const seq = ++preflightSeq.current;
+    const path = source.path;
+    void tauriClient
+      .preflightUpload(kind, path, targetInfo?.path ?? target, slot)
+      .then((preflight) => {
+        if (seq !== preflightSeq.current) return;
+        setPending((current) => {
+          if (
+            !current ||
+            !current.checking ||
+            current.name !== name ||
+            current.kind !== kind ||
+            current.target !== target
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            size: preflight.file_size,
+            slot: preflight.slot,
+            captureName: preflight.name,
+            warnings: [...preflight.warnings, ...staticWarnings],
+            error: preflight.ready ? undefined : 'The uploader rejected this file.',
+            checking: false,
+          };
+        });
+      })
+      .catch((cause) => {
+        if (seq !== preflightSeq.current) return;
+        setPending((current) => {
+          if (
+            !current ||
+            current.name !== name ||
+            current.kind !== kind ||
+            current.target !== target
+          ) {
+            return current;
+          }
+          return { ...current, checking: false, error: ipcErrorMessage(cause) };
+        });
+      });
   };
 
   const setSectionError = (
-    file: File,
+    source: { name: string; size: number; file?: File; path?: string },
     kind: CaptureKind,
     error: string,
   ) => {
     setPending({
-      name: file.name,
-      size: file.size,
+      name: source.name,
+      size: source.size,
       kind,
       target: activeSub.target,
       slot: 0,
       warnings: [],
       error,
-      file,
+      file: source.file,
+      path: source.path,
     });
   };
 
@@ -324,7 +432,7 @@ export const LibraryView = () => {
     const kind = kindFor(file.name);
     if (!kind) {
       setSectionError(
-        file,
+        { name: file.name, size: file.size, file },
         activeKind,
         'Unsupported file. Choose a .nam, .pnam, or .wav capture.',
       );
@@ -332,13 +440,97 @@ export const LibraryView = () => {
     }
     if (kind !== activeKind) {
       setSectionError(
-        file,
+        { name: file.name, size: file.size, file },
         kind,
         `${KIND_LABEL[kind]} captures cannot be uploaded to ${activeCategory.label}. Use ${KIND_HINT[kind]}.`,
       );
       return;
     }
     preparePending(file.name, file.size, kind, activeSub.target, { file });
+  };
+
+  const inspectPath = (path: string) => {
+    const name = path.split(/[\\/]/).pop() || path;
+    const kind = kindFor(name);
+    if (!kind) {
+      setSectionError(
+        { name, size: 0, path },
+        activeKind,
+        'Unsupported file. Choose a .nam, .pnam, or .wav capture.',
+      );
+      return;
+    }
+    if (kind !== activeKind) {
+      setSectionError(
+        { name, size: 0, path },
+        kind,
+        `${KIND_LABEL[kind]} captures cannot be uploaded to ${activeCategory.label}. Use ${KIND_HINT[kind]}.`,
+      );
+      return;
+    }
+    preparePending(name, 0, kind, activeSub.target, { path });
+  };
+
+  const inspectPathRef = useRef(inspectPath);
+  inspectPathRef.current = inspectPath;
+
+  useEffect(() => {
+    if (!tauri) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+        const stop = await getCurrentWebview().onDragDropEvent((event) => {
+          if (disposed) return;
+          if (event.payload.type === 'enter' || event.payload.type === 'over') {
+            setDragging(true);
+          } else if (event.payload.type === 'leave') {
+            setDragging(false);
+          } else if (event.payload.type === 'drop') {
+            setDragging(false);
+            const path = event.payload.paths[0];
+            if (path) inspectPathRef.current(path);
+          }
+        });
+        if (disposed) stop();
+        else unlisten = stop;
+      } catch (error) {
+        console.error('Could not subscribe to native file drops', error);
+      }
+    })();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [tauri]);
+
+  const chooseFile = async () => {
+    if (!activeList) return;
+    if (!tauri) {
+      inputRef.current?.click();
+      return;
+    }
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        title: `Choose a ${KIND_LABEL[activeKind]} capture`,
+        filters: [
+          {
+            name: KIND_LABEL[activeKind],
+            extensions:
+              activeKind === 'ir'
+                ? ['wav', 'WAV']
+                : [activeKind, activeKind.toUpperCase()],
+          },
+        ],
+      });
+      if (typeof selected === 'string') inspectPath(selected);
+    } catch (error) {
+      notify(ipcErrorMessage(error), 'bad');
+    }
   };
 
   const inspectLocal = (entry: LocalEntry) => {
@@ -439,14 +631,16 @@ export const LibraryView = () => {
   };
 
   const upload = () => {
-    if (!pending || pending.error) return;
-    addUpload({
+    if (!pending || pending.error || pending.checking) return;
+    const started = addUpload({
       name: pending.name,
       size: pending.size,
       kind: pending.kind,
       target: pending.target,
       slot: pending.slot,
+      path: pending.path,
     });
+    if (!started) return;
     setPending(null);
     setTab('uploads');
     notify(`${pending.name} queued`, 'good');
@@ -567,7 +761,7 @@ export const LibraryView = () => {
                   : 'list unavailable'}
               </span>
             </div>
-            <LibraryTable list={activeList} query={query} />
+            <LibraryTable list={activeList} query={query} recentUpload={recentUpload} />
           </section>
 
           <aside className="library-side">
@@ -581,6 +775,9 @@ export const LibraryView = () => {
               onDrop={(event) => {
                 event.preventDefault();
                 setDragging(false);
+                // Tauri reports real filesystem paths through the native
+                // drag-drop event; a browser File has no readable path.
+                if (tauri) return;
                 const file = event.dataTransfer.files[0];
                 if (file) inspectFile(file);
               }}
@@ -614,7 +811,7 @@ export const LibraryView = () => {
                 type="button"
                 className="btn btn--sm"
                 disabled={!activeList}
-                onClick={() => inputRef.current?.click()}
+                onClick={() => void chooseFile()}
               >
                 Choose a file
               </button>
@@ -624,8 +821,10 @@ export const LibraryView = () => {
               <section className="preflight panel">
                 <header className="utility-card__head">
                   <span className="section-title">Preflight</span>
-                  <span className={`chip ${pending.error ? 'chip--bad' : 'chip--good'}`}>
-                    {pending.error ? 'Blocked' : 'Ready'}
+                  <span
+                    className={`chip ${pending.error ? 'chip--bad' : pending.checking ? 'chip--warn' : 'chip--good'}`}
+                  >
+                    {pending.error ? 'Blocked' : pending.checking ? 'Checking' : 'Ready'}
                   </span>
                 </header>
                 <dl className="preflight__list">
@@ -639,8 +838,14 @@ export const LibraryView = () => {
                   </div>
                   <div>
                     <dt>Size</dt>
-                    <dd className="mono">{formatBytes(pending.size)}</dd>
+                    <dd className="mono">{pending.checking ? '—' : formatBytes(pending.size)}</dd>
                   </div>
+                  {pending.captureName && (
+                    <div>
+                      <dt>Capture</dt>
+                      <dd>{pending.captureName}</dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Target</dt>
                     <dd>
@@ -648,14 +853,19 @@ export const LibraryView = () => {
                       !pendingTargets.some((target) => target.id === pending.target) ? (
                         <select
                           className="select"
+                          aria-label="Upload target"
                           value={pending.target}
                           onChange={(event) => {
                             const target = event.target.value;
                             if (!pending) return;
-                            preparePending(pending.name, pending.size, pending.kind, target, {
-                              file: pending.file,
-                              path: pending.path,
-                            });
+                            preparePending(
+                              pending.name,
+                              pending.size,
+                              pending.kind,
+                              target,
+                              { file: pending.file, path: pending.path },
+                              undefined,
+                            );
                             focusTarget(target);
                           }}
                         >
@@ -677,7 +887,35 @@ export const LibraryView = () => {
                   </div>
                   <div>
                     <dt>Slot</dt>
-                    <dd className="mono">{pending.slot + 1}</dd>
+                    <dd>
+                      {pendingSlots.length > 0 ? (
+                        <select
+                          className="select"
+                          aria-label="Upload slot"
+                          value={pending.slot}
+                          onChange={(event) => {
+                            if (!pending) return;
+                            preparePending(
+                              pending.name,
+                              pending.size,
+                              pending.kind,
+                              pending.target,
+                              { file: pending.file, path: pending.path },
+                              Number(event.target.value),
+                            );
+                          }}
+                        >
+                          {pendingSlots.map((slot) => (
+                            <option key={slot.index} value={slot.index}>
+                              {String(slot.index + 1).padStart(2, '0')} —{' '}
+                              {slot.used ? slot.name : 'Empty'}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="mono">{pending.slot + 1}</span>
+                      )}
+                    </dd>
                   </div>
                 </dl>
                 {pending.error && (
@@ -698,7 +936,7 @@ export const LibraryView = () => {
                     type="button"
                     className="btn btn--primary btn--sm"
                     onClick={upload}
-                    disabled={Boolean(pending.error)}
+                    disabled={Boolean(pending.error) || Boolean(pending.checking)}
                   >
                     <UploadCloud size={12} /> Upload to slot {pending.slot + 1}
                   </button>
@@ -713,14 +951,6 @@ export const LibraryView = () => {
                 <CheckCircle2 size={16} />
                 <p>Select a capture to validate its format, length, target, and overwrite state before any bytes are sent.</p>
               </section>
-            )}
-
-            {deviceMode && (
-              <p className="preflight__warning">
-                <AlertTriangle size={12} /> Device uploads are preview-only in this build. The Rust
-                ACK uploader is exercised by <span className="mono">scripts/smoke.sh</span>; the
-                file-picker bridge is the next Phase 3 step.
-              </p>
             )}
 
             <section className="library-side__queue panel">

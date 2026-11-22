@@ -2,7 +2,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RustBlockEditor, RustSnapshot } from '../ipc/client';
+import type {
+  RustBlockEditor,
+  RustSnapshot,
+  RustUploadCompletion,
+} from '../ipc/client';
 
 const loadFixture = (name: string) =>
   JSON.parse(
@@ -38,6 +42,15 @@ const client = {
   tunerPoll: vi.fn(async () => ({})),
   tunerClose: vi.fn(async () => undefined),
   disconnect: vi.fn(async () => undefined),
+  preflightUpload: vi.fn(),
+  beginUpload: vi.fn(
+    async (): Promise<RustUploadCompletion> => ({
+      cancelled: false,
+      result: null,
+      snapshot: fixture.snapshot,
+    }),
+  ),
+  cancelUpload: vi.fn(async () => true),
 };
 
 vi.mock('../ipc/client', () => ({
@@ -195,5 +208,125 @@ describe('device connection integration', () => {
       expect(client.getSnapshot.mock.calls.length).toBeGreaterThan(readsBefore),
     );
     expect(useAppStore.getState().save.edited).toBe(true);
+  });
+
+  it('clears the device chain through the router command', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const readsBefore = client.getSnapshot.mock.calls.length;
+
+    useAppStore.getState().clearChain();
+
+    expect(client.editChain).toHaveBeenCalledWith({ type: 'clear' });
+    await vi.waitFor(() =>
+      expect(client.getSnapshot.mock.calls.length).toBeGreaterThan(readsBefore),
+    );
+  });
+
+  it('uploads a real path through the IPC client and highlights the refreshed slot', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const snapshot = structuredClone(fixture.snapshot);
+    snapshot.revision = fixture.snapshot.revision + 1;
+    client.beginUpload.mockResolvedValueOnce({
+      cancelled: false,
+      result: {
+        target: 'root\\nam_amp',
+        slot: 4,
+        name: 'Test Capture',
+        chunks: 5,
+        payload_bytes: 2048,
+      },
+      snapshot,
+    });
+
+    const started = useAppStore.getState().addUpload({
+      name: 'test.nam',
+      size: 1024,
+      kind: 'nam',
+      target: 'nam_amp',
+      slot: 4,
+      path: '/tmp/test.nam',
+    });
+    expect(started).toBe(true);
+    expect(client.beginUpload).toHaveBeenCalledWith(
+      expect.stringMatching(/^upload-/),
+      'nam',
+      '/tmp/test.nam',
+      'root\\nam_amp',
+      4,
+    );
+
+    await vi.waitFor(() => {
+      const task = useAppStore.getState().uploads.find((item) => item.file === 'test.nam');
+      expect(task?.state).toBe('done');
+      expect(task?.progress).toBe(100);
+    });
+    expect(useAppStore.getState().recentUpload).toEqual({
+      target: 'nam_amp',
+      slot: 4,
+      name: 'Test Capture',
+    });
+  });
+
+  it('reports live ACK progress and resolves a cancel after the current chunk', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    let finish!: (value: RustUploadCompletion) => void;
+    client.beginUpload.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+
+    useAppStore.getState().addUpload({
+      name: 'cancel.nam',
+      size: 1024,
+      kind: 'nam',
+      target: 'nam_amp',
+      slot: 1,
+      path: '/tmp/cancel.nam',
+    });
+    const task = useAppStore.getState().uploads.find((item) => item.file === 'cancel.nam')!;
+    expect(task.state).toBe('uploading');
+
+    useAppStore.getState().applyUploadProgress({
+      id: task.id,
+      kind: 'nam',
+      target: 'root\\nam_amp',
+      slot: 1,
+      name: 'Cancel Test',
+      ack: 2,
+      total_acks: 5,
+      progress: 40,
+      bytes_sent: 2048,
+      total_bytes: 5120,
+    });
+    let current = useAppStore.getState().uploads.find((item) => item.id === task.id)!;
+    expect(current.ack).toBe(2);
+    expect(current.totalAcks).toBe(5);
+    expect(current.progress).toBe(40);
+
+    useAppStore.getState().cancelUpload();
+    expect(client.cancelUpload).toHaveBeenCalled();
+    current = useAppStore.getState().uploads.find((item) => item.id === task.id)!;
+    expect(current.detail).toContain('cancelling');
+
+    finish({ cancelled: true, result: null, snapshot: fixture.snapshot });
+    await vi.waitFor(() =>
+      expect(
+        useAppStore.getState().uploads.find((item) => item.id === task.id)?.state,
+      ).toBe('cancelled'),
+    );
+  });
+
+  it('refuses a device upload without a readable filesystem path', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const started = useAppStore.getState().addUpload({
+      name: 'browser.nam',
+      size: 512,
+      kind: 'nam',
+      target: 'nam_amp',
+      slot: 1,
+    });
+    expect(started).toBe(false);
+    expect(client.beginUpload).not.toHaveBeenCalled();
   });
 });

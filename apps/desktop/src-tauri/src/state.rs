@@ -15,6 +15,10 @@ pub struct AppState {
     pub poller: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub poller_stop: Arc<AtomicBool>,
     pub poll_paused: Arc<AtomicBool>,
+    /// One upload owns the transport at a time. Cancelling sets the flag and
+    /// the uploader stops at the next ACK boundary.
+    pub upload_active: Arc<AtomicBool>,
+    pub upload_cancel: Arc<AtomicBool>,
     /// The simulator/browser board is only auto-loaded when the app is started
     /// with `--demo` or `STOMPSTATION_DEMO=1`.
     pub demo_allowed: Arc<AtomicBool>,

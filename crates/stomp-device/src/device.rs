@@ -13,7 +13,8 @@ use stomp_protocol::node::NodeStore;
 use stomp_protocol::preset::{preset_name_error, preset_state, rename_hex, PresetState};
 use stomp_protocol::router::{available_blocks, chain_blocks, load_chain, ChainSlot, LinkType};
 use stomp_protocol::{
-    normalize_path, path_name, path_parent, ProtocolError, DEFAULT_CHAIN, IR_PATH, PRESET_PATH,
+    normalize_path, path_name, path_parent, ProtocolError, DEFAULT_CHAIN, IR_PATH, NAM_DRIVE_PATH,
+    NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH, PRESET_PATH,
 };
 use stomp_transport::{ScriptedTransport, SerialTransport, TcpTransport, Transport};
 use stomp_upload::{
@@ -47,6 +48,22 @@ pub struct UploadResult {
     pub payload_bytes: usize,
 }
 
+/// One ACK boundary during an upload.
+///
+/// `ack` counts acknowledged chunks, including the name chunk, so it starts at
+/// zero and reaches `total_acks` after the final ACK.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UploadProgress {
+    pub kind: UploadKind,
+    pub target: String,
+    pub slot: usize,
+    pub name: String,
+    pub ack: usize,
+    pub total_acks: usize,
+    pub bytes_sent: usize,
+    pub total_bytes: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChainEdit {
@@ -73,6 +90,7 @@ pub enum ChainEdit {
         col: usize,
         path: String,
     },
+    Clear,
 }
 
 pub struct Device {
@@ -605,6 +623,10 @@ impl Device {
                 layout.set_link(row, col, parallel)?;
                 self.write_payload(&router_path, json!({ "value": layout.value() }))?;
             }
+            ChainEdit::Clear => {
+                layout.clear();
+                self.write_payload(&router_path, json!({ "value": layout.value() }))?;
+            }
         }
         self.revision += 1;
         Ok(())
@@ -716,6 +738,48 @@ impl Device {
             .nodes
             .get(target)
             .ok_or_else(|| ProtocolError::Unsupported(format!("{target} is not available")))?;
+        // Uploads are limited to the model/IR capture lists. This rejects a
+        // wrong-kind target (including non-capture lists) before any bytes are
+        // sent, so a UI bug cannot turn into a device write. Do not widen this
+        // to arbitrary lists; see `docs/DEVICE_SAFETY.md`.
+        let expected = match kind {
+            UploadKind::Nam => "nam",
+            UploadKind::Pnam => "pnam",
+            UploadKind::Ir => "ir",
+        };
+        let item_type = list.item_type().to_ascii_lowercase();
+        let known_capture_path = matches!(
+            normalize_path(target).as_str(),
+            NAM_PATH | NAM_DRIVE_PATH | PNAM_PATH | PNAM_DRIVE_PATH | IR_PATH
+        );
+        if !known_capture_path {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "{target} is not a supported capture list; uploads are limited to \
+                 the five NAM/PNAM/IR lists"
+            )));
+        }
+        // Firmware tags list types in several forms: "ir", "wav", and rate
+        // suffixed variants such as "wav_48000"; older builds may omit the
+        // type entirely.
+        let suffix = format!("{expected}_");
+        let type_matches = item_type == expected
+            || item_type.is_empty()
+            || item_type.starts_with(&suffix)
+            || (kind == UploadKind::Ir
+                && (item_type == "wav"
+                    || item_type.starts_with("wav_")
+                    || item_type.starts_with("ir_")));
+        if !type_matches {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "{} cannot be uploaded to {target}: expected capture list type {expected}, found {}",
+                kind.label(),
+                if item_type.is_empty() {
+                    "untyped"
+                } else {
+                    item_type.as_str()
+                }
+            )));
+        }
         let names: Vec<String> = list
             .value()
             .and_then(Value::as_array)
@@ -744,6 +808,27 @@ impl Device {
         target: &str,
         slot: Option<usize>,
     ) -> Result<UploadResult, ProtocolError> {
+        self.upload_with_progress(kind, raw, file_name, target, slot, |_| true)?
+            .ok_or_else(|| ProtocolError::Protocol("upload was cancelled unexpectedly".into()))
+    }
+
+    /// Upload while reporting each ACK boundary.
+    ///
+    /// The callback returns `true` to continue or `false` to stop before the
+    /// next chunk. Cancelling after the final ACK still completes the upload.
+    /// `Ok(None)` means the caller cancelled before the final ACK.
+    pub fn upload_with_progress<F>(
+        &mut self,
+        kind: UploadKind,
+        raw: &[u8],
+        file_name: &str,
+        target: &str,
+        slot: Option<usize>,
+        mut on_progress: F,
+    ) -> Result<Option<UploadResult>, ProtocolError>
+    where
+        F: FnMut(&UploadProgress) -> bool,
+    {
         let preflight = self.preflight_upload(kind, raw, file_name, target, slot)?;
         let slot_size = self
             .nodes
@@ -751,27 +836,50 @@ impl Device {
             .and_then(|node| node.size())
             .map(|size| size as usize);
         let prepared = prepare_upload(kind, raw, &preflight.name, slot_size)?;
-        let result = self.perform_upload(target, preflight.slot, &prepared)?;
+        let result = self.perform_upload(target, preflight.slot, &prepared, &mut on_progress)?;
+        // Even a cancelled upload resyncs the target list so the UI never
+        // shows a slot state that the device has already moved past.
         let _ = self.read_path(target, Duration::from_millis(3_000));
         self.revision += 1;
         Ok(result)
     }
 
-    fn perform_upload(
+    fn perform_upload<F>(
         &mut self,
         target: &str,
         slot: usize,
         prepared: &PreparedUpload,
-    ) -> Result<UploadResult, ProtocolError> {
+        on_progress: &mut F,
+    ) -> Result<Option<UploadResult>, ProtocolError>
+    where
+        F: FnMut(&UploadProgress) -> bool,
+    {
         let mut state = UploadState::new(slot, prepared);
         let last_number = prepared
             .chunks
             .last()
             .map(|chunk| chunk.number)
             .ok_or_else(|| ProtocolError::InvalidRequest("upload has no chunks".into()))?;
+        let mut progress = UploadProgress {
+            kind: prepared.kind,
+            target: target.to_string(),
+            slot,
+            name: prepared.name.clone(),
+            ack: 0,
+            total_acks: prepared.chunks.len(),
+            bytes_sent: 0,
+            total_bytes: prepared.chunks.iter().map(|chunk| chunk.bytes).sum(),
+        };
+        if !on_progress(&progress) {
+            return Ok(None);
+        }
+
         for chunk in &prepared.chunks {
             let (index, next) = self.dwrite_ack(target, slot as i64, chunk.number, &chunk.value)?;
-            match state.on_ack(index, next)? {
+            let outcome = state.on_ack(index, next)?;
+            progress.ack = chunk.number as usize + 1;
+            progress.bytes_sent += chunk.bytes;
+            match outcome {
                 AckOutcome::Complete => {
                     if chunk.number != last_number {
                         return Err(ProtocolError::Protocol(format!(
@@ -779,7 +887,16 @@ impl Device {
                             chunk.number, last_number
                         )));
                     }
-                    break;
+                    // The final ACK is a success, even if the caller asked to
+                    // cancel while that chunk was in flight.
+                    let _ = on_progress(&progress);
+                    return Ok(Some(UploadResult {
+                        target: target.to_string(),
+                        slot,
+                        name: prepared.name.clone(),
+                        chunks: prepared.chunks.len(),
+                        payload_bytes: prepared.payload_bytes,
+                    }));
                 }
                 AckOutcome::Next(next_chunk) => {
                     if next_chunk <= chunk.number {
@@ -791,6 +908,9 @@ impl Device {
                 }
                 AckOutcome::Repeated(_) => {}
             }
+            if !on_progress(&progress) {
+                return Ok(None);
+            }
         }
         if !state.finished {
             return Err(ProtocolError::Protocol(format!(
@@ -798,13 +918,13 @@ impl Device {
                 state.expected_chunk
             )));
         }
-        Ok(UploadResult {
+        Ok(Some(UploadResult {
             target: target.to_string(),
             slot,
             name: prepared.name.clone(),
             chunks: prepared.chunks.len(),
             payload_bytes: prepared.payload_bytes,
-        })
+        }))
     }
 
     // ---- snapshot -------------------------------------------------------
@@ -948,3 +1068,234 @@ pub fn block_name(path: &str) -> &str {
 /// Unused field marker kept for serialization compatibility.
 #[allow(dead_code)]
 fn _map_marker(_: Map<String, Value>) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use stomp_protocol::command;
+    use stomp_transport::{ScriptedTransport, Step};
+
+    const TARGET: &str = r"root\nam_amp";
+    const RAW: &[u8] = br#"{"version":"0.5.4","architecture":"WaveNet","config":{},"weights":[0.0,0.1],"sample_rate":48000,"metadata":{"name":"Progress Test","gear_type":"amp"}}"#;
+
+    fn list_node(names: &[&str]) -> stomp_protocol::node::Node {
+        stomp_protocol::node::Node::new(
+            json!({"type":"list","item_type":"nam","value":names,"size":65536})
+                .as_object()
+                .unwrap()
+                .clone(),
+        )
+    }
+
+    fn reply(text: String) -> Vec<u8> {
+        let mut bytes = text.into_bytes();
+        bytes.push(0);
+        bytes
+    }
+
+    fn dwrite_steps(prepared: &PreparedUpload) -> Vec<Step> {
+        let last = prepared.chunks.len().saturating_sub(1);
+        prepared
+            .chunks
+            .iter()
+            .enumerate()
+            .map(|(index, chunk)| {
+                let reply_chunk = if index == last { -1 } else { chunk.number + 1 };
+                Step::new(
+                    command::dwrite(TARGET, 0, chunk.number, &chunk.value).unwrap(),
+                    reply(format!(
+                        r#"dwrite {TARGET}:{{"index":0,"chunk":{reply_chunk}}}"#
+                    )),
+                )
+            })
+            .collect()
+    }
+
+    fn wav_bytes(frames: usize) -> Vec<u8> {
+        let data_len = (frames * 2) as u32;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&48_000u32.to_le_bytes());
+        wav.extend_from_slice(&96_000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_len.to_le_bytes());
+        wav.resize(wav.len() + data_len as usize, 0);
+        wav
+    }
+
+    fn read_step() -> Step {
+        Step::new(
+            command::read(TARGET),
+            reply(format!(
+                r#"{TARGET}:{{"type":"list","item_type":"nam","value":["Progress Test"],"size":65536}}"#
+            )),
+        )
+    }
+
+    #[test]
+    fn upload_reports_every_ack_and_refreshes_the_list() {
+        let prepared = prepare_upload(UploadKind::Nam, RAW, "Progress Test", Some(65536)).unwrap();
+        let mut steps = dwrite_steps(&prepared);
+        steps.push(read_step());
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(TARGET, list_node(&["", ""]));
+
+        let mut seen = Vec::new();
+        let result = device
+            .upload_with_progress(
+                UploadKind::Nam,
+                RAW,
+                "progress.nam",
+                TARGET,
+                Some(0),
+                |progress| {
+                    seen.push((progress.ack, progress.total_acks));
+                    true
+                },
+            )
+            .unwrap()
+            .expect("upload should complete");
+
+        assert_eq!(result.name, "Progress Test");
+        assert_eq!(result.slot, 0);
+        assert_eq!(seen.first().copied(), Some((0, prepared.chunks.len())));
+        assert_eq!(
+            seen.last().copied(),
+            Some((prepared.chunks.len(), prepared.chunks.len()))
+        );
+        assert_eq!(seen.len(), prepared.chunks.len() + 1);
+        assert_eq!(
+            device
+                .nodes
+                .get(TARGET)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(Value::as_str),
+            Some("Progress Test")
+        );
+    }
+
+    #[test]
+    fn clear_chain_edit_deserializes_from_the_ui_payload() {
+        let edit: ChainEdit = serde_json::from_value(json!({"type":"clear"})).unwrap();
+        assert_eq!(edit, ChainEdit::Clear);
+    }
+
+    #[test]
+    fn preflight_rejects_cross_kind_targets() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            r"root\ir_list",
+            stomp_protocol::node::Node::new(
+                json!({"type":"list","item_type":"ir","value":[""],"size":8192})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
+
+        let error = device
+            .preflight_upload(UploadKind::Nam, RAW, "model.nam", r"root\ir_list", None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("expected capture list type nam"), "{error}");
+    }
+
+    #[test]
+    fn preflight_rejects_typed_non_capture_lists() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            r"root\custom_nam",
+            stomp_protocol::node::Node::new(
+                json!({"type":"list","item_type":"nam","value":[""],"size":65536})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
+
+        let error = device
+            .preflight_upload(
+                UploadKind::Nam,
+                RAW,
+                "model.nam",
+                r"root\custom_nam",
+                Some(0),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not a supported capture list"), "{error}");
+    }
+
+    #[test]
+    fn preflight_accepts_untyped_and_rate_tagged_known_ir_lists() {
+        for item_type in [None, Some("wav_48000")] {
+            let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+            device.transport.open().unwrap();
+            let mut fields = json!({"type":"list","value":[""],"size":8192});
+            if let Some(item_type) = item_type {
+                fields["item_type"] = Value::String(item_type.to_string());
+            }
+            device.nodes.insert(
+                IR_PATH,
+                stomp_protocol::node::Node::new(fields.as_object().unwrap().clone()),
+            );
+
+            let checked = device
+                .preflight_upload(
+                    UploadKind::Ir,
+                    &wav_bytes(3000),
+                    "cab.wav",
+                    IR_PATH,
+                    Some(0),
+                )
+                .unwrap();
+            assert_eq!(checked.slot, 0);
+            assert!(checked.ready);
+        }
+    }
+
+    #[test]
+    fn upload_cancel_stops_before_the_next_chunk() {
+        let prepared = prepare_upload(UploadKind::Nam, RAW, "Progress Test", Some(65536)).unwrap();
+        let first = prepared.chunks.first().unwrap();
+        let mut steps = vec![Step::new(
+            command::dwrite(TARGET, 0, first.number, &first.value).unwrap(),
+            reply(format!(r#"dwrite {TARGET}:{{"index":0,"chunk":1}}"#)),
+        )];
+        steps.push(read_step());
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(TARGET, list_node(&["", ""]));
+
+        let mut callbacks = 0;
+        let result = device
+            .upload_with_progress(
+                UploadKind::Nam,
+                RAW,
+                "progress.nam",
+                TARGET,
+                Some(0),
+                |progress| {
+                    callbacks += 1;
+                    progress.ack < 1
+                },
+            )
+            .unwrap();
+
+        assert!(result.is_none(), "cancelled upload should not complete");
+        assert_eq!(callbacks, 2, "initial callback plus the first ACK");
+    }
+}

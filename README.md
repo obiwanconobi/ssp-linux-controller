@@ -25,12 +25,12 @@ The project is deliberately split into two worlds:
 | Phase 0 — protocol freeze | Core ported and tested; simulator + hardware fixtures; Python/Rust differential is clean on 2.4.4 and live 2.5.3 |
 | Phase 1 — walking skeleton | Tauri commands, USB/TCP transports, browse, writes, presets, chain edits, snapshot mapping, real connect path; interim poller emits live snapshots and pauses during uploads; reversible gate write/readback/restore passed on hardware; launch discovery is Wi-Fi → USB with an explicit no-device state |
 | Phase 2 — design system & board | Design tokens, three themes, component kit, Board, Amp room, Global EQ, Library, Settings, Stage mode, command palette, tuner deck, responsive layouts |
-| Phase 3 — deep parity | Upload UI is previewed; ACK upload code exists in Rust + CLI, file-picker wiring is next. Preset save, chain add/remove, Wi-Fi discovery, and the Parametric NAM editor are hardware-validated on 2.4.4; 2.5.3 PNAM switches and multi-client Wi-Fi were verified live |
+| Phase 3 — deep parity | Uploads are wired end-to-end for NAM, Parametric NAM, and IR only: native picker, device preflight with model/WAV structural validation, capture-list guard, slot selection, ACK progress, cancel-after-current-chunk, and refreshed-list highlighting. Both NAM A1 (flat WaveNet/LSTM weights) and NAM A2 (`SlimmableContainer` submodels) are supported and covered by validator/simulator tests; basic A2, PNAM, and IR uploads are validated on 2.5.3, including the `wav_48000` IR list type. A1 hardware upload, cancel-after-ACK, and overwrite paths remain to be exercised. Preset save, chain add/remove, Wi-Fi discovery, and the Parametric NAM editor are hardware-validated on 2.4.4; 2.5.3 PNAM switches and multi-client Wi-Fi were verified live |
 | Live updates | Interim Tauri poller emits snapshots every 500 ms, with a 2 s browse on TCP; uploads pause polling |
 | Local library | Sectioned Amps/Drives/IRs browser with NAM/Parametric NAM subsections, recursive `.nam`/`.pnam`/`.wav` folder indexing, preflight, and target/format validation |
-| Chain editing | Remove and replace use one router write per action; add/remove/replace/move/link are covered by the simulator smoke. The chain write payload is wrapped as `{"value": ...}` so the firmware accepts it |
+| Chain editing | Remove, replace, and clear use one router write per action; add/remove/replace/move/link/clear are covered by the simulator smoke. Clear chain preserves fixed blocks and connectors behind a destructive confirmation. The chain write payload is wrapped as `{"value": ...}` so the firmware accepts it |
 | Preset save | Saves the live chain and parameter edits; JSON field order matches the device (`value` before `save`), coalesced writes flush first, and router edits keep the preset dirty until saved |
-| Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, and the PNAM drive editor have been exercised on firmware 2.4.4. Firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, and simultaneous Wi-Fi clients. Chain move/link, EQ writes, uploads, and long idle polling remain open |
+| Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, and the PNAM drive editor have been exercised on firmware 2.4.4. Firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, simultaneous Wi-Fi clients, and basic NAM A2/PNAM/IR uploads. Chain move/link, EQ writes, upload cancel/overwrite paths, and long idle polling remain open |
 | Android | Wi-Fi/TCP-only Tauri app; arm64/x86_64 release APKs build, and the x86_64 release runs in an API 37 emulator. USB serial and Play Store signing are not implemented; see [`docs/ANDROID.md`](docs/ANDROID.md) |
 | Local install | `scripts/install-local.sh` installs the release binary, desktop entry, and icons; rerun to update |
 | Phase 4–5 — hardening/release | Not started |
@@ -52,6 +52,11 @@ live in [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md). Firmware
 2.5.3 verification and the client-side changes it required are in
 [`docs/FIRMWARE_2.5.3.md`](docs/FIRMWARE_2.5.3.md).
 
+Before adding a device write or running a hardware upload test, read
+[`docs/DEVICE_SAFETY.md`](docs/DEVICE_SAFETY.md). It records the 2026-11-22
+soft-brick caused by a synthetic NAM upload, the format/list invariants that
+prevent a repeat, and the recovery playbook for update mode.
+
 ## Downloads and CI
 
 GitHub Actions builds the desktop app on every push and pull request:
@@ -64,7 +69,7 @@ GitHub Actions builds the desktop app on every push and pull request:
 The workflow lives in [`.github/workflows/build.yml`](.github/workflows/build.yml).
 Each run uploads the installers/packages as downloadable workflow artifacts.
 Pushes to `master` publish or update the GitHub Release for the version in
-`apps/desktop/src-tauri/tauri.conf.json` (currently `v0.1.0`), with the
+`apps/desktop/src-tauri/tauri.conf.json` (currently `v0.2.0`), with the
 installers attached. To cut a new release, bump that version and push; an
 explicit `v*` tag can also be pushed to publish or update that tag's release.
 
@@ -115,7 +120,7 @@ screenshots labelled “hardware” use the real 2.4.4 fixture.
 │  ├─ src-tauri/              # Tauri 2 app, typed commands, state
 │  │  └─ gen/android/         # Tauri Android project (source; build outputs ignored)
 │  └─ ui/                     # React 19 + TypeScript + Vite, design system
-├─ docs/                      # hardware validation, Android, screenshots
+├─ docs/                      # device safety, hardware validation, Android, screenshots
 ├─ fixtures/
 │  └─ snapshots/              # generated snapshot + block editors
 ├─ Legacy/                    # original Python GTK client and protocol notes
