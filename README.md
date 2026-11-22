@@ -149,8 +149,10 @@ pnpm dev          # http://127.0.0.1:1420
 pnpm build        # production bundle (required before the Playwright smokes)
 pnpm lint         # TypeScript project check
 pnpm test         # unit + mapping tests (Vitest)
-pnpm test:ui      # Playwright interaction smoke against the built bundle
-pnpm test:startup # Playwright startup smoke: Wi-Fi/USB failure, --demo, USB success
+pnpm test:ui       # Playwright interaction smoke against the built bundle
+pnpm test:startup  # Playwright startup smoke: Wi-Fi/USB failure, --demo, USB success
+pnpm test:a11y     # axe WCAG AA scan: three themes, every view and overlay
+pnpm test:keyboard # keyboard-only pass: skip link, tabs, dialogs, knobs, shortcuts
 ```
 
 The Playwright smokes start their own Vite preview server. Override the default
@@ -173,10 +175,12 @@ cargo test --workspace          # 43 Rust tests
 
 cd apps/desktop/ui
 pnpm lint
-pnpm test                       # 28 Vitest tests
+pnpm test                       # 61 Vitest tests
 pnpm build
 pnpm test:ui                    # interaction smoke
 pnpm test:startup               # no-device / --demo / Wi-Fi-or-USB startup smoke
+pnpm test:a11y                  # WCAG AA scans in all themes and overlays
+pnpm test:keyboard              # keyboard-only pass
 ```
 
 Android packaging is checked separately:
@@ -417,7 +421,9 @@ cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
    opt-in, and visual regression baselines remain.
 8. **Accessibility audit.** Knobs expose the ARIA slider contract, LEDs have
    text labels, graphs have numeric cards, and focus order follows the chain.
-   Still required: axe-core in CI and a keyboard-only pass on every surface.
+   All three themes pass the WCAG AA axe scan, and the keyboard-only pass now
+   covers every view and overlay. Remaining: visual tests for focused, pending,
+   conflict, and error states.
 
 ## Design notes
 

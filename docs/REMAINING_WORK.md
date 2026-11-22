@@ -164,15 +164,22 @@ operations still needs a hardware pass.
 Do this before signing/notarization so visual baselines and accessibility are
 part of the release candidate.
 
+- [x] WCAG contrast audit for all three themes. Cream and British Green
+      secondary/accent tokens were darkened to reach AA contrast.
+- [x] Add axe-core smoke coverage for every view, all three themes, the tuner,
+      command palette, connection sheet, activity drawer, and preset/chain
+      dialogs.
+- [x] Complete the keyboard-only pass: skip link, ARIA tabs with arrow/Home/End
+      navigation, focus return from dialogs, and global shortcuts while knobs
+      own focus.
+- [x] Run axe and keyboard smokes in CI.
+- [ ] Add focused/pending/error visual-state tests.
 - [ ] Density pass on the inspector and utility rail.
-- [ ] WCAG contrast audit for all three themes; add focused/pending/error
-      visual tests.
 - [ ] Virtualize the Library table for very large lists.
 - [ ] Add a narrow-window preset drawer.
 - [ ] Add compact-chain mode for 12+ blocks.
 - [ ] Add visual regression baselines for Board, Amp room, EQ, Library,
       Settings, Stage, tuner, and all themes.
-- [ ] Add axe-core to CI and complete a keyboard-only pass on every surface.
 
 ## P4 — Hardening and release engineering
 

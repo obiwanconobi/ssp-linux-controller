@@ -130,8 +130,8 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
 
 1. Density pass on the inspector and utility rail: group secondary values,
    reduce repeated labels, and keep the “exactly one primary action” rule.
-2. Compare built-in themes against WCAG contrast tokens; add a visual test for
-   focused/pending/error states in all three themes.
+2. Add visual tests for focused, pending, conflict, and error states in all
+   three themes. The base contrast audit and axe smoke are in CI.
 3. Virtualize the library table once slot lists exceed a few hundred rows.
 4. Add a narrow-window preset drawer (currently the rail hides below 900 px).
 5. Add a “compact chain” option for 12+ block chains: two knobs per standard

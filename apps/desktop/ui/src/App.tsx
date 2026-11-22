@@ -164,6 +164,7 @@ export const App = () => {
         }
         if (state.view === 'stage' || state.view !== 'board') {
           state.setView('board');
+          requestAnimationFrame(() => document.getElementById('view-panel')?.focus());
         }
         return;
       }
@@ -223,6 +224,9 @@ export const App = () => {
 
   return (
     <div className={`app-shell${view === 'stage' ? ' app-shell--stage' : ''}`}>
+      <a className="skip-link" href="#view-panel">
+        Skip to main content
+      </a>
       {view !== 'stage' && <TitleBar />}
       {view !== 'stage' && <NavTabs />}
       {!connection.connected && view !== 'stage' && (
@@ -249,7 +253,13 @@ export const App = () => {
       )}
       {view !== 'stage' && <DeviceConflictBar />}
 
-      <main className={`app-main app-main--${view}`}>
+      <main
+        id="view-panel"
+        role="tabpanel"
+        aria-label="Current view"
+        tabIndex={-1}
+        className={`app-main app-main--${view}`}
+      >
         <Suspense
           fallback={
             <div className="view-loading panel">

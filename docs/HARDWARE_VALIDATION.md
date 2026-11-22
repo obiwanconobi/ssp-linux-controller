@@ -239,10 +239,12 @@ cargo test --workspace          # 43 tests
 
 cd apps/desktop/ui
 pnpm lint
-pnpm test                       # 28 Vitest tests
+pnpm test                       # 61 Vitest tests
 pnpm build
 pnpm test:ui
 pnpm test:startup
+pnpm test:a11y
+pnpm test:keyboard
 ```
 
 Relevant focused tests:

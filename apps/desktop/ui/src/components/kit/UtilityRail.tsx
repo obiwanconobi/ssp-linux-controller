@@ -63,7 +63,14 @@ export const UtilityRail = () => {
             <span className="hint">
               {activeUpload.kind.toUpperCase()} · {activeUpload.target} · slot {activeUpload.slot + 1}
             </span>
-            <div className="progress-bar" aria-label={`Upload ${Math.round(activeUpload.progress)} percent`}>
+            <div
+              className="progress-bar"
+              role="progressbar"
+              aria-label={`Upload ${Math.round(activeUpload.progress)} percent`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(activeUpload.progress)}
+            >
               <span style={{ width: `${activeUpload.progress}%` }} />
             </div>
             <div className="upload-mini__foot">

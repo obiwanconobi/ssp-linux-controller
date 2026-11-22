@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { PresetNameDialog } from './PresetNameDialog';
 
@@ -36,6 +36,8 @@ export const PresetRail = () => {
   const [rename, setRename] = useState<string | null>(null);
   const [saveAs, setSaveAs] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
+  const patchActions = useRef<HTMLButtonElement>(null);
+  const returnToActions = () => requestAnimationFrame(() => patchActions.current?.focus());
 
   const rows = useMemo<Row[]>(() => {
     const named = preset.names
@@ -78,6 +80,7 @@ export const PresetRail = () => {
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <button
+                ref={patchActions}
                 type="button"
                 className="icon-btn"
                 aria-label="Patch actions"
@@ -223,7 +226,12 @@ export const PresetRail = () => {
         submitLabel="Rename"
         names={preset.names}
         excludeName={rename ?? undefined}
-        onOpenChange={(open) => !open && setRename(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRename(null);
+            returnToActions();
+          }
+        }}
         onSubmit={(name) => {
           if (!rename) return false;
           renamePreset(rename, name);
@@ -238,11 +246,24 @@ export const PresetRail = () => {
         submitLabel="Save as"
         names={preset.names}
         disabled={save.saving}
-        onOpenChange={(open) => !open && setSaveAs(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSaveAs(null);
+            returnToActions();
+          }
+        }}
         onSubmit={(name) => savePresetAs(name)}
       />
 
-      <Dialog.Root open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog.Root
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            returnToActions();
+          }
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
           <Dialog.Content className="dialog-content" aria-describedby={undefined}>

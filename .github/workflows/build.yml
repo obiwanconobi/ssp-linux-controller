@@ -53,6 +53,58 @@ jobs:
           fi
           echo "Tag ${TAG} matches tauri.conf.json."
 
+  ui:
+    name: UI checks
+    runs-on: ubuntu-latest
+    needs: version
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/ui/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/desktop/ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Type-check and build
+        working-directory: apps/desktop/ui
+        run: pnpm build
+
+      - name: Unit tests
+        working-directory: apps/desktop/ui
+        run: pnpm test
+
+      - name: UI smoke
+        working-directory: apps/desktop/ui
+        run: pnpm test:ui
+
+      - name: Startup smoke
+        working-directory: apps/desktop/ui
+        run: pnpm test:startup
+
+      - name: Accessibility smoke
+        working-directory: apps/desktop/ui
+        run: pnpm test:a11y
+
+      - name: Keyboard smoke
+        working-directory: apps/desktop/ui
+        run: pnpm test:keyboard
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
@@ -225,7 +277,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: [version, build]
+    needs: [version, build, ui]
     if: |
       github.event_name != 'pull_request' &&
       (github.ref == 'refs/heads/master' ||

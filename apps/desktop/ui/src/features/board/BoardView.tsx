@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { AlertTriangle, ChevronDown, Eraser, X } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { SignalChain } from '../../components/kit/SignalChain';
 import { Inspector } from '../../components/kit/Inspector';
 import { PresetRail } from '../../components/kit/PresetRail';
@@ -13,6 +13,9 @@ export const BoardView = () => {
   const connection = useAppStore((state) => state.connection);
   const clearChain = useAppStore((state) => state.clearChain);
   const [confirmClear, setConfirmClear] = useState(false);
+  const chainActions = useRef<HTMLButtonElement>(null);
+  const returnToChainActions = () =>
+    requestAnimationFrame(() => chainActions.current?.focus());
   const fixed = blocks.filter((block) => block.fixed).length;
   const movable = blocks.length - fixed;
 
@@ -36,6 +39,7 @@ export const BoardView = () => {
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
                 <button
+                  ref={chainActions}
                   type="button"
                   className="btn btn--sm btn--ghost"
                   aria-label="Chain actions"
@@ -77,10 +81,23 @@ export const BoardView = () => {
         <UtilityRail />
       </div>
 
-      <Dialog.Root open={confirmClear} onOpenChange={setConfirmClear}>
+      <Dialog.Root
+        open={confirmClear}
+        onOpenChange={(open) => {
+          setConfirmClear(open);
+          if (!open) returnToChainActions();
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
-          <Dialog.Content className="dialog-content" aria-describedby={undefined}>
+          <Dialog.Content
+            className="dialog-content"
+            aria-describedby={undefined}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              chainActions.current?.focus();
+            }}
+          >
             <div className="dialog-head">
               <div>
                 <Dialog.Title className="dialog-title">Clear signal chain?</Dialog.Title>

@@ -160,7 +160,14 @@ const UploadCard = ({ upload }: { upload: UploadTask }) => {
         </div>
         <span className={`chip ${chipClass}`}>{label}</span>
       </div>
-      <div className="progress-bar progress-bar--lg" aria-label={`Upload ${Math.round(upload.progress)} percent`}>
+      <div
+        className="progress-bar progress-bar--lg"
+        role="progressbar"
+        aria-label={`Upload ${Math.round(upload.progress)} percent`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(upload.progress)}
+      >
         <span style={{ width: `${upload.progress}%` }} />
       </div>
       <div className="upload-card__foot">
@@ -703,6 +710,7 @@ export const LibraryView = () => {
         }}
         type="file"
         multiple
+        aria-label="Choose a capture folder"
         className="sr-only"
         onChange={(event) => {
           onDirectoryFiles(event.target.files);
@@ -718,7 +726,7 @@ export const LibraryView = () => {
           </span>
         </div>
         <div className="view-head__actions">
-          <div className="segmented" role="tablist" aria-label="Library sections">
+          <div className="segmented" role="group" aria-label="Library sections">
             {(
               [
                 ['library', 'Models & IRs'],
@@ -731,8 +739,6 @@ export const LibraryView = () => {
               <button
                 key={value}
                 type="button"
-                role="tab"
-                aria-selected={tab === value}
                 aria-pressed={tab === value}
                 onClick={() => setTab(value)}
               >
@@ -860,6 +866,7 @@ export const LibraryView = () => {
                 ref={inputRef}
                 type="file"
                 accept={activeAccept}
+                aria-label="Choose a capture file"
                 className="sr-only"
                 onChange={(event) => {
                   const file = event.target.files?.[0];

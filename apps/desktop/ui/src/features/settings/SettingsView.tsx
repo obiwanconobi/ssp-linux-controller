@@ -57,7 +57,13 @@ const DEMO_NETWORK: DiscoveredDevice[] = [
 ];
 
 const Toggle = ({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) => (
-  <button type="button" className="switch settings-toggle" aria-checked={value} onClick={() => onChange(!value)}>
+  <button
+    type="button"
+    role="switch"
+    className="switch settings-toggle"
+    aria-checked={value}
+    onClick={() => onChange(!value)}
+  >
     <span className="switch__track">
       <span className="switch__thumb" />
     </span>

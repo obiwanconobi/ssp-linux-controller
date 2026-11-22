@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { AlertTriangle, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   MAX_PRESET_NAME_BYTES,
   matchingPresetName,
@@ -35,6 +35,7 @@ export const PresetNameDialog = ({
 }: PresetNameDialogProps) => {
   const [value, setValue] = useState(initialName);
   const [touched, setTouched] = useState(false);
+  const nameInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -54,7 +55,14 @@ export const PresetNameDialog = ({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="dialog-content">
+        <Dialog.Content
+          className="dialog-content"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            nameInput.current?.focus();
+            nameInput.current?.select();
+          }}
+        >
           <div className="dialog-head">
             <div>
               <Dialog.Title className="dialog-title">{title}</Dialog.Title>
@@ -82,6 +90,7 @@ export const PresetNameDialog = ({
                 </span>
               </label>
               <input
+                ref={nameInput}
                 id="preset-name"
                 className="input input--mono"
                 autoFocus

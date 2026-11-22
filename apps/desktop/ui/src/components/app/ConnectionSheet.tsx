@@ -188,6 +188,7 @@ export const ConnectionSheet = () => {
                 <div className="connection-toggles">
                   <button
                     type="button"
+                    role="switch"
                     className="switch"
                     aria-checked={reconnect}
                     onClick={() => setReconnect((value) => !value)}
@@ -197,6 +198,7 @@ export const ConnectionSheet = () => {
                   </button>
                   <button
                     type="button"
+                    role="switch"
                     className="switch"
                     aria-checked={remember}
                     onClick={() => setRemember((value) => !value)}

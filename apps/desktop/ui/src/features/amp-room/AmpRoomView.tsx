@@ -112,6 +112,7 @@ const Lane = ({
             {laneIndex === 2 && onEnable && (
               <button
                 type="button"
+                role="switch"
                 className="switch"
                 aria-checked={enabled}
                 onClick={() => onEnable(!enabled)}
@@ -416,6 +417,7 @@ export const AmpRoomView = () => {
               </button>
               <button
                 type="button"
+                role="switch"
                 className="switch"
                 aria-checked={linkLevels}
                 onClick={() => setLinkLevels((value) => !value)}

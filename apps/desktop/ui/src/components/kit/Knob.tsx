@@ -220,7 +220,6 @@ export const Knob = ({
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    event.stopPropagation();
     const fine = event.shiftKey ? 10 : 1;
     const increment = step / fine;
     let next: number | null = null;
@@ -249,6 +248,7 @@ export const Knob = ({
         return;
     }
     event.preventDefault();
+    event.stopPropagation();
     commit(next);
   };
 

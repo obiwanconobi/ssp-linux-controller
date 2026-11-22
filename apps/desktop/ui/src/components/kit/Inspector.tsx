@@ -114,6 +114,7 @@ const ControlField = ({
     return (
       <button
         type="button"
+        role="switch"
         className="switch control-switch"
         aria-checked={Boolean(control.value)}
         onClick={() => onChange(!control.value)}
@@ -173,6 +174,7 @@ const GroupSection = ({
         {group.onOffId && (
           <button
             type="button"
+            role="switch"
             className="switch"
             aria-checked={Boolean(group.enabled)}
             onClick={() => onToggle(group.onOffId!, !group.enabled)}

@@ -2373,6 +2373,10 @@
   color: var(--text);
 }
 
+.library-scope__sub--active .mono {
+  color: var(--text-2);
+}
+
 .library-toolbar {
   display: flex;
   align-items: center;
@@ -3435,7 +3439,7 @@
 }
 
 .stage-tile__number {
-  color: var(--muted-2);
+  color: var(--muted);
   font-size: 9px;
 }
 

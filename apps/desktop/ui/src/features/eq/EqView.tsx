@@ -131,6 +131,7 @@ export const EqView = () => {
         <div className="view-head__actions">
           <button
             type="button"
+            role="switch"
             className="switch"
             aria-checked={enabled}
             onClick={() => setEqEnabled(!enabled)}

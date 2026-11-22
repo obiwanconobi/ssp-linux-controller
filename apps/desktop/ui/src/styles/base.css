@@ -133,6 +133,27 @@ svg {
   border: 0;
 }
 
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 200;
+  padding: 9px 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--raised);
+  color: var(--text);
+  font-size: 12px;
+  text-decoration: none;
+  box-shadow: var(--shadow-float);
+  transform: translateY(-240%);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
 .panel {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 38%),
