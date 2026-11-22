@@ -306,16 +306,16 @@ The Library now drives the real uploader instead of a preview:
 
 - a known-good NAM v0.7 A2 `SlimmableContainer` upload to a free amp slot,
   including the final 2048-character marker;
-- a NAM A1 WaveNet file with 13,802 flat weights through preflight and a
-  131-chunk simulator upload (hardware A1 upload still to be recorded);
+- a NAM A1 WaveNet file with 13,802 flat weights uploaded to a free amp slot
+  (user-confirmed on 2.5.3);
 - a Parametric NAM container upload to a free PNAM slot;
 - a 24-bit/48 kHz mono IR WAV to a free IR slot, with the IR list reporting
   `item_type: wav_48000`;
 - a synthetic stub NAM rejected before any bytes were sent, and a wrong-kind
   target rejected before any write.
 
-Still open: cancel-after-ACK on hardware, overwriting a used slot, audio
-readback/verification, and the 10-minute idle polling pass.
+Still open: cancel-after-ACK on hardware, overwriting a used slot, and audio
+readback/verification.
 
 > Preflight is structural, not semantic: it cannot prove a model is loadable
 > by this firmware. Use files exported by a compatible NAM/PNAM version, and
@@ -371,10 +371,10 @@ These intentionally remain on the Phase 3 checklist:
 - external preset/chain/control changes from the pedal while the app is open,
   including a local edit pending at the same time (the conflict bar and
   stale-write rollback are simulator/unit tested);
-- EQ writes, chain move/link writes, and Clear Chain on hardware. Chain
-  add/remove and the PNAM editor were exercised; move/link, clear, and EQ writes
-  still need a pass. Clear Chain is covered by the simulator and UI smoke, and
-  preserves fixed blocks/connectors by construction.
+- EQ writes and chain move/link writes on hardware. Chain add/remove, Clear
+  Chain, and the PNAM editor have been exercised; move/link and EQ writes still
+  need a pass. Clear Chain preserves fixed blocks/connectors and is
+  user-confirmed on 2.5.3.
 - device undo/redo of control, master, EQ, bypass, and router edits, including
   history clearing after reconnect (simulator/store tests cover the inverse
   writes; hardware pass pending).

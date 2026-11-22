@@ -28,12 +28,12 @@ DNS error, so the release job was skipped and `v0.2.0` was never created.
 
 Test on a scratch/backed-up state. No factory reset without a fresh backup.
 
-- [ ] NAM A1 upload.
+- [x] NAM A1 upload to a free amp slot (user-confirmed on 2.5.3).
 - [ ] Upload cancel after the second ACK; verify the slot list is unchanged.
 - [ ] Overwrite a used capture slot.
 - [ ] Delete one preset, NAM, PNAM, and IR entry; verify the slot empties,
       indices do not shift, and deleting an active/current item is safe.
-- [ ] Clear Chain; verify fixed blocks and connectors remain.
+- [x] Clear Chain; fixed blocks and connectors remain (user-confirmed).
 - [ ] EQ writes and chain move/link writes.
 - [x] Ten-minute idle polling (v0.4.0 read-only pass: 1,179 reads, 0 errors,
       post-run snapshot unchanged).
@@ -181,7 +181,9 @@ part of the release candidate.
 - [x] Virtualize the capture and local-file tables above 80 rows. The UI smoke
       loads a 240-file folder, checks that only visible rows mount, and scrolls
       to the last capture.
-- [ ] Add a narrow-window preset drawer.
+- [x] Add a narrow-window preset drawer. The title bar exposes a Patches button
+      below 860 px; selecting a preset closes the drawer, Escape closes it and
+      returns focus, and axe/keyboard smokes cover it.
 - [ ] Add compact-chain mode for 12+ blocks.
 - [ ] Add visual regression baselines for Board, Amp room, EQ, Library,
       Settings, Stage, tuner, and all themes.
@@ -222,13 +224,11 @@ P1 defects.
 
 ## Suggested next three
 
-1. Finish the remaining backed-up hardware validation: NAM A1 upload,
-   cancel-after-ACK, overwrite, single-item delete, Clear Chain, EQ writes,
-   chain move/link, USB unplug/replug, external changes with a pending edit,
-   and device undo/redo.
+1. Finish the remaining backed-up hardware validation: cancel-after-ACK,
+   overwrite, single-item delete, EQ writes, chain move/link, USB unplug/replug,
+   external changes with a pending edit, and device undo/redo.
 2. Start P3 with the WCAG contrast audit and axe-core/keyboard checks.
-3. Then the narrow-window preset drawer, compact-chain mode, and visual
-   regression baselines.
+3. Then compact-chain mode and visual regression baselines.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.
