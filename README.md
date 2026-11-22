@@ -1,5 +1,11 @@
 # StompStation
 
+> **Disclaimer:** This is an independent, open-source project. It is not
+> affiliated with, endorsed by, or supported by Sonulab. The software may
+> contain bugs and is provided “as is”; use it at your own risk, particularly
+> when writing to hardware. Review [`docs/DEVICE_SAFETY.md`](docs/DEVICE_SAFETY.md)
+> before use.
+
 [![Build desktop](https://github.com/obiwanconobi/ssp-linux-controller/actions/workflows/build.yml/badge.svg)](https://github.com/obiwanconobi/ssp-linux-controller/actions/workflows/build.yml)
 
 Pedalboard-first desktop controller for the **Sonulab StompStation PRO** guitar
