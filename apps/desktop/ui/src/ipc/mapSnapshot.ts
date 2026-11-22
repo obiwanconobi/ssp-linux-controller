@@ -181,7 +181,7 @@ const findModel = (nodes: RustEditorNode[]) => {
   return models.find((node) => node.visible) ?? models[0];
 };
 
-const mapBlock = (
+export const mapBlock = (
   snapshot: RustSnapshot,
   editor: RustBlockEditor,
   index: number,
@@ -189,6 +189,9 @@ const mapBlock = (
   const name = editor.path.split('\\').pop() ?? editor.path;
   const family = FAMILY_BY_NAME[name] ?? FAMILY_NAMES[editor.family] ?? 'utility';
   const slot = snapshot.chain.slots.find((candidate) => candidate.path === editor.path);
+  const chainBlock = snapshot.chain.blocks.find(
+    (candidate) => candidate.path === editor.path,
+  );
   const allControls = flatControls(editor);
   const modelControl = findModel(editor.parameters) ?? findModel(allControls);
   const directControls = editor.parameters
@@ -226,6 +229,7 @@ const mapBlock = (
     footswitch: index + 1,
     slotRow: slot?.row,
     slotCol: slot?.col,
+    controlRevision: chainBlock?.control_revision ?? 0,
     secondLane: laneGroup
       ? {
           id: laneGroup.path,

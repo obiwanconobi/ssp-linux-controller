@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { CommandPalette } from './components/app/CommandPalette';
 import { ConnectionSheet } from './components/app/ConnectionSheet';
+import { DeviceConflictBar } from './components/app/DeviceConflictBar';
 import { ActivityDrawer } from './components/app/ActivityDrawer';
 import { NavTabs } from './components/app/NavTabs';
 import { ShortcutsDialog } from './components/app/ShortcutsDialog';
@@ -246,6 +247,7 @@ export const App = () => {
           </button>
         </div>
       )}
+      {view !== 'stage' && <DeviceConflictBar />}
 
       <main className={`app-main app-main--${view}`}>
         <Suspense

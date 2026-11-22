@@ -391,11 +391,10 @@ cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
 
 ## Known gaps / next steps
 
-1. **Actor patch stream + conflict UX.** The single-owner actor now owns the
-   transport, command queue, polling scheduler, reconnect backoff, monotonic
-   snapshot revisions, and pending-write rejection across reconnects. The
-   remaining structural step is revisioned `device://patch` events plus the
-   external-change “keep device or local value” flow.
+1. **Revisioned patch stream.** The single-owner actor, monotonic revisions,
+   reconnect backoff, and external-change conflict UX are implemented on full
+   snapshots. A delta/patch stream remains an optimization for very large
+   boards, not a correctness blocker.
 2. **Upload hardware validation.** The picker → preflight → `begin_upload`
    path, ACK progress, cancel boundary, refreshed target list, and new-slot
    highlight are wired. A1, cancel-after-ACK, overwrite, and audio readback

@@ -70,8 +70,23 @@ vi.mock('../ipc/client', () => ({
   tauriClient: client,
   isTauriRuntime: () => true,
   ipcErrorMessage: (error: unknown) => String(error),
-  coalesce: (_key: string, call: () => Promise<unknown>) => {
-    void call();
+  isStaleWriteError: (error: unknown) =>
+    String((error as { message?: unknown })?.message ?? error).includes(
+      'connection changed before this write was sent',
+    ),
+  coalesce: (
+    _key: string,
+    call: () => Promise<unknown>,
+    onError?: (message: string, error: unknown) => void,
+    onDone?: (result: unknown, error?: unknown) => void,
+  ) => {
+    void call().then(
+      (result) => onDone?.(result),
+      (error) => {
+        onError?.(String(error), error);
+        onDone?.(undefined, error);
+      },
+    );
   },
   flushCoalesced: async () => undefined,
 }));
@@ -105,6 +120,8 @@ describe('device connection integration', () => {
 
     state.setEqBand(2, { gain: 3.4 });
     expect(client.setEqBand).toHaveBeenCalledWith(2, 'gain', 3.4);
+    // Let the mocked coalesced writes settle so no local value is still pending.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     // A poll read before the toggle write must not rewind the local state.
     const stale = structuredClone(fixture.snapshot);
@@ -491,5 +508,99 @@ describe('device connection integration', () => {
     useAppStore.getState().setTunerOpen(false);
     expect(client.tunerClose).toHaveBeenCalled();
     expect(useAppStore.getState().tuner.enabled).toBe(false);
+  });
+
+  it('marks a master change as a conflict while a local write is pending', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    client.setMaster.mockImplementationOnce(() => new Promise(() => undefined));
+    useAppStore.getState().setMaster('volume', 66);
+    await new Promise((resolve) => setTimeout(resolve, 280));
+
+    const event = structuredClone(fixture.snapshot);
+    event.revision = useAppStore.getState().save.revision + 1;
+    event.preset.current = useAppStore.getState().preset.current;
+    event.master.volume = { ...event.master.volume!, value: 55 };
+    useAppStore.getState().applyDeviceSnapshot(event);
+
+    const conflict = useAppStore
+      .getState()
+      .conflicts.find((item) => item.id === 'master.volume');
+    expect(conflict).toMatchObject({ localValue: 66, deviceValue: 55 });
+    expect(useAppStore.getState().master.volume).toBe(66);
+
+    useAppStore.getState().resolveConflict('master.volume', 'device');
+    expect(useAppStore.getState().master.volume).toBe(55);
+    expect(useAppStore.getState().conflicts).toHaveLength(0);
+  });
+
+  it('marks an edited control as a conflict and can keep the device value', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    client.setControl.mockImplementationOnce(() => new Promise(() => undefined));
+    useAppStore.getState().setControl('root\\app\\drive\\gain', 7.2);
+    await new Promise((resolve) => setTimeout(resolve, 280));
+
+    const event = structuredClone(fixture.snapshot);
+    event.revision = useAppStore.getState().save.revision + 1;
+    event.preset.current = useAppStore.getState().preset.current;
+    event.chain.blocks = event.chain.blocks.map((block) =>
+      block.path === 'root\\app\\drive'
+        ? { ...block, control_revision: 1 }
+        : block,
+    );
+    useAppStore.getState().applyDeviceSnapshot(event);
+
+    await vi.waitFor(() => {
+      const state = useAppStore.getState();
+      const conflict = state.conflicts.find(
+        (item) => item.id === 'root\\app\\drive\\gain',
+      );
+      expect(conflict).toMatchObject({ localValue: 7.2, deviceValue: 6.4 });
+      const gain = state.blocks
+        .find((block) => block.id === 'root\\app\\drive')
+        ?.controls.find((control) => control.id === 'root\\app\\drive\\gain');
+      expect(gain?.value).toBe(7.2);
+      expect(gain?.conflict).toBe(true);
+    });
+
+    useAppStore.getState().resolveConflict('root\\app\\drive\\gain', 'device');
+    await vi.waitFor(() => {
+      const state = useAppStore.getState();
+      const gain = state.blocks
+        .find((block) => block.id === 'root\\app\\drive')
+        ?.controls.find((control) => control.id === 'root\\app\\drive\\gain');
+      expect(gain?.value).toBe(6.4);
+      expect(gain?.conflict).toBe(false);
+      expect(state.conflicts).toHaveLength(0);
+    });
+  });
+
+  it('reverts a pending control when the actor rejects the write after reconnect', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    client.setControl.mockImplementationOnce(async () => {
+      const error = new Error(
+        'the connection changed before this write was sent; retry',
+      ) as Error & { code?: string };
+      error.code = 'stale_connection';
+      throw error;
+    });
+    useAppStore.getState().setControl('root\\app\\drive\\gain', 7.2);
+
+    await vi.waitFor(() => {
+      const gain = useAppStore
+        .getState()
+        .blocks.find((block) => block.id === 'root\\app\\drive')
+        ?.controls.find((control) => control.id === 'root\\app\\drive\\gain');
+      expect(gain?.value).toBe(6.4);
+      expect(useAppStore.getState().conflicts).toHaveLength(0);
+    });
   });
 });

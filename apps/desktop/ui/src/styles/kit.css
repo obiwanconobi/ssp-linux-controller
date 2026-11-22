@@ -68,6 +68,17 @@
   animation: pending-pulse 1.1s ease-in-out infinite;
 }
 
+.knob--conflict .knob__dial {
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--amber) 82%, transparent),
+    0 0 14px color-mix(in srgb, var(--amber) 32%, transparent);
+}
+
+.knob--conflict .knob__arc {
+  stroke: var(--amber);
+}
+
 .knob__cap {
   position: absolute;
   inset: 15%;

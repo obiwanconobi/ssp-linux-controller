@@ -105,9 +105,11 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
    writes/uploads, snapshots have monotonic actor revisions, and reconnect uses
    capped exponential backoff. A stale write queued before a reconnect is
    rejected. Revisioned patches remain for the conflict UX below.
-2. **External-change conflict UX.** Detect a changed preset/router on a poll,
-   rebrowse, and show “Changed on device — board reloaded.” If a local write is
-   pending, mark the affected control and let the user choose the winner.
+2. **External-change conflict UX.** Implemented: per-block control hashes feed
+   monotonic revisions, pending control/master/EQ writes are tracked, a
+   conflict bar offers “Use device” or “Keep local”, and writes rejected after
+   reconnect revert the optimistic value. Hardware external-change validation
+   remains.
 3. **Device-mode undo/redo.** Replay the changed controls to the device instead
    of only restoring the local UI snapshot.
 4. **Upload hardware validation.** The picker → preflight → `begin_upload`

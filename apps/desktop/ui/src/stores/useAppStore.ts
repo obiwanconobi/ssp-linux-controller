@@ -23,7 +23,11 @@ import {
   type ChainSlotRef,
 } from '../lib/chainSlots';
 import { presetNameError } from '../lib/presetNames';
-import { blockControl, getBlockKnobIds } from '../components/kit/knobMap';
+import {
+  allBlockControls,
+  blockControl,
+  getBlockKnobIds,
+} from '../components/kit/knobMap';
 import {
   UPLOAD_TARGET_PATHS,
   uploadTargetId,
@@ -33,6 +37,7 @@ import {
   coalesce,
   flushCoalesced,
   ipcErrorMessage,
+  isStaleWriteError,
   isTauriRuntime,
   tauriClient,
 } from '../ipc/client';
@@ -44,6 +49,7 @@ import type {
 } from '../ipc/client';
 import {
   mapAvailableBlocks,
+  mapBlock,
   mapEq,
   mapLists,
   mapMaster,
@@ -54,9 +60,11 @@ import {
 import type {
   ActivityEntry,
   Block,
+  ConflictValue,
   ConnectionState,
   ControlGroup,
   Density,
+  DeviceConflict,
   EqBand,
   LibraryList,
   MasterState,
@@ -106,6 +114,7 @@ interface AppStore {
   density: Density;
   motion: Motion;
   pending: string[];
+  conflicts: DeviceConflict[];
   undoStack: Snapshot[];
   redoStack: Snapshot[];
   commandOpen: boolean;
@@ -173,6 +182,8 @@ interface AppStore {
   tickUploads: () => void;
   setTuner: (patch: Partial<TunerState>) => void;
   tickTuner: () => void;
+  handleWriteFailure: (id: string, message: string, error: unknown) => void;
+  resolveConflict: (id: string, choice: 'device' | 'local') => void;
   notify: (message: string, tone?: Toast['tone']) => void;
   addActivity: (title: string, detail?: string, tone?: ActivityEntry['tone']) => void;
   getSelectedBlock: () => Block | undefined;
@@ -385,7 +396,191 @@ async function collectDevice(
 
 let lastTunerPoll = 0;
 let lastExternalSignature = '';
+let lastDeviceSnapshot: RustSnapshot | null = null;
 const pendingBlockWrites = new Map<string, { on: boolean; until: number }>();
+
+type PendingWriteKind = 'control' | 'model' | 'master' | 'eq';
+interface PendingDeviceWrite {
+  id: string;
+  kind: PendingWriteKind;
+  label: string;
+  localValue: ConflictValue;
+  previousValue: ConflictValue;
+  issuedAt: number;
+  until: number;
+  blockId?: string;
+  controlId?: string;
+  lane?: boolean;
+  field?: string;
+  index?: number;
+}
+const pendingDeviceWrites = new Map<string, PendingDeviceWrite>();
+const recentLocalBlockWrites = new Map<string, number>();
+
+const sameConflictValue = (left: ConflictValue, right: ConflictValue): boolean =>
+  typeof left === 'number' && typeof right === 'number'
+    ? Math.abs(left - right) < 1e-9
+    : left === right;
+
+const rememberPendingWrite = (
+  entry: Omit<PendingDeviceWrite, 'issuedAt' | 'until'>,
+): PendingDeviceWrite => {
+  const issuedAt = Date.now();
+  const pending = { ...entry, issuedAt, until: issuedAt + 2500 };
+  pendingDeviceWrites.set(pending.id, pending);
+  if (pending.blockId) recentLocalBlockWrites.set(pending.blockId, issuedAt);
+  return pending;
+};
+
+const clearPendingWrite = (entry: PendingDeviceWrite): void => {
+  if (pendingDeviceWrites.get(entry.id) === entry) {
+    pendingDeviceWrites.delete(entry.id);
+  }
+};
+
+const withControlState = (
+  block: Block,
+  controlId: string,
+  value: ConflictValue,
+  conflict?: boolean,
+): Block => {
+  const update = (controls: Block['controls']) =>
+    controls.map((control) =>
+      control.id === controlId
+        ? { ...control, value, ...(conflict === undefined ? {} : { conflict }) }
+        : control,
+    );
+  const updateGroup = (group: ControlGroup): ControlGroup => ({
+    ...group,
+    controls: update(group.controls),
+    groups: group.groups?.map(updateGroup),
+  });
+  return {
+    ...block,
+    controls: update(block.controls),
+    groups: block.groups.map(updateGroup),
+    secondLane: block.secondLane
+      ? { ...block.secondLane, controls: update(block.secondLane.controls) }
+      : undefined,
+  };
+};
+
+const withModelState = (
+  block: Block,
+  model: ConflictValue,
+  lane: boolean,
+): Block =>
+  lane && block.secondLane
+    ? { ...block, secondLane: { ...block.secondLane, model: String(model) } }
+    : { ...block, model: String(model) };
+
+const blockValuesDiffer = (left: Block, right: Block): boolean => {
+  if (left.model !== right.model) return true;
+  if (left.secondLane?.model !== right.secondLane?.model) return true;
+  const leftValues = new Map(
+    allBlockControls(left).map((control) => [control.id, control.value]),
+  );
+  const rightValues = allBlockControls(right);
+  if (leftValues.size !== rightValues.length) return true;
+  return rightValues.some((control) => {
+    const local = leftValues.get(control.id);
+    return local === undefined || !sameConflictValue(local, control.value);
+  });
+};
+
+const pendingStatePatch = (
+  state: AppStore,
+  pending: PendingDeviceWrite,
+  value: ConflictValue,
+): Partial<AppStore> => {
+  if (pending.kind === 'control' && pending.blockId && pending.controlId) {
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === pending.blockId
+          ? withControlState(block, pending.controlId!, value, false)
+          : block,
+      ),
+    };
+  }
+  if (pending.kind === 'model' && pending.blockId) {
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === pending.blockId
+          ? withModelState(block, value, Boolean(pending.lane))
+          : block,
+      ),
+    };
+  }
+  if (pending.kind === 'master' && pending.field) {
+    return {
+      master: { ...state.master, [pending.field]: Number(value) } as MasterState,
+    };
+  }
+  if (pending.kind === 'eq') {
+    if (pending.id === 'eq.enabled') {
+      return { eqEnabled: Boolean(value) };
+    }
+    return {
+      eq: state.eq.map((band) =>
+        band.index === pending.index
+          ? {
+              ...band,
+              [pending.field!]:
+                pending.field === 'type' ? String(value) : Number(value),
+            }
+          : band,
+      ),
+    };
+  }
+  return {};
+};
+
+const conflictStatePatch = (
+  state: AppStore,
+  conflict: DeviceConflict,
+  value: ConflictValue,
+): Partial<AppStore> => {
+  if (conflict.kind === 'control' && conflict.blockId && conflict.controlId) {
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === conflict.blockId
+          ? withControlState(block, conflict.controlId!, value, false)
+          : block,
+      ),
+    };
+  }
+  if (conflict.kind === 'model' && conflict.blockId) {
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === conflict.blockId
+          ? withModelState(block, value, Boolean(conflict.lane))
+          : block,
+      ),
+    };
+  }
+  if (conflict.kind === 'master' && conflict.field) {
+    return {
+      master: { ...state.master, [conflict.field]: Number(value) } as MasterState,
+    };
+  }
+  if (conflict.kind === 'eq') {
+    if (conflict.id === 'eq.enabled') {
+      return { eqEnabled: Boolean(value) };
+    }
+    return {
+      eq: state.eq.map((band) =>
+        band.index === conflict.index
+          ? {
+              ...band,
+              [conflict.field!]:
+                conflict.field === 'type' ? String(value) : Number(value),
+            }
+          : band,
+      ),
+    };
+  }
+  return {};
+};
 
 export const useAppStore = create<AppStore>()((set, get) => ({
   view: initialView(),
@@ -394,6 +589,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   density: appearance.density,
   motion: appearance.motion,
   pending: [],
+  conflicts: [],
   undoStack: [],
   redoStack: [],
   commandOpen: false,
@@ -421,8 +617,12 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     const name = preset.names[index];
     if (!name) return;
     const recent = [name, ...preset.recent.filter((item) => item !== name)].slice(0, 6);
+    pendingBlockWrites.clear();
+    pendingDeviceWrites.clear();
+    recentLocalBlockWrites.clear();
     set({
       preset: { ...preset, current: name, index, recent },
+      conflicts: [],
       save: { ...get().save, edited: false, revision: get().save.revision + 1 },
     });
     get().addActivity('Preset loaded', `${name} · slot ${index + 1}`, 'neutral');
@@ -765,6 +965,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
 
   setBlockModel: (blockId, model) => {
     const before = snapshotOf(get());
+    const previousModel =
+      get().blocks.find((block) => block.id === blockId)?.model ?? model;
     set((state) => ({
       blocks: state.blocks.map((block) =>
         block.id === blockId
@@ -782,10 +984,20 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     get().addActivity('Model changed', model, 'neutral');
     const updated = get().blocks.find((block) => block.id === blockId);
     if (get().connection.mode === 'device' && updated?.modelControlId) {
+      const pendingEntry = rememberPendingWrite({
+        id: `model.${blockId}`,
+        kind: 'model',
+        label: 'Model',
+        localValue: model,
+        previousValue: previousModel,
+        blockId,
+        controlId: updated.modelControlId,
+      });
       coalesce(
         `model.${blockId}`,
         () => tauriClient.setControl(updated.modelControlId!, model),
-        (message) => get().notify(message, 'bad'),
+        (message, error) => get().handleWriteFailure(pendingEntry.id, message, error),
+        () => clearPendingWrite(pendingEntry),
       );
       // A PNAM model supplies the labels/ranges for p1..pN, so rebrowse the
       // editor after the write instead of leaving stale parameter controls.
@@ -797,6 +1009,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   },
 
   setLaneModel: (blockId, model) => {
+    const previousModel =
+      get().blocks.find((block) => block.id === blockId)?.secondLane?.model ?? model;
     set((state) => ({
       blocks: state.blocks.map((block) =>
         block.id === blockId && block.secondLane
@@ -808,10 +1022,21 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     get().addActivity('Model changed', `${model} · lane 2`, 'neutral');
     const lane = get().blocks.find((block) => block.id === blockId)?.secondLane;
     if (get().connection.mode === 'device' && lane?.modelControlId) {
+      const pendingEntry = rememberPendingWrite({
+        id: `model.${blockId}.lane`,
+        kind: 'model',
+        label: 'Dual amp model',
+        localValue: model,
+        previousValue: previousModel,
+        blockId,
+        controlId: lane.modelControlId,
+        lane: true,
+      });
       coalesce(
         `lane.${blockId}`,
         () => tauriClient.setControl(lane.modelControlId!, model),
-        (message) => get().notify(message, 'bad'),
+        (message, error) => get().handleWriteFailure(pendingEntry.id, message, error),
+        () => clearPendingWrite(pendingEntry),
       );
     }
   },
@@ -922,10 +1147,28 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       }));
     }, 240);
     if (get().connection.mode === 'device') {
+      const targetControl = target?.control;
+      const pendingEntry = target && targetControl
+        ? rememberPendingWrite({
+            id: controlId,
+            kind: 'control',
+            label: targetControl.label || targetControl.name || controlId,
+            localValue: value,
+            previousValue: targetControl.value,
+            blockId: target.block.id,
+            controlId,
+          })
+        : null;
       coalesce(
         controlId,
         () => tauriClient.setControl(controlId, value),
-        (message) => get().notify(message, 'bad'),
+        (message, error) => {
+          if (pendingEntry) get().handleWriteFailure(pendingEntry.id, message, error);
+          else get().notify(message, 'bad');
+        },
+        () => {
+          if (pendingEntry) clearPendingWrite(pendingEntry);
+        },
       );
       if (isTypeChange) {
         const blockId = target?.block.id;
@@ -1271,6 +1514,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   setMaster: (field, value) => {
     const state = get();
     const before = snapshotOf(state);
+    const previousValue: ConflictValue =
+      typeof state.master[field] === 'number' ? (state.master[field] as number) : value;
     const firstInGroup =
       state.lastEdit.key !== `master.${field}` || Date.now() - state.lastEdit.at > 600;
     set({
@@ -1291,10 +1536,19 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       }));
     }, 260);
     if (get().connection.mode === 'device') {
+      const pendingEntry = rememberPendingWrite({
+        id: `master.${field}`,
+        kind: 'master',
+        label: field === 'presetLevel' ? 'Preset level' : `Master ${field}`,
+        localValue: value,
+        previousValue,
+        field,
+      });
       coalesce(
         `master.${field}`,
         () => tauriClient.setMaster(field === 'presetLevel' ? 'preset_level' : field, value),
-        (message) => get().notify(message, 'bad'),
+        (message, error) => get().handleWriteFailure(pendingEntry.id, message, error),
+        () => clearPendingWrite(pendingEntry),
       );
     }
   },
@@ -1302,6 +1556,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   setEqBand: (index, patch) => {
     const state = get();
     const before = snapshotOf(state);
+    const previousBand = state.eq.find((band) => band.index === index);
     const key = `eq.${index}.${Object.keys(patch).join(',')}`;
     const firstInGroup = state.lastEdit.key !== key || Date.now() - state.lastEdit.at > 600;
     set({
@@ -1326,19 +1581,33 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         get().eq.find((band) => band.index === index)?.deviceIndex ?? index;
       for (const [field, fieldValue] of Object.entries(patch)) {
         if (fieldValue == null) continue;
+        const previousValue = previousBand
+          ? (previousBand[field as keyof EqBand] as ConflictValue)
+          : (fieldValue as ConflictValue);
+        const pendingEntry = rememberPendingWrite({
+          id: `eq.${index}.${field}`,
+          kind: 'eq',
+          label: `EQ band ${index + 1} ${field}`,
+          localValue: fieldValue as ConflictValue,
+          previousValue,
+          index,
+          field,
+        });
         coalesce(
           `eq.${index}.${field}`,
           () =>
             field === 'type'
               ? tauriClient.setEqType(deviceIndex, String(fieldValue))
               : tauriClient.setEqBand(deviceIndex, field, Number(fieldValue)),
-          (message) => get().notify(message, 'bad'),
+          (message, error) => get().handleWriteFailure(pendingEntry.id, message, error),
+          () => clearPendingWrite(pendingEntry),
         );
       }
     }
   },
 
   setEqEnabled: (enabled) => {
+    const previous = get().eqEnabled;
     set((state) => ({
       eqEnabled: enabled,
       eq: state.eq.map((band) => ({ ...band, enabled })),
@@ -1346,14 +1615,26 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }));
     get().notify(`Global EQ ${enabled ? 'enabled' : 'bypassed'}`, 'neutral');
     if (get().connection.mode === 'device') {
-      tauriClient
-        .setEqEnabled(enabled)
-        .catch((error) => get().notify(ipcErrorMessage(error), 'bad'));
+      const pendingEntry = rememberPendingWrite({
+        id: 'eq.enabled',
+        kind: 'eq',
+        label: 'Global EQ',
+        localValue: enabled,
+        previousValue: previous,
+        field: 'enabled',
+      });
+      coalesce(
+        'eq.enabled',
+        () => tauriClient.setEqEnabled(enabled),
+        (message, error) => get().handleWriteFailure(pendingEntry.id, message, error),
+        () => clearPendingWrite(pendingEntry),
+      );
     }
   },
 
   flattenEq: () => {
     const before = snapshotOf(get());
+    const previousEq = get().eq;
     set((state) => ({
       eq: state.eq.map((band) => ({ ...band, gain: 0 })),
       undoStack: [...state.undoStack, before].slice(-40),
@@ -1362,13 +1643,23 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }));
     get().notify('Global EQ flattened — undo available', 'warn');
     if (get().connection.mode === 'device') {
-      get().eq.forEach((band) =>
+      get().eq.forEach((band) => {
+        const pendingEntry = rememberPendingWrite({
+          id: `eq.${band.index}.gain`,
+          kind: 'eq',
+          label: `EQ band ${band.index + 1} gain`,
+          localValue: 0,
+          previousValue: previousEq.find((item) => item.index === band.index)?.gain ?? band.gain,
+          index: band.index,
+          field: 'gain',
+        });
         coalesce(
           `eq.${band.index}.gain`,
           () => tauriClient.setEqBand(band.deviceIndex ?? band.index, 'gain', 0),
-          (message) => get().notify(message, 'bad'),
-        ),
-      );
+          (message, error) => get().handleWriteFailure(pendingEntry.id, message, error),
+          () => clearPendingWrite(pendingEntry),
+        );
+      });
     }
   },
 
@@ -1487,9 +1778,13 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       tauriClient.disconnect().catch(() => undefined);
     }
     pendingBlockWrites.clear();
+    pendingDeviceWrites.clear();
+    recentLocalBlockWrites.clear();
+    lastDeviceSnapshot = null;
     const boot = demoBoot();
     set((state) => ({
       ...boot,
+      conflicts: [],
       connection: { ...boot.connection, connected: false, connecting: true },
       save: { ...boot.save, revision: state.save.revision + 1 },
       undoStack: [],
@@ -1512,7 +1807,10 @@ export const useAppStore = create<AppStore>()((set, get) => ({
 
   connectAuto: async () => {
     pendingBlockWrites.clear();
+    pendingDeviceWrites.clear();
+    recentLocalBlockWrites.clear();
     set((state) => ({
+      conflicts: [],
       connection: {
         ...state.connection,
         connected: false,
@@ -1528,6 +1826,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     try {
       const info = await tauriClient.autoConnect();
       const { snapshot, editors } = await collectDevice();
+      lastDeviceSnapshot = snapshot;
       const current = get();
       const mapped = mapSnapshot(snapshot, editors, info, {
         preset: current.preset,
@@ -1587,7 +1886,10 @@ export const useAppStore = create<AppStore>()((set, get) => ({
 
   connectReal: async (address) => {
     pendingBlockWrites.clear();
+    pendingDeviceWrites.clear();
+    recentLocalBlockWrites.clear();
     set((state) => ({
+      conflicts: [],
       connection: {
         ...state.connection,
         connecting: true,
@@ -1602,6 +1904,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     try {
       const { snapshot, editors, info } = await collectDevice(address);
       if (!info) throw new Error('the device did not return connection information');
+      lastDeviceSnapshot = snapshot;
       const current = get();
       const mapped = mapSnapshot(snapshot, editors, info, {
         preset: current.preset,
@@ -1662,6 +1965,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     if (current.connection.mode !== 'device') return;
     try {
       const { snapshot, editors } = await collectDevice();
+      lastDeviceSnapshot = snapshot;
       const info: ConnectionInfo = {
         address: current.connection.address,
         transport: current.connection.transport,
@@ -1675,12 +1979,48 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         eq: current.eq,
       });
       mapped.connection.address = current.connection.address;
+      let blocks = mapped.blocks;
+      for (const conflict of current.conflicts) {
+        if (conflict.kind === 'master' && conflict.field) {
+          (mapped.master as unknown as Record<string, ConflictValue>)[conflict.field] =
+            Number(conflict.localValue);
+          continue;
+        }
+        if (conflict.kind === 'eq') {
+          if (conflict.id === 'eq.enabled') {
+            mapped.eqEnabled = Boolean(conflict.localValue);
+          } else {
+            const band = mapped.eq.find((item) => item.index === conflict.index);
+            if (band && conflict.field) {
+              if (conflict.field === 'type') {
+                band.type = String(conflict.localValue) as EqBand['type'];
+              } else {
+                (band as unknown as Record<string, ConflictValue>)[conflict.field] =
+                  Number(conflict.localValue);
+              }
+            }
+          }
+          continue;
+        }
+        if (!conflict.blockId) continue;
+        blocks = blocks.map((block) => {
+          if (block.id !== conflict.blockId) return block;
+          if (conflict.controlId) {
+            return withControlState(block, conflict.controlId, conflict.localValue, true);
+          }
+          if (conflict.kind === 'model') {
+            return withModelState(block, conflict.localValue, Boolean(conflict.lane));
+          }
+          return block;
+        });
+      }
       const selected =
         mapped.blocks.find((block) => block.id === current.selectedBlockId)?.id ??
         mapped.blocks[0]?.id ??
         null;
       set((state) => ({
         ...mapped,
+        blocks,
         emptySlots: snapshot.chain.slots
           .filter((slot) => !slot.path && !slot.fixed)
           .map((slot) => ({ row: slot.row, col: slot.col })),
@@ -1704,6 +2044,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     if (state.connection.mode !== 'device' || state.connection.connecting) return;
     // A snapshot read before a recent write must not rewind the board.
     if (snapshot.revision < state.save.revision) return;
+    lastDeviceSnapshot = snapshot;
 
     const incoming = snapshot.chain.blocks;
     const sameChain =
@@ -1721,11 +2062,22 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         );
         state.notify('Changed on device — board reloaded', 'warn');
       }
+      if (pendingDeviceWrites.size > 0) {
+        pendingDeviceWrites.clear();
+    recentLocalBlockWrites.clear();
+        state.addActivity(
+          'Pending edits discarded',
+          'the preset or chain changed on the device',
+          'warn',
+        );
+      }
+      set({ conflicts: [] });
       void state.refreshDevice();
       return;
     }
 
     let chainChanged = false;
+    const changedPaths: string[] = [];
     const blocks = state.blocks.map((block, index) => {
       const next = incoming[index];
       const slot = snapshot.chain.slots.find((candidate) => candidate.path === next.path);
@@ -1740,6 +2092,10 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       }
       const fixed = slot?.fixed ?? false;
       const link = slot?.link ?? 'series';
+      const controlRevision = next.control_revision ?? 0;
+      if (block.controlRevision !== controlRevision) {
+        changedPaths.push(next.path);
+      }
       if (
         block.on !== on ||
         block.fixed !== fixed ||
@@ -1748,15 +2104,158 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       ) {
         chainChanged = true;
       }
-      return { ...block, on, fixed, link, label: next.label };
+      return {
+        ...block,
+        on,
+        fixed,
+        link,
+        label: next.label,
+        controlRevision: controlRevision,
+      };
     });
 
+    const nextMaster = mapMaster(snapshot);
     const eqView = mapEq(snapshot, state.eq);
+    const nextEq = eqView.eq.map((band) => ({ ...band }));
+    let nextEqEnabled = eqView.eqEnabled;
+    const conflicts = new Map(state.conflicts.map((conflict) => [conflict.id, conflict]));
+    let addedConflict = false;
+
+    for (const conflict of [...conflicts.values()]) {
+      if (conflict.kind === 'master' && conflict.field) {
+        const deviceValue = nextMaster[conflict.field as keyof MasterState];
+        if (
+          typeof deviceValue === 'number' &&
+          sameConflictValue(deviceValue, conflict.localValue)
+        ) {
+          conflicts.delete(conflict.id);
+        }
+      } else if (conflict.kind === 'eq') {
+        let deviceValue: ConflictValue | undefined;
+        if (conflict.id === 'eq.enabled') {
+          deviceValue = nextEqEnabled;
+        } else {
+          const band = nextEq.find((item) => item.index === conflict.index);
+          if (band && conflict.field) {
+            deviceValue = band[conflict.field as keyof EqBand] as ConflictValue;
+          }
+        }
+        if (
+          deviceValue !== undefined &&
+          sameConflictValue(deviceValue, conflict.localValue)
+        ) {
+          conflicts.delete(conflict.id);
+        }
+      }
+    }
+
+    for (const entry of pendingDeviceWrites.values()) {
+      if (entry.kind === 'master' && entry.field) {
+        const key = entry.field as keyof MasterState;
+        const deviceValue = nextMaster[key];
+        if (typeof deviceValue !== 'number') continue;
+        if (Date.now() - entry.issuedAt < 250) {
+          (nextMaster as unknown as Record<string, ConflictValue>)[entry.field] =
+            Number(entry.localValue);
+          continue;
+        }
+        if (sameConflictValue(deviceValue, entry.localValue)) {
+          conflicts.delete(entry.id);
+          continue;
+        }
+        conflicts.set(entry.id, {
+          id: entry.id,
+          kind: 'master',
+          label: entry.label,
+          localValue: entry.localValue,
+          deviceValue,
+          field: entry.field,
+        });
+        (nextMaster as unknown as Record<string, ConflictValue>)[entry.field] =
+          Number(entry.localValue);
+        addedConflict = true;
+      } else if (entry.kind === 'eq') {
+        if (entry.id === 'eq.enabled') {
+          if (Date.now() - entry.issuedAt < 250) {
+            nextEqEnabled = Boolean(entry.localValue);
+            continue;
+          }
+          if (sameConflictValue(nextEqEnabled, entry.localValue)) {
+            conflicts.delete(entry.id);
+            continue;
+          }
+          conflicts.set(entry.id, {
+            id: entry.id,
+            kind: 'eq',
+            label: entry.label,
+            localValue: entry.localValue,
+            deviceValue: nextEqEnabled,
+            field: 'enabled',
+          });
+          nextEqEnabled = Boolean(entry.localValue);
+          addedConflict = true;
+          continue;
+        }
+        if (entry.index == null || !entry.field) continue;
+        const band = nextEq.find((item) => item.index === entry.index);
+        if (!band) continue;
+        if (Date.now() - entry.issuedAt < 250) {
+          if (entry.field === 'type') {
+            band.type = String(entry.localValue) as EqBand['type'];
+          } else {
+            (band as unknown as Record<string, ConflictValue>)[entry.field] =
+              Number(entry.localValue);
+          }
+          continue;
+        }
+        const deviceValue = band[entry.field as keyof EqBand] as ConflictValue;
+        if (sameConflictValue(deviceValue, entry.localValue)) {
+          conflicts.delete(entry.id);
+          continue;
+        }
+        conflicts.set(entry.id, {
+          id: entry.id,
+          kind: 'eq',
+          label: entry.label,
+          localValue: entry.localValue,
+          deviceValue,
+          index: entry.index,
+          field: entry.field,
+        });
+        if (entry.field === 'type') {
+          band.type = String(entry.localValue) as EqBand['type'];
+        } else {
+          (band as unknown as Record<string, ConflictValue>)[entry.field] =
+            Number(entry.localValue);
+        }
+        addedConflict = true;
+      }
+    }
+
+    const masterChanged =
+      state.master.volume !== nextMaster.volume ||
+      state.master.tempo !== nextMaster.tempo ||
+      state.master.presetLevel !== nextMaster.presetLevel;
+    const eqChanged =
+      state.eqEnabled !== nextEqEnabled ||
+      nextEq.some((band) => {
+        const local = state.eq.find((item) => item.index === band.index);
+        return (
+          !local ||
+          local.gain !== band.gain ||
+          local.frequency !== band.frequency ||
+          local.q !== band.q ||
+          local.type !== band.type ||
+          local.enabled !== band.enabled
+        );
+      });
+
     set((current) => ({
-      blocks: chainChanged ? blocks : current.blocks,
-      master: mapMaster(snapshot),
-      eq: eqView.eq,
-      eqEnabled: eqView.eqEnabled,
+      blocks: chainChanged || changedPaths.length ? blocks : current.blocks,
+      master: nextMaster,
+      eq: nextEq,
+      eqEnabled: nextEqEnabled,
+      conflicts: [...conflicts.values()],
       lists: mapLists(snapshot),
       preset: mapPreset(snapshot, current.preset),
       meters: mapMeters(snapshot),
@@ -1772,14 +2271,33 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       },
       save: { ...current.save, revision: snapshot.revision },
     }));
+
+    if (changedPaths.length) {
+      void refreshChangedBlocks(snapshot, changedPaths);
+    }
+    if (chainChanged) {
+      state.addActivity('Changed on device', 'bypass or link updated', 'warn');
+      state.notify('Changed on device — board reloaded', 'warn');
+    }
+    if (addedConflict) {
+      state.addActivity('Changed on device', 'review the control conflict', 'warn');
+      state.notify('Changed on device — review the conflict', 'warn');
+    } else if (masterChanged || eqChanged) {
+      state.addActivity('Changed on device', 'board values updated', 'warn');
+      state.notify('Changed on device — board values updated', 'warn');
+    }
   },
 
   disconnect: () => {
     pendingBlockWrites.clear();
+    pendingDeviceWrites.clear();
+    recentLocalBlockWrites.clear();
+    lastDeviceSnapshot = null;
     if (get().connection.mode === 'device') {
       tauriClient.disconnect().catch((error) => get().notify(ipcErrorMessage(error), 'bad'));
     }
     set((state) => ({
+      conflicts: [],
       connection: {
         ...state.connection,
         connected: false,
@@ -2010,6 +2528,69 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }
   },
 
+  handleWriteFailure: (id, message, error) => {
+    const pending = pendingDeviceWrites.get(id);
+    if (pending) clearPendingWrite(pending);
+    set((state) => ({
+      pending: state.pending.filter((item) => item !== id),
+      conflicts: state.conflicts.filter((conflict) => conflict.id !== id),
+    }));
+    if (!pending) {
+      get().notify(message, 'bad');
+      return;
+    }
+    set((state) => pendingStatePatch(state, pending, pending.previousValue));
+    if (isStaleWriteError(error)) {
+      get().addActivity('Write lost during reconnect', `${pending.label} reverted`, 'warn');
+      get().notify(
+        `${pending.label} reverted — the write was lost during reconnect`,
+        'warn',
+      );
+    } else {
+      get().notify(message, 'bad');
+    }
+    if (pending.blockId && (pending.kind === 'control' || pending.kind === 'model')) {
+      void refreshBlockFromDevice(pending.blockId);
+    } else {
+      void get().refreshDevice();
+    }
+  },
+
+  resolveConflict: (id, choice) => {
+    const conflict = get().conflicts.find((item) => item.id === id);
+    if (!conflict) return;
+    const pending = pendingDeviceWrites.get(id);
+    const chosen = choice === 'device' ? conflict.deviceValue : conflict.localValue;
+    if (pending) clearPendingWrite(pending);
+    set((state) => ({
+      conflicts: state.conflicts.filter((item) => item.id !== id),
+      ...conflictStatePatch(state, conflict, chosen),
+    }));
+
+    if (choice === 'local') {
+      if (conflict.kind === 'control' && conflict.controlId) {
+        get().setControl(conflict.controlId, chosen);
+      } else if (conflict.kind === 'model' && conflict.blockId) {
+        if (conflict.lane) get().setLaneModel(conflict.blockId, String(chosen));
+        else get().setBlockModel(conflict.blockId, String(chosen));
+      } else if (conflict.kind === 'master' && conflict.field) {
+        get().setMaster(conflict.field as keyof MasterState, Number(chosen));
+      } else if (conflict.kind === 'eq') {
+        if (conflict.id === 'eq.enabled') {
+          get().setEqEnabled(Boolean(chosen));
+        } else if (conflict.index != null && conflict.field) {
+          get().setEqBand(conflict.index, {
+            [conflict.field]: conflict.field === 'type' ? String(chosen) : Number(chosen),
+          } as Partial<EqBand>);
+        }
+      }
+      get().notify(`Keeping local value for ${conflict.label}`, 'neutral');
+    } else {
+      if (conflict.blockId) void refreshBlockFromDevice(conflict.blockId);
+      get().notify(`Using device value for ${conflict.label}`, 'neutral');
+    }
+  },
+
   setTuner: (patch) => set((state) => ({ tuner: { ...state.tuner, ...patch } })),
 
   tickTuner: () => {
@@ -2076,4 +2657,179 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   getKnobIds: (block) => getBlockKnobIds(block),
   getControl: (block, controlId) => blockControl(block, controlId),
 }));
+
+const scheduledBlockRefreshes = new Set<string>();
+
+async function refreshBlockFromDevice(blockId: string): Promise<void> {
+  const snapshot = lastDeviceSnapshot;
+  if (!snapshot) return;
+  if (useAppStore.getState().connection.mode !== 'device') return;
+  try {
+    const editor = await tauriClient.selectBlock(blockId);
+    const current = useAppStore.getState();
+    const index = current.blocks.findIndex((block) => block.id === blockId);
+    if (index < 0) return;
+    let mapped = mapBlock(snapshot, editor, index);
+    for (const conflict of current.conflicts) {
+      if (conflict.blockId !== blockId) continue;
+      if (conflict.controlId) {
+        mapped = withControlState(mapped, conflict.controlId, conflict.localValue, true);
+      } else if (conflict.kind === 'model') {
+        mapped = withModelState(mapped, conflict.localValue, Boolean(conflict.lane));
+      }
+    }
+    useAppStore.setState((latest) => ({
+      blocks: latest.blocks.map((block, item) => (item === index ? mapped : block)),
+    }));
+  } catch (error) {
+    console.error('Could not refresh the block editor', error);
+  }
+}
+
+async function refreshChangedBlocks(
+  snapshot: RustSnapshot,
+  paths: string[],
+): Promise<void> {
+  const current = useAppStore.getState();
+  if (current.connection.mode !== 'device') return;
+  const now = Date.now();
+  const eligible: string[] = [];
+  for (const path of paths) {
+    const youngPending = [...pendingDeviceWrites.values()].some(
+      (entry) => entry.blockId === path && now - entry.issuedAt < 250,
+    );
+    if (youngPending) {
+      if (!scheduledBlockRefreshes.has(path)) {
+        scheduledBlockRefreshes.add(path);
+        window.setTimeout(() => {
+          scheduledBlockRefreshes.delete(path);
+          void refreshChangedBlocks(lastDeviceSnapshot ?? snapshot, [path]);
+        }, 320);
+      }
+      continue;
+    }
+    eligible.push(path);
+  }
+  if (!eligible.length) return;
+
+  const editors = await Promise.allSettled(
+    eligible.map((path) => tauriClient.selectBlock(path)),
+  );
+  const latest = useAppStore.getState();
+  if (latest.connection.mode !== 'device') return;
+  const nextConflicts = new Map(
+    latest.conflicts.map((conflict) => [conflict.id, conflict]),
+  );
+  let blocks = latest.blocks;
+  let changed = false;
+  let externalChanged = false;
+  let addedConflicts = 0;
+
+  editors.forEach((result, index) => {
+    if (result.status !== 'fulfilled') return;
+    const path = eligible[index];
+    const blockIndex = blocks.findIndex((block) => block.id === path);
+    if (blockIndex < 0) return;
+    const incomingBlock = snapshot.chain.blocks.find((block) => block.path === path);
+    if (
+      incomingBlock &&
+      (incomingBlock.control_revision ?? 0) < (blocks[blockIndex].controlRevision ?? 0)
+    ) {
+      return;
+    }
+    const deviceMapped = mapBlock(snapshot, result.value, blockIndex);
+    let mapped = deviceMapped;
+    const pendingForBlock = [...pendingDeviceWrites.values()].filter(
+      (entry) => entry.blockId === path,
+    );
+
+    for (const entry of pendingForBlock) {
+      if (Date.now() - entry.issuedAt < 250) continue;
+      if (entry.kind === 'control' && entry.controlId) {
+        const deviceControl = allBlockControls(deviceMapped).find(
+          (control) => control.id === entry.controlId,
+        );
+        if (!deviceControl) continue;
+        if (!sameConflictValue(deviceControl.value, entry.localValue)) {
+          const existed = nextConflicts.has(entry.id);
+          nextConflicts.set(entry.id, {
+            id: entry.id,
+            kind: 'control',
+            label: entry.label,
+            localValue: entry.localValue,
+            deviceValue: deviceControl.value,
+            blockId: path,
+            controlId: entry.controlId,
+          });
+          mapped = withControlState(mapped, entry.controlId, entry.localValue, true);
+          if (!existed) addedConflicts += 1;
+        } else {
+          nextConflicts.delete(entry.id);
+        }
+      } else if (entry.kind === 'model') {
+        const deviceValue = entry.lane ? deviceMapped.secondLane?.model : deviceMapped.model;
+        if (deviceValue == null) continue;
+        if (!sameConflictValue(deviceValue, entry.localValue)) {
+          const existed = nextConflicts.has(entry.id);
+          nextConflicts.set(entry.id, {
+            id: entry.id,
+            kind: 'model',
+            label: entry.label,
+            localValue: entry.localValue,
+            deviceValue,
+            blockId: path,
+            controlId: entry.controlId,
+            lane: entry.lane,
+          });
+          mapped = withModelState(mapped, entry.localValue, Boolean(entry.lane));
+          if (!existed) addedConflicts += 1;
+        } else {
+          nextConflicts.delete(entry.id);
+        }
+      }
+    }
+
+    for (const conflict of [...nextConflicts.values()]) {
+      if (conflict.blockId !== path) continue;
+      let deviceValue: ConflictValue | undefined;
+      if (conflict.controlId) {
+        deviceValue = allBlockControls(deviceMapped).find(
+          (control) => control.id === conflict.controlId,
+        )?.value;
+      } else if (conflict.kind === 'model') {
+        deviceValue = conflict.lane ? deviceMapped.secondLane?.model : deviceMapped.model;
+      }
+      if (
+        deviceValue !== undefined &&
+        sameConflictValue(deviceValue, conflict.localValue)
+      ) {
+        nextConflicts.delete(conflict.id);
+        continue;
+      }
+      if (conflict.controlId) {
+        mapped = withControlState(mapped, conflict.controlId, conflict.localValue, true);
+      } else if (conflict.kind === 'model') {
+        mapped = withModelState(mapped, conflict.localValue, Boolean(conflict.lane));
+      }
+    }
+
+    const recentLocal =
+      Date.now() - (recentLocalBlockWrites.get(path) ?? 0) <= 1500;
+    if (!recentLocal && blockValuesDiffer(blocks[blockIndex], mapped)) {
+      externalChanged = true;
+    }
+    blocks = blocks.map((block, item) => (item === blockIndex ? mapped : block));
+    changed = true;
+  });
+
+  if (!changed) return;
+  useAppStore.setState({ blocks, conflicts: [...nextConflicts.values()] });
+  if (addedConflicts > 0) {
+    latest.addActivity('Changed on device', 'review the control conflict', 'warn');
+    latest.notify('Changed on device — review the control conflict', 'warn');
+  } else if (externalChanged) {
+    latest.addActivity('Changed on device', 'controls updated', 'warn');
+    latest.notify('Changed on device — controls updated', 'warn');
+  }
+}
 

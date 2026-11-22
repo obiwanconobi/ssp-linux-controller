@@ -34,6 +34,7 @@ export interface Control {
   pfloat?: boolean;
   displayMin?: number;
   displayMax?: number;
+  conflict?: boolean;
 }
 
 export interface ControlGroup {
@@ -65,6 +66,7 @@ export interface Block {
   footswitch: number;
   slotRow?: number;
   slotCol?: number;
+  controlRevision?: number;
   secondLane?: BlockLane;
 }
 
@@ -162,6 +164,21 @@ export interface TunerState {
   frequency: number;
   reference: number;
   level: number;
+}
+
+export type ConflictValue = number | string | boolean;
+
+export interface DeviceConflict {
+  id: string;
+  kind: 'control' | 'model' | 'master' | 'eq';
+  label: string;
+  localValue: ConflictValue;
+  deviceValue: ConflictValue;
+  blockId?: string;
+  controlId?: string;
+  lane?: boolean;
+  field?: string;
+  index?: number;
 }
 
 export interface ConnectionState {

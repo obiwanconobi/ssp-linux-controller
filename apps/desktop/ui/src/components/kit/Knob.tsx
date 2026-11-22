@@ -260,16 +260,17 @@ export const Knob = ({
     const current = options[index] ?? '';
     const next = options.length ? (index + 1) % options.length : 0;
     const optionLabel = label ?? control.label;
+    const conflict = control.conflict ? ' knob--conflict' : '';
     return (
       <div
-        className={`knob knob--option knob--${size}${pending ? ' knob--pending' : ''}${stage ? ' knob--stage' : ''}`}
+        className={`knob knob--option knob--${size}${pending ? ' knob--pending' : ''}${stage ? ' knob--stage' : ''}${conflict}`}
         style={color ? ({ '--knob-color': color } as React.CSSProperties) : undefined}
       >
         <button
           type="button"
           className="knob__option"
-          aria-label={`${optionLabel}: ${current}. Click to change.`}
-          title={`${optionLabel}: ${current} — click to change (${options.join(' / ')})`}
+          aria-label={`${optionLabel}: ${current}.${control.conflict ? ' Device conflict.' : ''} Click to change.`}
+          title={`${optionLabel}: ${current} — click to change (${options.join(' / ')})${control.conflict ? ' · changed on device' : ''}`}
           onClick={(event) => {
             event.stopPropagation();
             onChange(optionValue(control, next));
@@ -282,9 +283,10 @@ export const Knob = ({
     );
   }
 
+  const conflict = control.conflict ? ' knob--conflict' : '';
   return (
     <div
-      className={`knob knob--${size}${pending ? ' knob--pending' : ''}${stage ? ' knob--stage' : ''}`}
+      className={`knob knob--${size}${pending ? ' knob--pending' : ''}${stage ? ' knob--stage' : ''}${conflict}`}
       style={color ? ({ '--knob-color': color } as React.CSSProperties) : undefined}
     >
       <div
@@ -292,7 +294,7 @@ export const Knob = ({
         className="knob__dial"
         role="slider"
         tabIndex={0}
-        aria-label={`${label ?? control.label}: ${display}`}
+        aria-label={`${label ?? control.label}: ${display}${control.conflict ? ' — device conflict' : ''}`}
         aria-valuemin={min}
         aria-valuemax={max}
         aria-valuenow={Number(value.toFixed(4))}
@@ -304,7 +306,7 @@ export const Knob = ({
         onPointerCancel={endDrag}
         onKeyDown={onKeyDown}
         onDoubleClick={() => commit(defaultTick(control))}
-        title={`${label ?? control.label} — drag, shift for fine, double-click to reset`}
+        title={`${label ?? control.label} — drag, shift for fine, double-click to reset${control.conflict ? ' · changed on device' : ''}`}
       >
         <svg className="knob__svg" viewBox="0 0 100 100" aria-hidden="true">
           {tickAngles.map((tickAngle) => {

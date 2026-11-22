@@ -124,13 +124,17 @@ diff/patch events are part of 2.2.
 
 ### 2.2 External-change conflict UX
 
-- [ ] Detect changed preset/router/control values via revisions.
-- [ ] Show “Changed on device — board reloaded.”
-- [ ] If a local write is pending, mark the affected control and let the user
+- [x] Detect changed preset/router/control values via revisions.
+- [x] Show “Changed on device — board reloaded.”
+- [x] If a local write is pending, mark the affected control and let the user
       choose the device or local value.
-- [ ] Roll back pending state on reconnect if the write was lost.
+- [x] Roll back pending state on reconnect if the write was lost.
 
-Depends on 2.1.
+Depends on 2.1. Per-block control hashes feed monotonic actor revisions;
+pending writes are tracked per control/master/EQ value, a conflict bar offers
+“Use device” or “Keep local”, and stale writes rejected after reconnect revert
+the optimistic value and refresh. Simulator/unit tests cover the store rules;
+the external-change hardware pass remains in 0.2.
 
 ### 2.3 Device-mode undo/redo
 
@@ -193,8 +197,9 @@ P1 defects.
 
 1. Run the 0.2 hardware validation on a backed-up device, starting with
    single-item delete, Clear Chain, and upload cancel/overwrite.
-2. Hardware-validate Save As, tuner restore, and unplug/replug reconnect.
-3. Implement P2.2, the external-change conflict UX, on the actor revisions.
+2. Hardware-validate Save As, tuner restore, reconnect, and an external
+   preset/control change while a local edit is pending.
+3. Implement P2.3, device-mode undo/redo, on the actor's operation log.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.

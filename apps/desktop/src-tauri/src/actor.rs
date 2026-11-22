@@ -6,6 +6,8 @@
 //! before a disconnect or reconnect is rejected instead of being applied to a
 //! fresh connection.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -234,6 +236,7 @@ impl ActorHandle {
             last_info: None,
             last_snapshot: None,
             revision: 0,
+            state_signature: None,
             last_poll: Instant::now(),
             last_browse: Instant::now(),
             poll_resume_at: Instant::now(),
@@ -369,6 +372,20 @@ fn is_connection_loss(error: &ProtocolError) -> bool {
     )
 }
 
+/// State signature used to bump revisions only when the board changes.
+/// Meters are intentionally excluded so a live meter update does not count as
+/// a device change; the snapshot is still emitted with the same revision.
+fn snapshot_signature(snapshot: &DeviceSnapshot) -> u64 {
+    let mut copy = snapshot.clone();
+    copy.revision = 0;
+    copy.meters.input = [0.0, 0.0];
+    copy.meters.output = [0.0, 0.0];
+    let bytes = serde_json::to_vec(&copy).unwrap_or_default();
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
 struct Actor {
     rx: Receiver<ActorRequest>,
     app: Arc<Mutex<Option<AppHandle>>>,
@@ -382,6 +399,7 @@ struct Actor {
     last_info: Option<ConnectionInfo>,
     last_snapshot: Option<DeviceSnapshot>,
     revision: u64,
+    state_signature: Option<u64>,
     last_poll: Instant,
     last_browse: Instant,
     poll_resume_at: Instant,
@@ -760,6 +778,7 @@ impl Actor {
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.upload_active.store(false, Ordering::SeqCst);
         self.tuner_previous = None;
+        self.state_signature = None;
     }
 
     fn disconnect(&mut self) {
@@ -1092,7 +1111,11 @@ impl Actor {
     }
 
     fn stamp(&mut self, mut snapshot: DeviceSnapshot) -> DeviceSnapshot {
-        self.revision = self.revision.saturating_add(1).max(1);
+        let signature = snapshot_signature(&snapshot);
+        if self.state_signature != Some(signature) {
+            self.revision = self.revision.saturating_add(1).max(1);
+            self.state_signature = Some(signature);
+        }
         snapshot.revision = self.revision;
         snapshot
     }
@@ -1191,13 +1214,30 @@ mod tests {
     fn revisions_are_monotonic_across_a_reconnect() {
         let mut actor = test_actor();
         let first = actor.stamp(DeviceSnapshot::default());
-        let second = actor.stamp(DeviceSnapshot::default());
         assert_eq!(first.revision, 1);
-        assert_eq!(second.revision, 2);
+
+        let same = actor.stamp(DeviceSnapshot::default());
+        assert_eq!(same.revision, 1);
 
         actor.close_current();
         let after_reconnect = actor.stamp(DeviceSnapshot::default());
-        assert_eq!(after_reconnect.revision, 3);
+        assert_eq!(after_reconnect.revision, 2);
+    }
+
+    #[test]
+    fn meters_do_not_bump_the_revision_but_state_changes_do() {
+        let mut actor = test_actor();
+        let first = actor.stamp(DeviceSnapshot::default());
+        assert_eq!(first.revision, 1);
+
+        let mut meters_only = DeviceSnapshot::default();
+        meters_only.meters.input = [-20.0, -21.0];
+        meters_only.meters.output = [-10.0, -11.0];
+        assert_eq!(actor.stamp(meters_only).revision, 1);
+
+        let mut changed = DeviceSnapshot::default();
+        changed.preset.current = "Another patch".to_string();
+        assert_eq!(actor.stamp(changed).revision, 2);
     }
 
     #[test]
@@ -1295,15 +1335,44 @@ mod tests {
                 .expect("actor snapshot");
             assert!(snapshot.connected);
             assert!(!snapshot.chain.blocks.is_empty());
+            let drive_before = snapshot
+                .chain
+                .blocks
+                .iter()
+                .find(|block| block.path == r"root\app\drive")
+                .map(|block| block.control_revision)
+                .expect("drive block");
 
             let updated = handle
+                .call(|reply| ActorCommand::SetValue {
+                    path: r"root\app\drive\gain".to_string(),
+                    value: serde_json::json!(7.2),
+                    reply,
+                })
+                .await
+                .expect("actor write");
+            let drive_after = updated
+                .chain
+                .blocks
+                .iter()
+                .find(|block| block.path == r"root\app\drive")
+                .map(|block| block.control_revision)
+                .expect("drive block after write");
+            assert_ne!(drive_before, drive_after);
+            let repeat = handle
+                .call(|reply| ActorCommand::Snapshot { reply })
+                .await
+                .expect("repeat snapshot");
+            assert_eq!(repeat.revision, updated.revision);
+
+            let alias = handle
                 .call(|reply| ActorCommand::SetAlias {
                     alias: "Actor Test".to_string(),
                     reply,
                 })
                 .await
-                .expect("actor write");
-            assert!(updated.revision >= 1);
+                .expect("actor alias write");
+            assert!(alias.revision >= 1);
 
             let diagnostics = handle
                 .call(|reply| ActorCommand::Diagnostics { reply })
@@ -1338,6 +1407,7 @@ mod tests {
             last_info: None,
             last_snapshot: None,
             revision: 0,
+            state_signature: None,
             last_poll: Instant::now(),
             last_browse: Instant::now(),
             poll_resume_at: Instant::now(),

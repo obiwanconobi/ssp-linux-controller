@@ -41,6 +41,10 @@ pub struct ChainBlock {
     pub on: Option<bool>,
     pub on_path: String,
     pub in_chain: bool,
+    /// Hash of the block editor values (excluding on/off, which has its own
+    /// field). Changes when a control value, model, or editor shape changes.
+    #[serde(default)]
+    pub control_revision: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -294,6 +298,7 @@ pub fn chain_blocks(store: &NodeStore) -> Vec<ChainBlock> {
                 Some(ChainBlock {
                     label: block_label(&path, Some(node)),
                     family: block_family(name).to_string(),
+                    control_revision: editor_revision(store, &path),
                     path,
                     on,
                     on_path,
@@ -311,6 +316,7 @@ pub fn chain_blocks(store: &NodeStore) -> Vec<ChainBlock> {
             Some(ChainBlock {
                 label: slot.label,
                 family: slot.family,
+                control_revision: editor_revision(store, &path),
                 on_path: format!("{path}\\on_off"),
                 on: slot.on,
                 path,
@@ -318,6 +324,16 @@ pub fn chain_blocks(store: &NodeStore) -> Vec<ChainBlock> {
             })
         })
         .collect()
+}
+
+/// Stable-within-a-session hash of the editor values the UI consumes.
+fn editor_revision(store: &NodeStore, path: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let editor = crate::editor::block_editor(store, path);
+    let bytes = serde_json::to_vec(&editor).unwrap_or_default();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Return block items in the router's parent that are not currently in the chain.

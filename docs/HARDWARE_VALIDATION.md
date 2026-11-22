@@ -319,7 +319,9 @@ These intentionally remain on the Phase 3 checklist:
 - live snapshot polling for 10 minutes and reconnect after unplugging USB
   mid-poll (the single-owner actor has capped reconnect backoff and rejects
   stale queued writes; hardware reconnect still needs a pass);
-- external preset/chain changes from the pedal while the app is open;
+- external preset/chain/control changes from the pedal while the app is open,
+  including a local edit pending at the same time (the conflict bar and
+  stale-write rollback are simulator/unit tested);
 - tuner open/close restore;
 - EQ writes, chain move/link writes, and Clear Chain on hardware. Chain
   add/remove and the PNAM editor were exercised; move/link, clear, and EQ writes

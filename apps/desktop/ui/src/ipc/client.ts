@@ -28,6 +28,7 @@ export interface RustChainBlock {
   on: boolean | null;
   on_path: string;
   in_chain: boolean;
+  control_revision?: number;
 }
 
 export interface RustAvailableBlock {
@@ -258,7 +259,12 @@ export const isMobileRuntime = (): boolean =>
   typeof navigator !== 'undefined' && /android|iphone|ipad/i.test(navigator.userAgent);
 
 const activeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const latestCall = new Map<string, () => Promise<unknown>>();
+interface CoalescedCall {
+  call: () => Promise<unknown>;
+  onError?: (message: string, error: unknown) => void;
+  onDone?: (result: unknown, error?: unknown) => void;
+}
+const latestCall = new Map<string, CoalescedCall>();
 const activeWrites = new Set<Promise<unknown>>();
 
 const trackWrite = (promise: Promise<unknown>): void => {
@@ -266,29 +272,42 @@ const trackWrite = (promise: Promise<unknown>): void => {
   void promise.finally(() => activeWrites.delete(promise));
 };
 
+const runCoalesced = (entry: CoalescedCall, fallbackError?: (message: string) => void) => {
+  const write = entry.call().then(
+    (result) => {
+      entry.onDone?.(result);
+      return result;
+    },
+    (error: unknown) => {
+      const message = ipcErrorMessage(error);
+      if (entry.onError) entry.onError(message, error);
+      else if (fallbackError) fallbackError(message);
+      else console.error(message);
+      entry.onDone?.(undefined, error);
+    },
+  );
+  trackWrite(write);
+};
+
 /**
  * Coalesce high-frequency writes at 50 ms. The UI keeps its local value at
- * pointer rate; the device always receives the final value.
+ * pointer rate; the device always receives the final value. `onDone` receives
+ * the raw error so callers can distinguish a stale write after reconnect.
  */
 export function coalesce(
   key: string,
   call: () => Promise<unknown>,
-  onError?: (message: string) => void,
+  onError?: (message: string, error: unknown) => void,
+  onDone?: (result: unknown, error?: unknown) => void,
 ): void {
-  latestCall.set(key, call);
+  latestCall.set(key, { call, onError, onDone });
   const existing = activeTimers.get(key);
   if (existing) clearTimeout(existing);
   const timer = setTimeout(() => {
     activeTimers.delete(key);
     const pending = latestCall.get(key);
     latestCall.delete(key);
-    if (!pending) return;
-    const write = pending().catch((error: unknown) => {
-      const message = ipcErrorMessage(error);
-      if (onError) onError(message);
-      else console.error(message);
-    });
-    trackWrite(write);
+    if (pending) runCoalesced(pending);
   }, 50);
   activeTimers.set(key, timer);
 }
@@ -306,11 +325,8 @@ export async function flushCoalesced(
       activeTimers.delete(key);
     }
   }
-  for (const [, call] of pending) {
-    const write = call().catch((error: unknown) => {
-      onError?.(ipcErrorMessage(error));
-    });
-    trackWrite(write);
+  for (const [, entry] of pending) {
+    runCoalesced(entry, onError);
   }
   // Also wait for writes whose 50 ms timer already fired.
   await Promise.allSettled([...activeWrites]);
@@ -322,6 +338,18 @@ export function ipcErrorMessage(error: unknown): string {
   }
   return String(error);
 }
+
+export function ipcErrorCode(error: unknown): string | null {
+  if (typeof error === 'object' && error && 'code' in error) {
+    return String((error as { code: unknown }).code);
+  }
+  return null;
+}
+
+/** A write rejected because the actor reconnected before it was applied. */
+export const isStaleWriteError = (error: unknown): boolean =>
+  ipcErrorCode(error) === 'stale_connection' ||
+  ipcErrorMessage(error).includes('connection changed before this write was sent');
 
 export const tauriClient = {
   bootstrap: () => invoke<Bootstrap>('get_bootstrap'),
