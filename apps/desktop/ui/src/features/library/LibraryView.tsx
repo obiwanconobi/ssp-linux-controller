@@ -16,6 +16,10 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { formatBytes } from '../../data/demoDevice';
 import { ipcErrorMessage, isTauriRuntime, tauriClient } from '../../ipc/client';
+import {
+  loadDirectoryPreference,
+  rememberDirectoryForPath,
+} from '../../lib/recentPaths';
 import { useAppStore } from '../../stores/useAppStore';
 import type { LibraryList, LibrarySlot, UploadTask } from '../../types';
 
@@ -500,6 +504,7 @@ export const LibraryView = () => {
       );
       return;
     }
+    rememberDirectoryForPath(`upload.${kind}`, path);
     preparePending(name, 0, kind, activeSub.target, { path });
   };
 
@@ -545,10 +550,12 @@ export const LibraryView = () => {
     }
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
+      const scope = `upload.${activeKind}`;
       const selected = await open({
         directory: false,
         multiple: false,
         title: `Choose a ${KIND_LABEL[activeKind]} capture`,
+        defaultPath: loadDirectoryPreference(scope) ?? undefined,
         filters: [
           {
             name: KIND_LABEL[activeKind],
@@ -559,7 +566,10 @@ export const LibraryView = () => {
           },
         ],
       });
-      if (typeof selected === 'string') inspectPath(selected);
+      if (typeof selected === 'string') {
+        rememberDirectoryForPath(scope, selected);
+        inspectPath(selected);
+      }
     } catch (error) {
       notify(ipcErrorMessage(error), 'bad');
     }
@@ -575,6 +585,9 @@ export const LibraryView = () => {
     const target =
       preferred?.id ??
       (entry.kind === 'ir' ? 'ir_list' : entry.kind === 'pnam' ? 'pnam_list' : 'nam_amp');
+    if (tauri && entry.path) {
+      rememberDirectoryForPath(`upload.${entry.kind}`, entry.path);
+    }
     preparePending(entry.name, entry.size, entry.kind, target, {
       file: entry.file,
       path: entry.path,
