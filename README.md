@@ -58,6 +58,8 @@ GitHub Actions builds the desktop app on every push and pull request:
 
 - **Windows x64** — NSIS installer (`.exe`) and MSI (`.msi`)
 - **Linux x64** — Debian package (`.deb`) and AppImage
+- **macOS x64 (Intel)** — `.dmg` and zipped `.app`
+- **macOS arm64 (Apple Silicon)** — `.dmg` and zipped `.app`
 
 The workflow lives in [`.github/workflows/build.yml`](.github/workflows/build.yml).
 Each run uploads the installers/packages as downloadable workflow artifacts.
@@ -67,7 +69,10 @@ installers attached. To cut a new release, bump that version and push; an
 explicit `v*` tag can also be pushed to publish or update that tag's release.
 
 The Linux AppImage is larger than the Windows bundle because it embeds
-GTK/WebKitGTK, while Windows uses the system WebView2 runtime.
+GTK/WebKitGTK, while Windows uses the system WebView2 runtime. macOS builds
+are ad-hoc signed but not notarized, so Gatekeeper requires right-clicking the
+app and choosing **Open** (or removing the quarantine attribute) on first
+launch.
 
 ## Screenshots
 
@@ -95,7 +100,7 @@ screenshots labelled “hardware” use the real 2.4.4 fixture.
 
 ```text
 .
-├─ .github/workflows/build.yml # Windows + Linux release builds
+├─ .github/workflows/build.yml # Windows + Linux + macOS release builds
 ├─ Cargo.toml                 # Rust workspace
 ├─ crates/
 │  ├─ stomp-protocol/         # frame parsing, commands, NodeStore, router,

@@ -30,6 +30,16 @@ jobs:
             target: x86_64-pc-windows-msvc
             bundles: nsis,msi
             artifact: windows-x64
+          - name: macOS x64 (Intel)
+            platform: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+            artifact: macos-x64
+          - name: macOS arm64 (Apple Silicon)
+            platform: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+            artifact: macos-arm64
 
     steps:
       - name: Check out repository
@@ -82,6 +92,10 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Ad-hoc sign the macOS bundles so the arm64 app launches on Apple
+          # Silicon. Replace with a Developer ID identity and notarization
+          # credentials before distributing publicly.
+          APPLE_SIGNING_IDENTITY: '-'
         with:
           projectPath: apps/desktop
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
@@ -91,17 +105,39 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          if [ "${{ matrix.platform }}" = "ubuntu-22.04" ]; then
-            ls target/${{ matrix.target }}/release/bundle/deb/*.deb
-            ls target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
-          else
-            ls target/${{ matrix.target }}/release/bundle/msi/*.msi
-            ls target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
-          fi
           cp target/${{ matrix.target }}/release/bundle/deb/*.deb artifacts/ 2>/dev/null || true
           cp target/${{ matrix.target }}/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
           cp target/${{ matrix.target }}/release/bundle/msi/*.msi artifacts/ 2>/dev/null || true
           cp target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe artifacts/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg artifacts/ 2>/dev/null || true
+          ls -lh artifacts
+
+      - name: Verify macOS bundle architecture
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          case "${{ matrix.target }}" in
+            aarch64-*) expected=arm64 ;;
+            x86_64-*) expected=x86_64 ;;
+            *) echo "Unexpected target: ${{ matrix.target }}"; exit 1 ;;
+          esac
+          binary=$(find "target/${{ matrix.target }}/release/bundle/macos/StompStation.app/Contents/MacOS" -maxdepth 1 -type f -print -quit)
+          actual=$(lipo -archs "$binary")
+          echo "$binary -> $actual (expected $expected)"
+          test "$actual" = "$expected"
+
+      - name: Package macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          version=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          case "${{ matrix.target }}" in
+            aarch64-*) arch=aarch64 ;;
+            x86_64-*) arch=x64 ;;
+          esac
+          ditto -c -k --sequesterRsrc --keepParent \
+            "target/${{ matrix.target }}/release/bundle/macos/StompStation.app" \
+            "artifacts/StompStation_${version}_${arch}.app.zip"
           ls -lh artifacts
 
       - name: Upload executable and bundles
