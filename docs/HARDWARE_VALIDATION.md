@@ -84,6 +84,33 @@ live snapshot. Write commands use the same `Device` core and were exercised
 through the CLI; the app’s Save/Remove/Replace buttons are thin wrappers over
 those commands.
 
+## v0.4.0 read-only pass (2026-11-22)
+
+The v0.4.0 release was checked over USB on firmware 2.5.3 (694 nodes) without
+issuing any write commands:
+
+- snapshot: 7 chain blocks, 3 fixed (amp, delay, reverb), 14 router slots
+  (7 empty), 19 available blocks;
+- preset list: 60 slots, 20 named; capture lists: 60/10/60/10/50 slots with
+  17/1/2/5/8 used;
+- capabilities: router, global EQ, tuner, dual NAM, dual IR, parametric NAM;
+- all 7 block editors read and mapped; dual NAM/IR groups present; global EQ
+  disabled with four flat bands; master 62%, tempo 184 BPM; preset level not
+  exposed by this firmware;
+- browser UI loaded that snapshot through a mocked Tauri IPC bridge: 7 pedals,
+  3 fixed, correct preset and chain order, two amp lanes, four EQ bands,
+  library tables, and **zero write commands**;
+- ten-minute idle `read root` polling: **PASS** — 1,179 successful reads, 0
+  errors, meters updated continuously, preset and 7-block chain unchanged; the
+  post-run snapshot matched the pre-run snapshot;
+- read-only tuner probe: the `on_off` node exists and reported `OFF`; the
+  note/cents/frequency/reference/level reads timed out while the tuner was off,
+  so full tuner readback and open/close restore require the write-based test.
+
+No user capture/preset names were committed. One UI-label nit was observed:
+the in-chain EQ block uses the generic `UTILITY` shell plate because there is
+no distinct EQ block family; state mapping and editing are unaffected.
+
 ## Reversible write test — gate only
 
 This was the first, minimum-risk hardware write test. With explicit user
@@ -317,8 +344,9 @@ These intentionally remain on the Phase 3 checklist:
   readback/verification. Basic NAM A2/PNAM/IR uploads were validated on 2.5.3
   (see the upload section above), including the A2 final marker;
 - live snapshot polling for 10 minutes and reconnect after unplugging USB
-  mid-poll (the single-owner actor has capped reconnect backoff and rejects
-  stale queued writes; hardware reconnect still needs a pass);
+  mid-poll (10-minute idle polling passed read-only on 2026-11-22; the
+  single-owner actor has capped reconnect backoff and rejects stale queued
+  writes; hardware reconnect still needs a pass);
 - external preset/chain/control changes from the pedal while the app is open,
   including a local edit pending at the same time (the conflict bar and
   stale-write rollback are simulator/unit tested);

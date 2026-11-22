@@ -35,8 +35,10 @@ Test on a scratch/backed-up state. No factory reset without a fresh backup.
       indices do not shift, and deleting an active/current item is safe.
 - [ ] Clear Chain; verify fixed blocks and connectors remain.
 - [ ] EQ writes and chain move/link writes.
-- [ ] Ten-minute idle polling, USB unplug/replug, external preset/chain change,
-      and tuner open/close restore.
+- [x] Ten-minute idle polling (v0.4.0 read-only pass: 1,179 reads, 0 errors,
+      post-run snapshot unchanged).
+- [ ] USB unplug/replug, external preset/chain change, and tuner open/close
+      restore.
 
 Why first: these writes are already exposed in the app. Their real firmware
 semantics (especially delete and Clear Chain) must be confirmed before adding
