@@ -110,14 +110,17 @@ does not block visible improvements.
 
 ### 2.1 Full single-owner device actor
 
-- [ ] Replace `Mutex<Device>` plus the interim poller with one command queue.
-- [ ] Add a scheduler, revisions/patches, reconnect backoff, and explicit
+- [x] Replace `Mutex<Device>` plus the interim poller with one command queue.
+- [x] Add a scheduler, revisions/patches, reconnect backoff, and explicit
       pending-write tracking.
-- [ ] Pause/resume polling around uploads and destructive writes.
-- [ ] Keep the existing simulator, command API, and UI snapshot contract.
+- [x] Pause/resume polling around uploads and destructive writes.
+- [x] Keep the existing simulator, command API, and UI snapshot contract.
 
 Exit: reconnect and external-change behaviour are deterministic; no stale write
-survives a reconnect.
+survives a reconnect. Simulator and unit tests cover connect/read/write,
+monotonic revisions, backoff, and stale-write rejection; unplug/replug remains
+in the 0.2 hardware pass. Snapshot revisions are monotonic across reconnects;
+diff/patch events are part of 2.2.
 
 ### 2.2 External-change conflict UX
 
@@ -190,10 +193,8 @@ P1 defects.
 
 1. Run the 0.2 hardware validation on a backed-up device, starting with
    single-item delete, Clear Chain, and upload cancel/overwrite.
-2. Hardware-validate Save As to a new slot, overwrite of an existing slot, and
-   tuner open/close restore.
-3. Start P2.1, the single-owner device actor, once those hardware semantics are
-   confirmed.
+2. Hardware-validate Save As, tuner restore, and unplug/replug reconnect.
+3. Implement P2.2, the external-change conflict UX, on the actor revisions.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.

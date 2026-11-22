@@ -100,11 +100,11 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
 
 ### Device layer
 
-1. **Full single-owner actor.** Replace the current shared `Mutex<Device>` +
-   interim poller with the actor described in the dossier: one command queue,
-   one scheduler, revisions, patches, reconnect backoff, and explicit pending
-   writes. The interim poller emits snapshots but does not yet patch control
-   values or reconcile external edits.
+1. **Single-owner actor.** Implemented: one command queue and scheduler own the
+   `Device`, all writes carry a connection generation, polling pauses around
+   writes/uploads, snapshots have monotonic actor revisions, and reconnect uses
+   capped exponential backoff. A stale write queued before a reconnect is
+   rejected. Revisioned patches remain for the conflict UX below.
 2. **External-change conflict UX.** Detect a changed preset/router on a poll,
    rebrowse, and show “Changed on device — board reloaded.” If a local write is
    pending, mark the affected control and let the user choose the winner.

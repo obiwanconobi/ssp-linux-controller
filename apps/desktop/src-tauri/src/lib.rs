@@ -1,3 +1,4 @@
+mod actor;
 mod commands;
 mod error;
 mod state;
@@ -24,6 +25,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .setup(|app| {
+            let state = tauri::Manager::state::<AppState>(app);
+            state.actor.attach_app(app.handle().clone());
             if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
                 match window.url() {
                     Ok(url) => eprintln!("StompStation window URL: {url}"),

@@ -317,7 +317,8 @@ These intentionally remain on the Phase 3 checklist:
   readback/verification. Basic NAM A2/PNAM/IR uploads were validated on 2.5.3
   (see the upload section above), including the A2 final marker;
 - live snapshot polling for 10 minutes and reconnect after unplugging USB
-  mid-poll (the interim poller exists but has not been hardened on hardware);
+  mid-poll (the single-owner actor has capped reconnect backoff and rejects
+  stale queued writes; hardware reconnect still needs a pass);
 - external preset/chain changes from the pedal while the app is open;
 - tuner open/close restore;
 - EQ writes, chain move/link writes, and Clear Chain on hardware. Chain

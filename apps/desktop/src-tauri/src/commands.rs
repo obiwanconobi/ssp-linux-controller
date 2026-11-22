@@ -1,19 +1,15 @@
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
-
 use serde::Serialize;
-use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, State};
+use serde_json::Value;
+use tauri::{AppHandle, State};
 
 use stomp_device::{
-    parse_host_port, validate_alias, ChainEdit, ConnectionInfo, Device, DeviceSnapshot,
-    UploadProgress, UploadResult,
+    validate_alias, ChainEdit, ConnectionInfo, Device, DeviceSnapshot, UploadResult,
 };
 use stomp_protocol::editor::BlockEditor;
 use stomp_protocol::ProtocolError;
 use stomp_upload::{Preflight, UploadKind};
 
+use crate::actor::ActorCommand;
 use crate::error::{IpcError, IpcResult};
 use crate::state::AppState;
 
@@ -71,32 +67,6 @@ pub struct TunerView {
     pub in_tune: bool,
 }
 
-fn lock<'a>(state: &'a AppState) -> IpcResult<MutexGuard<'a, Option<Device>>> {
-    state
-        .device
-        .lock()
-        .map_err(|_| IpcError::internal("device lock poisoned"))
-}
-
-async fn with_device<T, F>(device: Arc<Mutex<Option<Device>>>, operation: F) -> IpcResult<T>
-where
-    T: Send + 'static,
-    F: FnOnce(&mut Device) -> IpcResult<T> + Send + 'static,
-{
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        let mut guard = device
-            .lock()
-            .map_err(|_| IpcError::internal("device lock poisoned"))?;
-        let device = guard
-            .as_mut()
-            .ok_or_else(|| IpcError::from(ProtocolError::NotConnected))?;
-        operation(device)
-    })
-    .await
-    .map_err(|error| IpcError::internal(format!("device worker failed: {error}")))?;
-    result
-}
-
 #[tauri::command]
 pub fn get_bootstrap(app: AppHandle, state: State<'_, AppState>) -> Bootstrap {
     let ports = stomp_transport::list_serial_ports();
@@ -139,123 +109,25 @@ pub fn list_serial_ports() -> Vec<SerialPort> {
 }
 
 #[tauri::command]
-pub async fn connect(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    address: String,
-) -> IpcResult<ConnectionInfo> {
-    state.stop_poller();
-    let device_slot = state.device.clone();
-    let info = tauri::async_runtime::spawn_blocking(move || -> IpcResult<ConnectionInfo> {
-        let mut device = if let Some(text) = address.strip_prefix("serial:") {
-            let (port, baud) = text
-                .split_once('@')
-                .map(|(port, baud)| (port, baud.parse().unwrap_or(115_200)))
-                .unwrap_or((text, 115_200));
-            Device::serial(port, baud)
-        } else {
-            let address = address.strip_prefix("tcp:").unwrap_or(&address);
-            let (host, port) = parse_host_port(address).map_err(IpcError::from)?;
-            Device::tcp(host, port)
-        };
-        let info = device.connect().map_err(IpcError::from)?;
-        let mut guard = device_slot
-            .lock()
-            .map_err(|_| IpcError::internal("device lock poisoned"))?;
-        if let Some(previous) = guard.as_mut() {
-            previous.close();
-        }
-        *guard = Some(device);
-        Ok(info)
-    })
-    .await
-    .map_err(|error| IpcError::internal(format!("connect worker failed: {error}")))??;
-    state.start_poller(app);
-    Ok(info)
+pub async fn connect(state: State<'_, AppState>, address: String) -> IpcResult<ConnectionInfo> {
+    state
+        .actor
+        .call(|reply| ActorCommand::Connect { address, reply })
+        .await
 }
 
 #[tauri::command]
-pub async fn auto_connect(state: State<'_, AppState>, app: AppHandle) -> IpcResult<ConnectionInfo> {
-    state.stop_poller();
-    let device_slot = state.device.clone();
-    let info = tauri::async_runtime::spawn_blocking(move || -> IpcResult<ConnectionInfo> {
-        let mut last_error: Option<String> = None;
-
-        for found in stomp_transport::discover_mdns(Duration::from_millis(2_500))
-            .into_iter()
-            .filter(|found| found.valid)
-        {
-            let mut device = Device::tcp(found.host.clone(), found.port);
-            match device.connect() {
-                Ok(info) => {
-                    let mut guard = device_slot
-                        .lock()
-                        .map_err(|_| IpcError::internal("device lock poisoned"))?;
-                    if let Some(previous) = guard.as_mut() {
-                        previous.close();
-                    }
-                    *guard = Some(device);
-                    return Ok(info);
-                }
-                Err(error) => last_error = Some(format!("{}:{} ({error})", found.host, found.port)),
-            }
-        }
-
-        let ports = stomp_transport::list_serial_ports();
-        let mut tried = Vec::new();
-        for port in ports {
-            if !(port.usb || stomp_transport::is_usb_serial_device(&port.device)) {
-                continue;
-            }
-            if tried.len() >= 8 {
-                break;
-            }
-            tried.push(port.device.clone());
-            let mut device = Device::serial(port.device.clone(), 115_200);
-            match device.connect() {
-                Ok(info) => {
-                    let mut guard = device_slot
-                        .lock()
-                        .map_err(|_| IpcError::internal("device lock poisoned"))?;
-                    if let Some(previous) = guard.as_mut() {
-                        previous.close();
-                    }
-                    *guard = Some(device);
-                    return Ok(info);
-                }
-                Err(error) => last_error = Some(format!("{} ({error})", port.device)),
-            }
-        }
-
-        let detail = last_error
-            .map(|error| format!(" Last error: {error}."))
-            .unwrap_or_default();
-        let message = if cfg!(mobile) {
-            format!(
-                "No StompStation found over Wi-Fi.{detail} Enter the pedal's Wi-Fi address."
-            )
-        } else {
-            let ports = if tried.is_empty() {
-                "no USB serial ports were found".to_string()
-            } else {
-                format!("USB ports tried: {}.", tried.join(", "))
-            };
-            format!(
-                "No StompStation found over Wi-Fi or USB ({ports}).{detail} Connect manually, or launch with --demo for the simulator."
-            )
-        };
-        Err(IpcError::no_device(message))
-    })
-    .await
-    .map_err(|error| IpcError::internal(format!("auto-connect worker failed: {error}")))??;
-    state.start_poller(app);
-    Ok(info)
+pub async fn auto_connect(state: State<'_, AppState>) -> IpcResult<ConnectionInfo> {
+    state
+        .actor
+        .call(|reply| ActorCommand::AutoConnect { reply })
+        .await
 }
 
 #[tauri::command]
 pub async fn discover_wifi() -> IpcResult<Vec<stomp_transport::DiscoveredDevice>> {
     tauri::async_runtime::spawn_blocking(|| {
-        stomp_transport::discover_mdns(Duration::from_millis(1_500))
+        stomp_transport::discover_mdns(std::time::Duration::from_millis(1_500))
     })
     .await
     .map_err(|error| IpcError::internal(format!("discovery worker failed: {error}")))
@@ -263,33 +135,26 @@ pub async fn discover_wifi() -> IpcResult<Vec<stomp_transport::DiscoveredDevice>
 
 #[tauri::command]
 pub async fn disconnect(state: State<'_, AppState>) -> IpcResult<()> {
-    state.stop_poller();
-    let device = state.device.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut guard = device
-            .lock()
-            .map_err(|_| IpcError::internal("device lock poisoned"))?;
-        if let Some(device) = guard.as_mut() {
-            device.close();
-        }
-        *guard = None;
-        Ok(())
-    })
-    .await
-    .map_err(|error| IpcError::internal(format!("disconnect worker failed: {error}")))?
+    state
+        .actor
+        .call(|reply| ActorCommand::Disconnect { reply })
+        .await
 }
 
 #[tauri::command]
 pub async fn get_snapshot(state: State<'_, AppState>) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), |device| Ok(device.state())).await
+    state
+        .actor
+        .call(|reply| ActorCommand::Snapshot { reply })
+        .await
 }
 
 #[tauri::command]
 pub async fn refresh(state: State<'_, AppState>) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), |device| {
-        Ok(device.refresh_full_state()?)
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::Refresh { reply })
+        .await
 }
 
 #[tauri::command]
@@ -297,10 +162,13 @@ pub async fn select_block(
     state: State<'_, AppState>,
     block_path: String,
 ) -> IpcResult<BlockEditor> {
-    with_device(state.device.clone(), move |device| {
-        Ok(device.block_editor(&block_path))
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::BlockEditor {
+            path: block_path,
+            reply,
+        })
+        .await
 }
 
 #[tauri::command]
@@ -309,11 +177,10 @@ pub async fn set_control(
     path: String,
     value: Value,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.set_value(&path, value)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SetValue { path, value, reply })
+        .await
 }
 
 #[tauri::command]
@@ -322,20 +189,22 @@ pub async fn set_block(
     block_path: String,
     on: bool,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.set_block(&block_path, on)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SetBlock {
+            path: block_path,
+            on,
+            reply,
+        })
+        .await
 }
 
 #[tauri::command]
 pub async fn set_preset(state: State<'_, AppState>, name: String) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.set_preset(&name)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SetPreset { name, reply })
+        .await
 }
 
 #[tauri::command]
@@ -343,11 +212,10 @@ pub async fn save_preset(
     state: State<'_, AppState>,
     name: Option<String>,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.save_preset(name.as_deref())?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SavePreset { name, reply })
+        .await
 }
 
 #[tauri::command]
@@ -356,20 +224,22 @@ pub async fn rename_preset(
     old_name: String,
     new_name: String,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.rename_preset(&old_name, &new_name)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::RenamePreset {
+            old_name,
+            new_name,
+            reply,
+        })
+        .await
 }
 
 #[tauri::command]
 pub async fn edit_chain(state: State<'_, AppState>, edit: ChainEdit) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.edit_chain(edit)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::EditChain { edit, reply })
+        .await
 }
 
 #[tauri::command]
@@ -378,11 +248,14 @@ pub async fn set_master(
     control: String,
     value: f64,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.set_master(&control, value)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SetMaster {
+            control,
+            value,
+            reply,
+        })
+        .await
 }
 
 #[tauri::command]
@@ -392,11 +265,15 @@ pub async fn set_eq_band(
     field: String,
     value: f64,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.set_eq_band(index, &field, value)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SetEqBand {
+            index,
+            field,
+            value,
+            reply,
+        })
+        .await
 }
 
 #[tauri::command]
@@ -405,11 +282,14 @@ pub async fn set_eq_type(
     index: usize,
     value: String,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.set_eq_type(index, &value)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SetEqType {
+            index,
+            value,
+            reply,
+        })
+        .await
 }
 
 #[tauri::command]
@@ -417,21 +297,19 @@ pub async fn set_eq_enabled(
     state: State<'_, AppState>,
     enabled: bool,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.set_eq_enabled(enabled)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SetEqEnabled { enabled, reply })
+        .await
 }
 
 #[tauri::command]
 pub async fn set_alias(state: State<'_, AppState>, alias: String) -> IpcResult<DeviceSnapshot> {
     validate_alias(&alias)?;
-    with_device(state.device.clone(), move |device| {
-        device.set_value(r"root\sys\alias", json!(alias))?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::SetAlias { alias, reply })
+        .await
 }
 
 #[tauri::command]
@@ -441,11 +319,10 @@ pub async fn factory_reset(state: State<'_, AppState>, confirm: String) -> IpcRe
             "type RESET to confirm the factory reset".into(),
         )));
     }
-    with_device(state.device.clone(), |device| {
-        device.set_value(r"root\settings\misc\action\factory", json!("run"))?;
-        Ok(())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::FactoryReset { reply })
+        .await
 }
 
 #[tauri::command]
@@ -456,23 +333,21 @@ pub async fn preflight_upload(
     target: String,
     slot: Option<usize>,
 ) -> IpcResult<Preflight> {
-    with_device(state.device.clone(), move |device| {
-        let kind = parse_upload_kind(&kind)?;
-        let path = PathBuf::from(&file_path);
-        let raw = std::fs::read(&path)
-            .map_err(|error| IpcError::internal(format!("could not read file: {error}")))?;
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("upload");
-        Ok(device.preflight_upload(kind, &raw, file_name, &target, slot)?)
-    })
-    .await
+    let kind = parse_upload_kind(&kind)?;
+    state
+        .actor
+        .call(|reply| ActorCommand::PreflightUpload {
+            kind,
+            file_path,
+            target,
+            slot,
+            reply,
+        })
+        .await
 }
 
 #[tauri::command]
 pub async fn begin_upload(
-    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     kind: String,
@@ -480,78 +355,23 @@ pub async fn begin_upload(
     target: String,
     slot: Option<usize>,
 ) -> IpcResult<UploadCompletion> {
-    use std::sync::atomic::Ordering;
-
-    if state.upload_active.swap(true, Ordering::SeqCst) {
-        return Err(IpcError::from(ProtocolError::InvalidRequest(
-            "another upload is already in flight".into(),
-        )));
-    }
-    state.upload_cancel.store(false, Ordering::SeqCst);
-    // Uploads own the transport. The poller must not steal chunk ACKs.
-    state.poll_paused.store(true, Ordering::SeqCst);
-
-    let cancel = state.upload_cancel.clone();
-    let result = with_device(state.device.clone(), move |device| {
-        let kind = parse_upload_kind(&kind)?;
-        let path = PathBuf::from(&file_path);
-        let raw = std::fs::read(&path)
-            .map_err(|error| IpcError::internal(format!("could not read file: {error}")))?;
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("upload")
-            .to_string();
-        let event_app = app.clone();
-        let outcome = device.upload_with_progress(
+    let kind = parse_upload_kind(&kind)?;
+    state
+        .actor
+        .call(|reply| ActorCommand::BeginUpload {
+            id,
             kind,
-            &raw,
-            &file_name,
-            &target,
+            file_path,
+            target,
             slot,
-            |progress: &UploadProgress| {
-                let total = progress.total_acks.max(1);
-                let _ = event_app.emit(
-                    "device://upload",
-                    UploadProgressEvent {
-                        id: id.clone(),
-                        kind: progress.kind,
-                        target: progress.target.clone(),
-                        slot: progress.slot,
-                        name: progress.name.clone(),
-                        ack: progress.ack,
-                        total_acks: progress.total_acks,
-                        progress: (progress.ack as f64 / total as f64) * 100.0,
-                        bytes_sent: progress.bytes_sent,
-                        total_bytes: progress.total_bytes,
-                    },
-                );
-                !cancel.load(Ordering::SeqCst)
-            },
-        )?;
-        Ok(UploadCompletion {
-            cancelled: outcome.is_none(),
-            result: outcome,
-            snapshot: device.state(),
+            reply,
         })
-    })
-    .await;
-
-    state.poll_paused.store(false, Ordering::SeqCst);
-    state.upload_active.store(false, Ordering::SeqCst);
-    result
+        .await
 }
 
 #[tauri::command]
 pub fn cancel_upload(state: State<'_, AppState>) -> bool {
-    use std::sync::atomic::Ordering;
-
-    if state.upload_active.load(Ordering::SeqCst) {
-        state.upload_cancel.store(true, Ordering::SeqCst);
-        true
-    } else {
-        false
-    }
+    state.actor.cancel_upload()
 }
 
 #[tauri::command]
@@ -560,11 +380,14 @@ pub async fn delete_list_item(
     list_path: String,
     index: usize,
 ) -> IpcResult<DeviceSnapshot> {
-    with_device(state.device.clone(), move |device| {
-        device.delete_list_item(&list_path, index)?;
-        Ok(device.state())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::DeleteListItem {
+            list_path,
+            index,
+            reply,
+        })
+        .await
 }
 
 fn parse_upload_kind(kind: &str) -> IpcResult<UploadKind> {
@@ -580,52 +403,29 @@ fn parse_upload_kind(kind: &str) -> IpcResult<UploadKind> {
 
 #[tauri::command]
 pub async fn tuner_open(state: State<'_, AppState>) -> IpcResult<TunerView> {
-    let previous = state.tuner_previous.clone();
-    with_device(state.device.clone(), move |device| {
-        let on_path = r"root\settings\tuner\on_off";
-        if !device.nodes().contains(on_path) {
-            return Ok(unavailable_tuner());
-        }
-        let was_on = device
-            .nodes()
-            .value_str(on_path)
-            .is_some_and(|value| value.eq_ignore_ascii_case("ON"));
-        *previous
-            .lock()
-            .map_err(|_| IpcError::internal("tuner state lock poisoned"))? = Some(was_on);
-        if !was_on {
-            device.set_value(on_path, json!("ON"))?;
-        }
-        read_tuner(device)
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::TunerOpen { reply })
+        .await
 }
 
 #[tauri::command]
 pub async fn tuner_poll(state: State<'_, AppState>) -> IpcResult<TunerView> {
-    with_device(state.device.clone(), read_tuner).await
+    state
+        .actor
+        .call(|reply| ActorCommand::TunerPoll { reply })
+        .await
 }
 
 #[tauri::command]
 pub async fn tuner_close(state: State<'_, AppState>) -> IpcResult<()> {
-    let previous = state.tuner_previous.clone();
-    with_device(state.device.clone(), move |device| {
-        let on_path = r"root\settings\tuner\on_off";
-        let was_on = previous
-            .lock()
-            .map_err(|_| IpcError::internal("tuner state lock poisoned"))?
-            .take()
-            .unwrap_or(false);
-        if !device.nodes().contains(on_path) {
-            return Ok(());
-        }
-        device.set_value(on_path, json!(if was_on { "ON" } else { "OFF" }))?;
-        Ok(())
-    })
-    .await
+    state
+        .actor
+        .call(|reply| ActorCommand::TunerClose { reply })
+        .await
 }
 
-fn unavailable_tuner() -> TunerView {
+pub(crate) fn unavailable_tuner() -> TunerView {
     TunerView {
         available: false,
         message: Some("This firmware does not expose a tuner.".to_string()),
@@ -639,9 +439,9 @@ fn unavailable_tuner() -> TunerView {
     }
 }
 
-fn read_tuner(device: &mut Device) -> IpcResult<TunerView> {
+pub(crate) fn read_tuner(device: &mut Device) -> TunerView {
     if !device.nodes().contains(r"root\settings\tuner\on_off") {
-        return Ok(unavailable_tuner());
+        return unavailable_tuner();
     }
     for path in [
         r"root\settings\tuner\on_off",
@@ -655,7 +455,7 @@ fn read_tuner(device: &mut Device) -> IpcResult<TunerView> {
     }
     let nodes = device.nodes();
     let cents = nodes.value_f64(r"root\settings\tuner\cents").unwrap_or(0.0);
-    Ok(TunerView {
+    TunerView {
         available: true,
         message: None,
         enabled: nodes
@@ -672,19 +472,16 @@ fn read_tuner(device: &mut Device) -> IpcResult<TunerView> {
             .value_f64(r"root\settings\tuner\level")
             .unwrap_or(-90.0),
         in_tune: cents.abs() <= 3.0,
-    })
+    }
 }
 
 #[tauri::command]
 pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> IpcResult<String> {
-    let snapshot = with_device(state.device.clone(), |device| Ok(device.state())).await?;
-    let transport = {
-        let guard = lock(&state)?;
-        guard
-            .as_ref()
-            .map(|device| device.transport_description())
-            .unwrap_or_else(|| "disconnected".to_string())
-    };
+    let diagnostics = state
+        .actor
+        .call(|reply| ActorCommand::Diagnostics { reply })
+        .await?;
+    let status = &diagnostics.status;
     let mut lines = vec![
         "StompStation PRO diagnostic report".to_string(),
         format!(
@@ -692,17 +489,37 @@ pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Ipc
             app.package_info().version,
             std::env::consts::OS
         ),
-        format!("transport: {transport}"),
-        format!("device: {} ({})", snapshot.device_name, snapshot.device_id),
-        format!("firmware: {}", snapshot.firmware),
+        format!("transport: {}", status.transport),
         format!(
+            "connection: {}",
+            if status.connected {
+                "connected"
+            } else {
+                "offline"
+            }
+        ),
+        format!("pending writes: {}", status.pending_writes),
+        format!("reconnect attempts: {}", status.reconnect_attempt),
+    ];
+    if let Some(error) = status.last_error.as_deref() {
+        lines.push(format!("last error: {error}"));
+    }
+    if let Some(snapshot) = diagnostics.snapshot.as_ref() {
+        lines.push(format!(
+            "device: {} ({})",
+            snapshot.device_name, snapshot.device_id
+        ));
+        lines.push(format!("firmware: {}", snapshot.firmware));
+        lines.push(format!(
             "preset: {} ({:?})",
             snapshot.preset.current, snapshot.preset.index
-        ),
-        format!("chain slots: {}", snapshot.chain.slots.len()),
-        format!("revision: {}", snapshot.revision),
-        "serial ports:".to_string(),
-    ];
+        ));
+        lines.push(format!("chain slots: {}", snapshot.chain.slots.len()));
+        lines.push(format!("revision: {}", snapshot.revision));
+    } else {
+        lines.push("device: not connected".to_string());
+    }
+    lines.push("serial ports:".to_string());
     for port in stomp_transport::list_serial_ports() {
         lines.push(format!(
             "  {}  {}  usb={}  {:?}:{:?}",

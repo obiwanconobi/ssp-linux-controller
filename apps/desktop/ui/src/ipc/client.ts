@@ -115,6 +115,16 @@ export interface RustTunerView {
   in_tune: boolean;
 }
 
+export interface RustActorStatus {
+  connected: boolean;
+  transport: string;
+  address: string;
+  reconnect_attempt: number;
+  retry_in_ms: number | null;
+  pending_writes: number;
+  last_error: string | null;
+}
+
 export interface RustEditorNode {
   kind: string;
   path: string;

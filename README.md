@@ -23,7 +23,7 @@ The project is deliberately split into two worlds:
 | Area | State |
 | --- | --- |
 | Phase 0 — protocol freeze | Core ported and tested; simulator + hardware fixtures; Python/Rust differential is clean on 2.4.4 and live 2.5.3 |
-| Phase 1 — walking skeleton | Tauri commands, USB/TCP transports, browse, writes, presets, chain edits, snapshot mapping, real connect path; interim poller emits live snapshots and pauses during uploads; reversible gate write/readback/restore passed on hardware; launch discovery is Wi-Fi → USB with an explicit no-device state |
+| Phase 1 — walking skeleton | Tauri commands, USB/TCP transports, browse, writes, presets, chain edits, snapshot mapping, real connect path; the single-owner actor owns polling, reconnect backoff, and monotonic snapshot revisions; reversible gate write/readback/restore passed on hardware; launch discovery is Wi-Fi → USB with an explicit no-device state |
 | Phase 2 — design system & board | Design tokens, three themes, component kit, Board, Amp room, Global EQ, Library, Settings, Stage mode, command palette, tuner deck, responsive layouts |
 | Phase 3 — deep parity | Uploads are wired end-to-end for NAM, Parametric NAM, and IR only: native picker, device preflight with model/WAV structural validation, capture-list guard, slot selection, ACK progress, cancel-after-current-chunk, and refreshed-list highlighting. Both NAM A1 (flat WaveNet/LSTM weights) and NAM A2 (`SlimmableContainer` submodels) are supported and covered by validator/simulator tests; basic A2, PNAM, and IR uploads are validated on 2.5.3, including the `wav_48000` IR list type. A1 hardware upload, cancel-after-ACK, and overwrite paths remain to be exercised. Preset save, chain add/remove, Wi-Fi discovery, and the Parametric NAM editor are hardware-validated on 2.4.4; 2.5.3 PNAM switches and multi-client Wi-Fi were verified live |
 | Live updates | Interim Tauri poller emits snapshots every 500 ms, with a 2 s browse on TCP; uploads pause polling |
@@ -391,14 +391,15 @@ cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
 
 ## Known gaps / next steps
 
-1. **Full actor + patch stream.** The interim poller now emits
-   `device://snapshot` events and pauses during uploads, but Tauri commands still
-   guard a single `Device` behind a mutex. The dossier's dedicated actor thread,
-   revisioned `device://patch` events, reconnect backoff, and pending-write
-   reconciliation remain the next structural step.
-2. **Upload picker.** The Rust ACK upload state machine and `begin_upload`
-   command exist; the UI queue is still a preview. Wire the file dialog, real
-   preflight, progress events, cancellation boundary, and list refresh.
+1. **Actor patch stream + conflict UX.** The single-owner actor now owns the
+   transport, command queue, polling scheduler, reconnect backoff, monotonic
+   snapshot revisions, and pending-write rejection across reconnects. The
+   remaining structural step is revisioned `device://patch` events plus the
+   external-change “keep device or local value” flow.
+2. **Upload hardware validation.** The picker → preflight → `begin_upload`
+   path, ACK progress, cancel boundary, refreshed target list, and new-slot
+   highlight are wired. A1, cancel-after-ACK, overwrite, and audio readback
+   still need a hardware pass.
 3. **Settings discovery panel.** Launch/manual discovery works (Wi-Fi → USB,
    mDNS list), and Settings now re-scans real serial/mDNS results, shows the
    active transport/address, and accepts a manual TCP target.
