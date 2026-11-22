@@ -20,6 +20,7 @@ export const TitleBar = () => {
   const autoSearching = connection.autoSearch === 'searching';
   const autoFailed = connection.autoSearch === 'failed';
   const setTunerOpen = useAppStore((state) => state.setTunerOpen);
+  const tunerOpen = useAppStore((state) => state.tunerOpen);
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
   const setShortcutsOpen = useAppStore((state) => state.setShortcutsOpen);
   const setActivityOpen = useAppStore((state) => state.setActivityOpen);
@@ -121,7 +122,7 @@ export const TitleBar = () => {
         <button
           type="button"
           className="btn btn--ghost btn--sm"
-          onClick={() => setTunerOpen(true)}
+          onClick={() => setTunerOpen(!tunerOpen)}
           title="Tuner (T)"
         >
           TUNER

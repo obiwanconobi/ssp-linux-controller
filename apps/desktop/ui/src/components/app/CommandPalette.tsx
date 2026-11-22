@@ -39,6 +39,7 @@ export const CommandPalette = () => {
   const setOpen = useAppStore((state) => state.setCommandOpen);
   const setView = useAppStore((state) => state.setView);
   const setTunerOpen = useAppStore((state) => state.setTunerOpen);
+  const tunerOpen = useAppStore((state) => state.tunerOpen);
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
   const setActivityOpen = useAppStore((state) => state.setActivityOpen);
   const setShortcutsOpen = useAppStore((state) => state.setShortcutsOpen);
@@ -76,7 +77,7 @@ export const CommandPalette = () => {
       { id: 'new', title: 'New patch', detail: 'Create a patch slot', group: 'Preset', icon: Plus, run: () => addPreset() },
       { id: 'undo', title: 'Undo last edit', group: 'Edit', icon: Undo2, shortcut: '⌘Z', run: () => undo() },
       { id: 'redo', title: 'Redo', group: 'Edit', icon: RefreshCw, shortcut: '⇧⌘Z', run: () => redo() },
-      { id: 'tuner', title: 'Toggle tuner deck', group: 'Performance', icon: AudioLines, shortcut: 'T', run: () => setTunerOpen(true) },
+      { id: 'tuner', title: 'Toggle tuner deck', group: 'Performance', icon: AudioLines, shortcut: 'T', run: () => setTunerOpen(!tunerOpen) },
       { id: 'connect', title: 'Connect or disconnect', detail: 'Choose USB, network, or the simulator', group: 'Device', icon: Wifi, run: () => setConnectionOpen(true) },
       { id: 'offline', title: 'Disconnect from device', detail: 'Keep the board readable, disable writes', group: 'Device', icon: Unplug, run: () => disconnect() },
       { id: 'activity', title: 'Open activity log', group: 'Device', icon: Activity, run: () => setActivityOpen(true) },
@@ -99,6 +100,7 @@ export const CommandPalette = () => {
     setTunerOpen,
     setView,
     theme,
+    tunerOpen,
     undo,
   ]);
 

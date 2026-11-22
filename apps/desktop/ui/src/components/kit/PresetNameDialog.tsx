@@ -16,7 +16,6 @@ interface PresetNameDialogProps {
   submitLabel: string;
   names: string[];
   excludeName?: string;
-  allowOverwrite?: boolean;
   disabled?: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (name: string) => boolean | void;
@@ -30,21 +29,26 @@ export const PresetNameDialog = ({
   submitLabel,
   names,
   excludeName,
-  allowOverwrite = false,
   disabled = false,
   onOpenChange,
   onSubmit,
 }: PresetNameDialogProps) => {
   const [value, setValue] = useState(initialName);
+  const [touched, setTouched] = useState(false);
 
   useEffect(() => {
-    if (open) setValue(initialName);
+    if (open) {
+      setValue(initialName);
+      setTouched(false);
+    }
   }, [initialName, open]);
 
   const trimmed = value.trim();
   const problem = presetNameError(trimmed);
   const duplicate = matchingPresetName(names, trimmed, excludeName);
-  const blocked = Boolean(problem) || Boolean(duplicate && !allowOverwrite) || disabled;
+  const blocked = Boolean(problem) || Boolean(duplicate) || disabled;
+  const showProblem = touched && problem;
+  const showDuplicate = touched && !problem && duplicate;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -82,23 +86,22 @@ export const PresetNameDialog = ({
                 className="input input--mono"
                 autoFocus
                 value={value}
-                onChange={(event) => setValue(event.target.value)}
+                placeholder="Patch name"
+                onChange={(event) => {
+                  setValue(event.target.value);
+                  setTouched(true);
+                }}
                 onFocus={(event) => event.currentTarget.select()}
               />
-              {problem && (
+              {showProblem && (
                 <p className="preflight__warning preflight__warning--error" role="alert">
                   <AlertTriangle size={12} aria-hidden="true" /> {problem}
                 </p>
               )}
-              {!problem && duplicate && (
-                <p
-                  className={`preflight__warning${allowOverwrite ? '' : ' preflight__warning--error'}`}
-                  role={allowOverwrite ? undefined : 'alert'}
-                >
-                  <AlertTriangle size={12} aria-hidden="true" />
-                  {allowOverwrite
-                    ? `A patch named “${duplicate}” already exists and will be overwritten.`
-                    : `A patch named “${duplicate}” already exists.`}
+              {showDuplicate && (
+                <p className="preflight__warning preflight__warning--error" role="alert">
+                  <AlertTriangle size={12} aria-hidden="true" />A patch named “{duplicate}”
+                  already exists.
                 </p>
               )}
             </div>

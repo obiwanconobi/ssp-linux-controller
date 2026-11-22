@@ -372,6 +372,14 @@ fn is_connection_loss(error: &ProtocolError) -> bool {
     )
 }
 
+/// Preserve the state from before the first open. A repeated open while the
+/// tuner is already on must not turn the saved "off" state into "on".
+fn remember_tuner_previous(previous: &mut Option<bool>, was_on: bool) {
+    if previous.is_none() {
+        *previous = Some(was_on);
+    }
+}
+
 /// State signature used to bump revisions only when the board changes.
 /// Meters are intentionally excluded so a live meter update does not count as
 /// a device change; the snapshot is still emitted with the same revision.
@@ -992,8 +1000,11 @@ impl Actor {
         });
         match result {
             Ok((previous, view)) => {
-                if previous.is_some() {
-                    self.tuner_previous = previous;
+                if let Some(was_on) = previous {
+                    // A second open while the deck is already open must not
+                    // replace the original pre-open state with "ON"; otherwise
+                    // closing would restore ON and leave the pedal tuner on.
+                    remember_tuner_previous(&mut self.tuner_previous, was_on);
                     self.after_write(WRITE_COOLDOWN);
                 }
                 Ok(view)
@@ -1208,6 +1219,16 @@ mod tests {
         assert!(
             actor.reconnect_at.unwrap() <= Instant::now() + MAX_BACKOFF + Duration::from_millis(50)
         );
+    }
+
+    #[test]
+    fn repeated_tuner_open_preserves_the_original_state() {
+        let mut previous = None;
+        remember_tuner_previous(&mut previous, false);
+        assert_eq!(previous, Some(false));
+        // The second open sees ON, but must keep the original OFF.
+        remember_tuner_previous(&mut previous, true);
+        assert_eq!(previous, Some(false));
     }
 
     #[test]

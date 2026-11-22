@@ -103,7 +103,7 @@ export const PresetRail = () => {
                 <DropdownMenu.Item
                   className="menu__item"
                   disabled={!preset.current || save.saving}
-                  onSelect={() => setSaveAs(preset.current)}
+                  onSelect={() => setSaveAs('')}
                 >
                   <span>
                     <strong>Save as…</strong>
@@ -231,13 +231,12 @@ export const PresetRail = () => {
       />
 
       <PresetNameDialog
-        open={Boolean(saveAs)}
+        open={saveAs !== null}
         title="Save patch as"
-        description="Save the current edit buffer under another name. An existing patch with the same name will be overwritten."
+        description="Save the current edit buffer under a new name. Existing patch names cannot be reused."
         initialName={saveAs ?? ''}
         submitLabel="Save as"
         names={preset.names}
-        allowOverwrite
         disabled={save.saving}
         onOpenChange={(open) => !open && setSaveAs(null)}
         onSubmit={(name) => savePresetAs(name)}

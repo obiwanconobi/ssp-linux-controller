@@ -64,8 +64,10 @@ actor.
 
 - [x] Add a Save As action beside rename.
 - [x] Use the existing `save_preset(name)` core and name validation.
-- [x] Add overwrite warning, post-save list refresh, and dirty-state handling.
-- [ ] Validate Save As and overwrite on hardware.
+- [x] Add duplicate-name rejection, post-save list refresh, and dirty-state
+      handling.
+- [x] Hardware-validate Save As to a new slot. The firmware creates a new preset;
+      overwrite is not supported and is intentionally not needed.
 
 Why now: the core already supports it; this is the lowest-risk visible gap.
 
@@ -93,7 +95,8 @@ delete/clear hardware validation.
 ### 1.4 Tuner fallback polish
 
 - [x] Poll only while the tuner is open (already mostly true).
-- [ ] Restore the pre-open tuner state (already implemented; verify on hardware).
+- [ ] Restore the pre-open tuner state; re-test after the duplicate-open
+      state-capture fix.
 - [x] Handle firmware without a tuner node gracefully instead of surfacing a
       write error.
 
@@ -204,8 +207,8 @@ P1 defects.
 
 1. Run the 0.2 hardware validation on a backed-up device, starting with
    single-item delete, Clear Chain, and upload cancel/overwrite.
-2. Hardware-validate Save As, tuner restore, reconnect, external changes with a
-   pending edit, and device undo/redo (especially router and EQ operations).
+2. Hardware-validate tuner restore, reconnect, external changes with a pending
+   edit, and device undo/redo (especially router and EQ operations).
 3. Start P3: density, contrast, and visual/accessibility baselines.
 
 Those three unblock the release and close the highest-value safe gaps before

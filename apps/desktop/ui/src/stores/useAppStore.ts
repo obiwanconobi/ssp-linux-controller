@@ -911,7 +911,17 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       get().notify(problem, 'bad');
       return false;
     }
-    const { save, connection } = get();
+    const { preset, save, connection } = get();
+    if (
+      preset.names.some(
+        (existing) =>
+          existing.trim().length > 0 &&
+          existing.toLowerCase() === trimmed.toLowerCase(),
+      )
+    ) {
+      get().notify(`A preset named “${trimmed}” already exists`, 'bad');
+      return false;
+    }
     if (save.saving) return false;
     set({ save: { ...save, saving: true } });
 
@@ -2209,6 +2219,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   setCommandOpen: (commandOpen) => set({ commandOpen }),
   setConnectionOpen: (connectionOpen) => set({ connectionOpen }),
   setTunerOpen: (tunerOpen) => {
+    if (get().tunerOpen === tunerOpen) return;
     set({ tunerOpen });
     if (tunerOpen) {
       set((state) => ({ tuner: { ...state.tuner, enabled: true } }));

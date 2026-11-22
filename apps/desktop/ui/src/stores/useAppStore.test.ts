@@ -438,15 +438,20 @@ describe('device connection integration', () => {
     expect(useAppStore.getState().emptySlots).toContainEqual({ row: 0, col: 14 });
   });
 
-  it('rejects empty and oversized names before saving as', async () => {
+  it('rejects empty, oversized, and duplicate names before saving as', async () => {
     client.getSnapshot.mockResolvedValue(fixture.snapshot);
     client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
     await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
     client.savePreset.mockClear();
+    const existing = useAppStore
+      .getState()
+      .preset.names.find((name) => name.trim().length > 0)!;
 
     expect(useAppStore.getState().savePresetAs('')).toBe(false);
     expect(useAppStore.getState().savePresetAs('   ')).toBe(false);
     expect(useAppStore.getState().savePresetAs('x'.repeat(64))).toBe(false);
+    expect(useAppStore.getState().savePresetAs(existing)).toBe(false);
+    expect(useAppStore.getState().savePresetAs(existing.toUpperCase())).toBe(false);
     expect(client.savePreset).not.toHaveBeenCalled();
     expect(useAppStore.getState().save.saving).toBe(false);
   });
@@ -508,6 +513,21 @@ describe('device connection integration', () => {
     useAppStore.getState().setTunerOpen(false);
     expect(client.tunerClose).toHaveBeenCalled();
     expect(useAppStore.getState().tuner.enabled).toBe(false);
+  });
+
+  it('does not re-open the tuner when the deck is already open', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.tunerOpen.mockClear();
+
+    useAppStore.getState().setTunerOpen(true);
+    await vi.waitFor(() => expect(client.tunerOpen).toHaveBeenCalledTimes(1));
+    useAppStore.getState().setTunerOpen(true);
+    expect(client.tunerOpen).toHaveBeenCalledTimes(1);
+
+    useAppStore.getState().setTunerOpen(false);
+    expect(client.tunerClose).toHaveBeenCalled();
   });
 
   it('marks a master change as a conflict while a local write is pending', async () => {

@@ -142,9 +142,6 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
    shell and a model-only plate.
 6. Visual regression baselines for Board, Amp room, EQ, Library, Settings, Stage,
    tuner, and the three themes.
-7. **Save As hardware pass.** The desktop dialog, overwrite warning, and
-   post-save list refresh are implemented; validate new-slot and overwrite
-   behavior on real firmware.
 
 ### Hardware validation still open
 

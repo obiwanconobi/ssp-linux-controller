@@ -331,6 +331,12 @@ was cleared. Indices are not shifted. The simulator and UI tests cover the
 flow; the firmware's exact zero-fill/ACK semantics are still unvalidated on
 hardware.
 
+## Save As (validated on 2.5.3)
+
+Save As creates a new preset slot on this firmware. Existing names are rejected
+in 0.4.1 by the dialog, the store, and the device core; the firmware does not
+overwrite an existing preset, and the UI no longer claims it will.
+
 ## Still unvalidated on hardware
 
 These intentionally remain on the Phase 3 checklist:
@@ -350,13 +356,12 @@ These intentionally remain on the Phase 3 checklist:
 - external preset/chain/control changes from the pedal while the app is open,
   including a local edit pending at the same time (the conflict bar and
   stale-write rollback are simulator/unit tested);
-- tuner open/close restore;
+- tuner open/close restore; v0.4.1 fixes duplicate-open state capture and makes
+  the title-bar/palette tuner actions toggle, pending hardware retest;
 - EQ writes, chain move/link writes, and Clear Chain on hardware. Chain
   add/remove and the PNAM editor were exercised; move/link, clear, and EQ writes
   still need a pass. Clear Chain is covered by the simulator and UI smoke, and
   preserves fixed blocks/connectors by construction.
-- Save As to a new/empty preset slot and Save As over an existing name (desktop
-  dialog implemented; hardware pass pending).
 - device undo/redo of control, master, EQ, bypass, and router edits, including
   history clearing after reconnect (simulator/store tests cover the inverse
   writes; hardware pass pending).

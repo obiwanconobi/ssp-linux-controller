@@ -452,7 +452,8 @@ impl Device {
     pub fn save_preset(&mut self, name: Option<&str>) -> Result<(), ProtocolError> {
         let preset = preset_state(&self.nodes);
         let target = preset.path.unwrap_or_else(|| PRESET_PATH.to_string());
-        let name = name.unwrap_or(&preset.current).to_string();
+        let requested = name.map(str::to_string);
+        let name = requested.clone().unwrap_or_else(|| preset.current.clone());
         if name.is_empty() {
             return Err(ProtocolError::InvalidRequest(
                 "there is no current preset to save".into(),
@@ -460,6 +461,15 @@ impl Device {
         }
         if let Some(problem) = preset_name_error(&name) {
             return Err(ProtocolError::InvalidRequest(problem.into()));
+        }
+        if requested.is_some()
+            && preset.names.iter().any(|existing| {
+                !existing.is_empty() && existing.to_lowercase() == name.to_lowercase()
+            })
+        {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "a preset named {name:?} already exists"
+            )));
         }
         self.write_payload(&target, json!({ "value": name, "save": "save" }))
     }
@@ -1432,10 +1442,21 @@ mod tests {
                     .clone(),
             ),
         );
+        device.nodes.insert(
+            PRESET_LIST_PATH,
+            stomp_protocol::node::Node::new(
+                json!({"type":"list","value":["Dumble","Other"]})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
 
         let error = device.save_preset(Some("bad\nname")).unwrap_err();
         assert!(error.to_string().contains("control characters"));
         let error = device.save_preset(Some(&"x".repeat(64))).unwrap_err();
         assert!(error.to_string().contains("63 bytes"));
+        let error = device.save_preset(Some("other")).unwrap_err();
+        assert!(error.to_string().contains("already exists"));
     }
 }

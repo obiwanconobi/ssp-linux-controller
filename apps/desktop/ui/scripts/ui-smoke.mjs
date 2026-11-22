@@ -349,9 +349,13 @@ try {
   await page.locator('#preset-name').fill(originalPreset);
   assert(
     (await page.locator('.dialog-content .preflight__warning').innerText()).includes(
-      'will be overwritten',
+      'already exists',
     ),
-    'save-as did not warn about overwriting an existing patch',
+    'save-as did not reject an existing patch name',
+  );
+  assert(
+    await page.getByRole('button', { name: 'Save as', exact: true }).isDisabled(),
+    'save-as should be disabled for an existing patch name',
   );
   await page.getByRole('button', { name: 'Cancel' }).click();
 

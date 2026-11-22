@@ -402,22 +402,19 @@ cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
 3. **Settings discovery panel.** Launch/manual discovery works (Wi-Fi → USB,
    mDNS list), and Settings now re-scans real serial/mDNS results, shows the
    active transport/address, and accepts a manual TCP target.
-4. **Save As hardware pass.** The desktop dialog, overwrite warning, and list
-   refresh are implemented; validate new-slot and overwrite behavior on real
-   firmware.
-5. **Device undo hardware pass.** Device edits now record typed operations and
+4. **Device undo hardware pass.** Device edits now record typed operations and
    replay inverse control/router writes; validate undo/redo and reconnect
    history clearing on real firmware.
-6. **Hardware validation.** Uploads still need a scratch-slot pass; move/link,
-   EQ writes, external-change handling, tuner restore, unplug/replug, and
-   ten-minute polling remain open. See the hardware checklist.
-7. **Android release.** Physical-phone Wi-Fi/mDNS validation, USB-OTG serial
+5. **Hardware validation.** Uploads still need a scratch-slot pass; move/link,
+   EQ writes, external-change handling, tuner restore, and unplug/replug remain
+   open. Ten-minute idle polling passed read-only. See the hardware checklist.
+6. **Android release.** Physical-phone Wi-Fi/mDNS validation, USB-OTG serial
    (optional), Play Store AAB/upload-key signing, tablet layout, and
    reconnect-on-resume remain open.
-8. **Packaging.** GitHub Actions builds Windows NSIS/MSI and Linux
+7. **Packaging.** GitHub Actions builds Windows NSIS/MSI and Linux
    deb/AppImage artifacts. macOS signing/notarization, an updater, crash-report
    opt-in, and visual regression baselines remain.
-9. **Accessibility audit.** Knobs expose the ARIA slider contract, LEDs have
+8. **Accessibility audit.** Knobs expose the ARIA slider contract, LEDs have
    text labels, graphs have numeric cards, and focus order follows the chain.
    Still required: axe-core in CI and a keyboard-only pass on every surface.
 
