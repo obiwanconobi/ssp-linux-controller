@@ -128,11 +128,10 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
 
 ### UI polish
 
-1. Virtualize the library table once slot lists exceed a few hundred rows.
-2. Add a narrow-window preset drawer (currently the rail hides below 900 px).
-3. Add a “compact chain” option for 12+ block chains: two knobs per standard
+1. Add a narrow-window preset drawer (currently the rail hides below 900 px).
+2. Add a “compact chain” option for 12+ block chains: two knobs per standard
    shell and a model-only plate.
-4. Visual regression baselines for Board, Amp room, EQ, Library, Settings, Stage,
+3. Visual regression baselines for Board, Amp room, EQ, Library, Settings, Stage,
    tuner, and the three themes.
 
 ### Hardware validation still open

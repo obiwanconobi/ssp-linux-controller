@@ -178,7 +178,9 @@ part of the release candidate.
       utility rail has one activity action instead of two.
 - [x] Add focused, pending, conflict, and error visual-state checks with axe
       scans in all three themes.
-- [ ] Virtualize the Library table for very large lists.
+- [x] Virtualize the capture and local-file tables above 80 rows. The UI smoke
+      loads a 240-file folder, checks that only visible rows mount, and scrolls
+      to the last capture.
 - [ ] Add a narrow-window preset drawer.
 - [ ] Add compact-chain mode for 12+ blocks.
 - [ ] Add visual regression baselines for Board, Amp room, EQ, Library,
@@ -225,8 +227,8 @@ P1 defects.
    chain move/link, USB unplug/replug, external changes with a pending edit,
    and device undo/redo.
 2. Start P3 with the WCAG contrast audit and axe-core/keyboard checks.
-3. Then Library virtualization, the narrow-window preset drawer, compact-chain
-   mode, and visual regression baselines.
+3. Then the narrow-window preset drawer, compact-chain mode, and visual
+   regression baselines.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.

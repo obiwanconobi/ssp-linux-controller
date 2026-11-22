@@ -27,6 +27,14 @@ writeFileSync(join(localCaptures, 'Amp.nam'), '{}');
 writeFileSync(join(localCaptures, 'Drive.pnam'), '{}');
 writeFileSync(join(localCaptures, 'sub', 'Cab.wav'), 'RIFF');
 
+const largeCaptures = mkdtempSync(join(tmpdir(), 'stomp-large-captures-'));
+for (let index = 0; index < 240; index += 1) {
+  writeFileSync(
+    join(largeCaptures, `Capture-${String(index).padStart(3, '0')}.nam`),
+    '{}',
+  );
+}
+
 const waitForServer = async () => {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     try {
@@ -287,6 +295,34 @@ try {
   await page.locator('.local-library tbody tr').first().locator('button', { hasText: 'Preflight' }).click();
   assert(await page.locator('.preflight').isVisible(), 'local preflight did not open');
 
+  await page.locator('.segmented button', { hasText: 'Local files' }).click();
+  await page.waitForSelector('.local-library__folder');
+  await page.locator('input[webkitdirectory]').setInputFiles(largeCaptures);
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('.local-library__folder .chip')
+        ?.textContent?.includes('240 files'),
+    undefined,
+    { timeout: 10000 },
+  );
+  const virtualRows = page.locator('.local-library .library-table-wrap tbody tr');
+  const renderedRows = await virtualRows.count();
+  assert(
+    renderedRows > 0 && renderedRows < 200,
+    `large local folder was not virtualized (${renderedRows} rows mounted)`,
+  );
+  await page
+    .locator('.local-library .library-table-wrap')
+    .evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  await page.waitForTimeout(250);
+  assert(
+    (await page
+      .locator('.local-library .library-table tbody tr', { hasText: 'Capture-239' })
+      .count()) === 1,
+    'scrolling the virtualized local table did not reveal the last capture',
+  );
+
   await page.locator('.nav-tab', { hasText: 'Settings' }).click();
   await page.waitForSelector('.settings-nav__item');
   assert(
@@ -416,4 +452,5 @@ try {
   await browser?.close();
   server.kill('SIGTERM');
   rmSync(localCaptures, { recursive: true, force: true });
+  rmSync(largeCaptures, { recursive: true, force: true });
 }

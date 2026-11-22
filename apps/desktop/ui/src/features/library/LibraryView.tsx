@@ -20,6 +20,7 @@ import {
   loadDirectoryPreference,
   rememberDirectoryForPath,
 } from '../../lib/recentPaths';
+import { VirtualRows } from '../../components/kit/VirtualRows';
 import { useAppStore } from '../../stores/useAppStore';
 import type { LibraryList, LibrarySlot, UploadTask } from '../../types';
 
@@ -200,6 +201,7 @@ const LibraryTable = ({
   recentUpload: { target: string; slot: number; name: string } | null;
   onDelete: (slot: LibrarySlot) => void;
 }) => {
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   if (!list) {
     return (
       <div className="library-empty">
@@ -214,7 +216,7 @@ const LibraryTable = ({
   );
 
   return (
-    <div className="library-table-wrap">
+    <div className="library-table-wrap" ref={setScrollElement}>
       <table className="library-table">
         <thead>
           <tr>
@@ -227,56 +229,61 @@ const LibraryTable = ({
           </tr>
         </thead>
         <tbody>
-          {rows.map((slot) => (
-            <tr
-              key={`${list.id}-${slot.index}`}
-              className={[
-                slot.active ? 'library-row--active' : '',
-                recentUpload?.target === list.id && recentUpload.slot === slot.index
-                  ? 'library-row--recent'
-                  : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-            >
-              <td>
-                <span className="library-name">
-                  <span className={`library-type-dot library-type-dot--${list.kind}`} aria-hidden="true" />
-                  {slot.name || <span className="muted">Empty slot</span>}
-                </span>
-                <span className="library-sub mono">
-                  {slot.name ? `${formatBytes(list.slotSize)} slot · gzip` : 'No capture loaded'}
-                </span>
-              </td>
-              <td>
-                <span className={`type-badge type-badge--${list.kind}`}>{KIND_LABEL[list.kind]}</span>
-              </td>
-              <td>{targetDef(list.id)?.label ?? list.label}</td>
-              <td className="mono">{String(slot.index + 1).padStart(2, '0')}</td>
-              <td>
-                {slot.active ? (
-                  <span className="chip chip--good">Active</span>
-                ) : slot.used ? (
-                  <span className="chip">Used</span>
-                ) : (
-                  <span className="chip">Free</span>
-                )}
-              </td>
-              <td className="library-table__actions">
-                {slot.used && (
-                  <button
-                    type="button"
-                    className="icon-btn icon-btn--danger"
-                    aria-label={`Delete ${slot.name}`}
-                    title="Delete capture"
-                    onClick={() => onDelete(slot)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
+          <VirtualRows
+            rows={rows}
+            scrollElement={scrollElement}
+            columnCount={6}
+            renderRow={(slot) => (
+              <tr
+                key={`${list.id}-${slot.index}`}
+                className={[
+                  slot.active ? 'library-row--active' : '',
+                  recentUpload?.target === list.id && recentUpload.slot === slot.index
+                    ? 'library-row--recent'
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                <td>
+                  <span className="library-name">
+                    <span className={`library-type-dot library-type-dot--${list.kind}`} aria-hidden="true" />
+                    {slot.name || <span className="muted">Empty slot</span>}
+                  </span>
+                  <span className="library-sub mono">
+                    {slot.name ? `${formatBytes(list.slotSize)} slot · gzip` : 'No capture loaded'}
+                  </span>
+                </td>
+                <td>
+                  <span className={`type-badge type-badge--${list.kind}`}>{KIND_LABEL[list.kind]}</span>
+                </td>
+                <td>{targetDef(list.id)?.label ?? list.label}</td>
+                <td className="mono">{String(slot.index + 1).padStart(2, '0')}</td>
+                <td>
+                  {slot.active ? (
+                    <span className="chip chip--good">Active</span>
+                  ) : slot.used ? (
+                    <span className="chip">Used</span>
+                  ) : (
+                    <span className="chip">Free</span>
+                  )}
+                </td>
+                <td className="library-table__actions">
+                  {slot.used && (
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn--danger"
+                      aria-label={`Delete ${slot.name}`}
+                      title="Delete capture"
+                      onClick={() => onDelete(slot)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            )}
+          />
         </tbody>
       </table>
       {rows.length === 0 && (
@@ -314,6 +321,7 @@ export const LibraryView = () => {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
+  const [localScrollElement, setLocalScrollElement] = useState<HTMLDivElement | null>(null);
   const preflightSeq = useRef(0);
   const tauri = isTauriRuntime();
 
@@ -366,6 +374,11 @@ export const LibraryView = () => {
     ? (lists.find((item) => item.id === pending.target)?.slots ?? [])
     : [];
   const activeTargetLabel = activeTarget?.label ?? activeSub.target;
+  const visibleLocalEntries = localEntries.filter((entry) =>
+    localQuery
+      ? `${entry.name} ${entry.relative}`.toLowerCase().includes(localQuery.toLowerCase())
+      : true,
+  );
 
   const preparePending = (
     name: string,
@@ -1097,7 +1110,7 @@ export const LibraryView = () => {
                 <span className="chip">{localEntries.filter((entry) => entry.kind === 'pnam').length} PNAM</span>
                 <span className="chip">{localEntries.filter((entry) => entry.kind === 'ir').length} IR</span>
               </div>
-              <div className="library-table-wrap">
+              <div className="library-table-wrap" ref={setLocalScrollElement}>
                 <table className="library-table">
                   <thead>
                     <tr>
@@ -1109,15 +1122,11 @@ export const LibraryView = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {localEntries
-                      .filter((entry) =>
-                        localQuery
-                          ? `${entry.name} ${entry.relative}`
-                              .toLowerCase()
-                              .includes(localQuery.toLowerCase())
-                          : true,
-                      )
-                      .map((entry) => (
+                    <VirtualRows
+                      rows={visibleLocalEntries}
+                      scrollElement={localScrollElement}
+                      columnCount={5}
+                      renderRow={(entry) => (
                         <tr key={`${entry.path}-${entry.size}`}>
                           <td>
                             <span className="library-name">
@@ -1138,7 +1147,8 @@ export const LibraryView = () => {
                             </button>
                           </td>
                         </tr>
-                      ))}
+                      )}
+                    />
                   </tbody>
                 </table>
               </div>
