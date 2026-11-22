@@ -105,6 +105,10 @@ jobs:
         working-directory: apps/desktop/ui
         run: pnpm test:keyboard
 
+      - name: Focused and state visuals
+        working-directory: apps/desktop/ui
+        run: pnpm test:states
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}

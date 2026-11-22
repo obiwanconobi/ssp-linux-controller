@@ -3355,3 +3355,13 @@ async function refreshChangedBlocks(
   }
 }
 
+declare global {
+  interface Window {
+    /** Test hook used by the Playwright visual-state checks in dev mode. */
+    __stompTest?: { store: typeof useAppStore };
+  }
+}
+
+if (import.meta.env.DEV) {
+  window.__stompTest = { store: useAppStore };
+}

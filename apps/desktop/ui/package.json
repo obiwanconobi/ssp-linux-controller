@@ -12,7 +12,8 @@
     "test:ui": "node scripts/ui-smoke.mjs",
     "test:startup": "node scripts/startup-smoke.mjs",
     "test:a11y": "node scripts/a11y-smoke.mjs",
-    "test:keyboard": "node scripts/keyboard-smoke.mjs"
+    "test:keyboard": "node scripts/keyboard-smoke.mjs",
+    "test:states": "node scripts/visual-states-smoke.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -245,6 +245,7 @@ pnpm test:ui
 pnpm test:startup
 pnpm test:a11y
 pnpm test:keyboard
+pnpm test:states
 ```
 
 Relevant focused tests:
