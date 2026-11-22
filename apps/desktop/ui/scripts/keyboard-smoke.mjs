@@ -245,6 +245,28 @@ try {
     'closing clear-chain did not return focus to Chain actions',
   );
 
+  // The narrow-window preset drawer traps focus and returns it on close.
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.waitForTimeout(150);
+  const drawerTrigger = page.getByRole('button', { name: 'Open patches drawer' });
+  await drawerTrigger.focus();
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.preset-drawer');
+  assert(
+    await page.evaluate(() => Boolean(document.activeElement?.closest('.preset-drawer'))),
+    'preset drawer did not move focus inside',
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  assert(
+    (await page.locator('.preset-drawer').count()) === 0,
+    'Escape did not close the preset drawer',
+  );
+  assert(
+    (await active(page)).ariaLabel === 'Open patches drawer',
+    'closing the preset drawer did not return focus to its trigger',
+  );
+
   assert(errors.length === 0, `page errors:\n${errors.join('\n')}`);
   console.log('KEYBOARD SMOKE PASSED');
 } finally {

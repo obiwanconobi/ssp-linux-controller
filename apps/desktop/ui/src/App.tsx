@@ -8,6 +8,7 @@ import { ShortcutsDialog } from './components/app/ShortcutsDialog';
 import { TitleBar } from './components/app/TitleBar';
 import { Toasts } from './components/app/Toasts';
 import { MasterStrip } from './components/kit/MasterStrip';
+import { PresetDrawer } from './components/app/PresetDrawer';
 import { StatusBar } from './components/kit/StatusBar';
 import { BoardView } from './features/board/BoardView';
 import { TunerDeck } from './features/tuner/TunerDeck';
@@ -281,6 +282,7 @@ export const App = () => {
       {view !== 'stage' && <StatusBar />}
 
       <TunerDeck />
+      <PresetDrawer />
       <CommandPalette />
       <ConnectionSheet />
       <ActivityDrawer />

@@ -162,6 +162,18 @@ try {
     await page.keyboard.press('Escape');
   }
 
+  // The narrow-window preset drawer is the only way to reach patches there.
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.evaluate(() => localStorage.setItem('stomp.theme', 'studio'));
+  await page.goto(`${base}/#board`, { waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('.pedal');
+  await page.getByRole('button', { name: 'Open patches drawer' }).click();
+  await page.waitForSelector('.preset-drawer');
+  await page.waitForTimeout(250);
+  await scan('narrow/preset-drawer');
+  await page.keyboard.press('Escape');
+
   assert(errors.length === 0, `page errors:\n${errors.join('\n')}`);
   console.log('A11Y SMOKE PASSED');
 } finally {

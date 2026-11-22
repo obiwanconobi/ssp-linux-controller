@@ -22,7 +22,12 @@ interface Row {
   index: number;
 }
 
-export const PresetRail = () => {
+interface PresetRailProps {
+  onSelect?: () => void;
+  onClose?: () => void;
+}
+
+export const PresetRail = ({ onSelect, onClose }: PresetRailProps = {}) => {
   const preset = useAppStore((state) => state.preset);
   const setPreset = useAppStore((state) => state.setPreset);
   const toggleFavorite = useAppStore((state) => state.toggleFavorite);
@@ -117,6 +122,17 @@ export const PresetRail = () => {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+          {onClose && (
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Close patches drawer"
+              title="Close patches"
+              onClick={onClose}
+            >
+              <X size={15} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -181,7 +197,10 @@ export const PresetRail = () => {
                   type="button"
                   className="preset-row__main"
                   aria-current={active ? 'true' : undefined}
-                  onClick={() => setPreset(row.index)}
+                  onClick={() => {
+                    setPreset(row.index);
+                    onSelect?.();
+                  }}
                   onDoubleClick={() => setRename(row.name)}
                   title="Double-click to rename"
                 >

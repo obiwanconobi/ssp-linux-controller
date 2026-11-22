@@ -443,6 +443,35 @@ try {
     'deleting a capture did not clear its slot',
   );
 
+  await page.locator('.nav-tab', { hasText: 'Board' }).click();
+  await page.waitForSelector('.pedal');
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.waitForTimeout(200);
+  assert(
+    !(await page.locator('.preset-rail').isVisible()),
+    'the fixed preset rail should hide in a narrow window',
+  );
+  const drawerTrigger = page.getByRole('button', { name: 'Open patches drawer' });
+  assert(await drawerTrigger.isVisible(), 'narrow-window patches trigger is missing');
+  await drawerTrigger.click();
+  await page.waitForSelector('.preset-drawer');
+  assert(
+    await page.locator('.preset-drawer .preset-rail').isVisible(),
+    'preset drawer did not render the rail',
+  );
+  const drawerRow = page.locator('.preset-drawer .preset-row__main').first();
+  const drawerPreset = await drawerRow.locator('.preset-row__name').innerText();
+  await drawerRow.click();
+  await page.waitForTimeout(150);
+  assert(
+    (await page.locator('.preset-drawer').count()) === 0,
+    'selecting a preset did not close the drawer',
+  );
+  assert(
+    (await page.locator('.preset-nav__name').textContent()) === drawerPreset,
+    'selecting a preset in the drawer did not change the current preset',
+  );
+
   assert(errors.length === 0, `UI console errors:\n${errors.join('\n')}`);
   console.log('UI SMOKE PASSED');
 } catch (error) {

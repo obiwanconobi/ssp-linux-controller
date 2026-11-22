@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Redo2, Save, Undo2, Activity } from 'lucide-react';
+import { Activity, ChevronLeft, ChevronRight, LibraryBig, Redo2, Save, Undo2 } from 'lucide-react';
 import { useAppStore } from '../../stores/useAppStore';
 import { Brand } from '../Brand';
 
@@ -21,6 +21,7 @@ export const TitleBar = () => {
   const autoFailed = connection.autoSearch === 'failed';
   const setTunerOpen = useAppStore((state) => state.setTunerOpen);
   const tunerOpen = useAppStore((state) => state.tunerOpen);
+  const setPresetDrawerOpen = useAppStore((state) => state.setPresetDrawerOpen);
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
   const setShortcutsOpen = useAppStore((state) => state.setShortcutsOpen);
   const setActivityOpen = useAppStore((state) => state.setActivityOpen);
@@ -118,6 +119,15 @@ export const TitleBar = () => {
           <Save size={12} />
           Save
           <span className="kbd">⌘S</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn--sm title-bar__presets"
+          aria-label="Open patches drawer"
+          onClick={() => setPresetDrawerOpen(true)}
+        >
+          <LibraryBig size={12} />
+          Patches
         </button>
         <button
           type="button"

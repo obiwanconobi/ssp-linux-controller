@@ -123,6 +123,7 @@ interface AppStore {
   undoStack: Snapshot[];
   redoStack: Snapshot[];
   commandOpen: boolean;
+  presetDrawerOpen: boolean;
   connectionOpen: boolean;
   tunerOpen: boolean;
   activityOpen: boolean;
@@ -162,6 +163,7 @@ interface AppStore {
   setDensity: (density: Density) => void;
   setMotion: (motion: Motion) => void;
   setCommandOpen: (open: boolean) => void;
+  setPresetDrawerOpen: (open: boolean) => void;
   setConnectionOpen: (open: boolean) => void;
   setTunerOpen: (open: boolean) => void;
   setActivityOpen: (open: boolean) => void;
@@ -816,6 +818,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   undoStack: [],
   redoStack: [],
   commandOpen: false,
+  presetDrawerOpen: false,
   connectionOpen: false,
   tunerOpen: false,
   activityOpen: false,
@@ -2218,6 +2221,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   },
 
   setCommandOpen: (commandOpen) => set({ commandOpen }),
+  setPresetDrawerOpen: (presetDrawerOpen) => set({ presetDrawerOpen }),
   setConnectionOpen: (connectionOpen) => set({ connectionOpen }),
   setTunerOpen: (tunerOpen) => {
     if (get().tunerOpen === tunerOpen) return;
