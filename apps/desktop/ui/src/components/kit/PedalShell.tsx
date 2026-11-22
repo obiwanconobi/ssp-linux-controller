@@ -14,6 +14,7 @@ interface PedalShellProps {
   onControlChange: (controlId: string, value: number) => void;
   dragHandleProps?: HTMLAttributes<HTMLElement>;
   stage?: boolean;
+  compact?: boolean;
 }
 
 const shortValue = (control: Control, value: number): string => {
@@ -110,10 +111,17 @@ export const PedalShell = ({
   onControlChange,
   dragHandleProps,
   stage = false,
+  compact = false,
 }: PedalShellProps) => {
   const knobIds = getBlockKnobIds(block);
   const variant = pedalVariant(block);
-  const maxKnobs = variant === 'pedal--mini' ? 2 : 3;
+  const maxKnobs = compact
+    ? variant === 'pedal--amp'
+      ? 0
+      : 2
+    : variant === 'pedal--mini'
+      ? 2
+      : 3;
   const controls = knobIds
     .map((id) => blockControlLookup(block, id))
     .filter((control): control is Control => Boolean(control))
@@ -123,7 +131,7 @@ export const PedalShell = ({
   return (
     <div
       {...(block.fixed ? {} : dragProps)}
-      className={`pedal ${variant}${selected ? ' pedal--selected' : ''}${block.on ? '' : ' pedal--off'}${block.fixed ? ' pedal--fixed' : ''}${stage ? ' pedal--stage' : ''}`}
+      className={`pedal ${variant}${compact ? ' pedal--compact' : ''}${selected ? ' pedal--selected' : ''}${block.on ? '' : ' pedal--off'}${block.fixed ? ' pedal--fixed' : ''}${stage ? ' pedal--stage' : ''}`}
       style={
         {
           '--pedal-accent': familyColor(block.family),

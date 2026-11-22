@@ -128,10 +128,9 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
 
 ### UI polish
 
-1. Add a “compact chain” option for 12+ block chains: two knobs per standard
-   shell and a model-only plate.
-2. Visual regression baselines for Board, Amp room, EQ, Library, Settings, Stage,
-   tuner, and the three themes.
+No open items from the P3 pass. Future polish should start from a new UX review
+rather than the completed accessibility, density, virtualization, drawer, and
+baseline checklist.
 
 ### Hardware validation still open
 

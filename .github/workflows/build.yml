@@ -109,6 +109,10 @@ jobs:
         working-directory: apps/desktop/ui
         run: pnpm test:states
 
+      - name: Visual regression baselines
+        working-directory: apps/desktop/ui
+        run: pnpm test:visual
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}

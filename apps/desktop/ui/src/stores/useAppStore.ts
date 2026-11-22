@@ -116,6 +116,7 @@ interface AppStore {
   theme: ThemeId;
   density: Density;
   motion: Motion;
+  compactChain: boolean;
   pending: string[];
   conflicts: DeviceConflict[];
   deviceUndoStack: DeviceOperation[];
@@ -162,6 +163,7 @@ interface AppStore {
   setTheme: (theme: ThemeId) => void;
   setDensity: (density: Density) => void;
   setMotion: (motion: Motion) => void;
+  setCompactChain: (compact: boolean) => void;
   setCommandOpen: (open: boolean) => void;
   setPresetDrawerOpen: (open: boolean) => void;
   setConnectionOpen: (open: boolean) => void;
@@ -202,6 +204,14 @@ interface AppStore {
 
 const appearance = loadAppearance();
 applyAppearance(appearance.theme, appearance.density, appearance.motion);
+
+const loadCompactChain = (): boolean => {
+  try {
+    return localStorage.getItem('stomp.compactChain') === '1';
+  } catch {
+    return false;
+  }
+};
 
 const snapshotOf = (state: AppStore): Snapshot => ({
   blocks: cloneBlocks(state.blocks),
@@ -811,6 +821,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   theme: appearance.theme,
   density: appearance.density,
   motion: appearance.motion,
+  compactChain: loadCompactChain(),
   pending: [],
   conflicts: [],
   deviceUndoStack: [],
@@ -2218,6 +2229,15 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     applyAppearance(theme, density, motion);
     saveAppearance(theme, density, motion);
     set({ motion });
+  },
+
+  setCompactChain: (compactChain) => {
+    try {
+      localStorage.setItem('stomp.compactChain', compactChain ? '1' : '0');
+    } catch {
+      /* local settings are best-effort */
+    }
+    set({ compactChain });
   },
 
   setCommandOpen: (commandOpen) => set({ commandOpen }),

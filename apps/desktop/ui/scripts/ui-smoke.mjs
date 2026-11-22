@@ -344,6 +344,37 @@ try {
   await page.locator('.settings-card__head .btn', { hasText: 'Reset to Studio Black' }).click();
   assert((await page.locator('html').getAttribute('data-theme')) === 'studio', 'theme reset failed');
 
+  const compactRow = page.locator('.settings-row', { hasText: 'Compact chain' });
+  await compactRow.getByRole('button', { name: 'On' }).click();
+  await page.locator('.nav-tab', { hasText: 'Board' }).click();
+  await page.waitForSelector('.signal-chain');
+  assert(
+    (await page.locator('.signal-chain--compact').count()) === 1,
+    'compact chain setting did not reach the signal chain',
+  );
+  assert(
+    (await page.locator('.pedal--compact.pedal--amp .pedal__knobs .knob').count()) === 0,
+    'compact amp should be a model-only plate',
+  );
+  const compactDrive = page.locator('.signal-chain .pedal').filter({ hasText: 'DRIVE' });
+  assert(
+    (await compactDrive.locator('.pedal__knobs .knob').count()) === 2,
+    'compact standard pedal should show two knobs',
+  );
+  await page.locator('.nav-tab', { hasText: 'Settings' }).click();
+  await page.locator('.settings-nav__item', { hasText: 'Appearance' }).click();
+  await page.waitForSelector('.theme-card');
+  await page
+    .locator('.settings-row', { hasText: 'Compact chain' })
+    .getByRole('button', { name: 'Off' })
+    .click();
+  await page.locator('.nav-tab', { hasText: 'Board' }).click();
+  await page.waitForSelector('.signal-chain');
+  assert(
+    (await page.locator('.signal-chain--compact').count()) === 0,
+    'compact chain setting did not turn off',
+  );
+
   await page.locator('.nav-tab', { hasText: 'Stage mode' }).click();
   await page.waitForSelector('.stage-tile');
   assert((await page.locator('.stage-tile').count()) === 9, 'stage mode should show eight bypass tiles plus tuner');

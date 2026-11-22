@@ -160,6 +160,8 @@ pnpm test:startup  # Playwright startup smoke: Wi-Fi/USB failure, --demo, USB su
 pnpm test:a11y     # axe WCAG AA scan: three themes, every view and overlay
 pnpm test:keyboard # keyboard-only pass: skip link, tabs, dialogs, knobs, shortcuts
 pnpm test:states   # focused, pending, conflict, and error state checks
+pnpm test:visual   # compare 21 screenshots against committed baselines
+pnpm test:visual:update # regenerate the visual baselines
 ```
 
 The Playwright smokes start their own Vite preview server. Override the default
@@ -189,6 +191,8 @@ pnpm test:startup               # no-device / --demo / Wi-Fi-or-USB startup smok
 pnpm test:a11y                  # WCAG AA scans in all themes and overlays
 pnpm test:keyboard              # keyboard-only pass
 pnpm test:states                # focused/pending/conflict/error states
+pnpm test:visual                # screenshot baseline comparison
+pnpm test:visual:update         # regenerate baselines after an intended UI change
 ```
 
 Android packaging is checked separately:
@@ -425,8 +429,8 @@ cargo run -p stomp-cli --bin stomp -- fixture tcp:127.0.0.1:45678 \
    (optional), Play Store AAB/upload-key signing, tablet layout, and
    reconnect-on-resume remain open.
 7. **Packaging.** GitHub Actions builds Windows NSIS/MSI and Linux
-   deb/AppImage artifacts. macOS signing/notarization, an updater, crash-report
-   opt-in, and visual regression baselines remain.
+   deb/AppImage artifacts. macOS signing/notarization, an updater, and
+   crash-report opt-in remain.
 8. **Accessibility audit.** Knobs expose the ARIA slider contract, LEDs have
    text labels, graphs have numeric cards, and focus order follows the chain.
    All three themes pass the WCAG AA axe scan, the keyboard-only pass covers

@@ -45,6 +45,7 @@ const SortablePedal = ({
   onToggle,
   onControlChange,
   onLink,
+  compact,
 }: {
   block: Block;
   index: number;
@@ -54,6 +55,7 @@ const SortablePedal = ({
   onToggle: () => void;
   onControlChange: (controlId: string, value: number) => void;
   onLink: () => void;
+  compact: boolean;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: block.id,
@@ -92,6 +94,7 @@ const SortablePedal = ({
           onToggle={onToggle}
           onControlChange={onControlChange}
           dragHandleProps={{ ...attributes, ...listeners }}
+          compact={compact}
         />
       </div>
     </div>
@@ -181,6 +184,7 @@ export const SignalChain = () => {
   const selectedId = useAppStore((state) => state.selectedBlockId);
   const pending = new Set(useAppStore((state) => state.pending));
   const connection = useAppStore((state) => state.connection);
+  const compactChain = useAppStore((state) => state.compactChain);
   const emptySlots = useAppStore((state) => state.emptySlots);
   const selectBlock = useAppStore((state) => state.selectBlock);
   const toggleBlock = useAppStore((state) => state.toggleBlock);
@@ -280,7 +284,7 @@ export const SignalChain = () => {
     >
       <div
         ref={scrollRef}
-        className={`signal-chain${overflowing ? ' signal-chain--overflow' : ''}`}
+        className={`signal-chain${overflowing ? ' signal-chain--overflow' : ''}${compactChain ? ' signal-chain--compact' : ''}`}
         aria-label="Signal chain"
       >
         <div className="signal-chain__inner">
@@ -297,6 +301,7 @@ export const SignalChain = () => {
                   onToggle={() => toggleBlock(item.id)}
                   onControlChange={(controlId, value) => setControl(controlId, value)}
                   onLink={() => setLink(item.id, item.block.link !== 'parallel')}
+                  compact={compactChain}
                 />
               ) : (
                 <EmptyChainSlot
@@ -326,6 +331,7 @@ export const SignalChain = () => {
               onSelect={() => undefined}
               onToggle={() => undefined}
               onControlChange={() => undefined}
+              compact={compactChain}
             />
           </div>
         ) : null}

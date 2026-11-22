@@ -13,7 +13,9 @@
     "test:startup": "node scripts/startup-smoke.mjs",
     "test:a11y": "node scripts/a11y-smoke.mjs",
     "test:keyboard": "node scripts/keyboard-smoke.mjs",
-    "test:states": "node scripts/visual-states-smoke.mjs"
+    "test:states": "node scripts/visual-states-smoke.mjs",
+    "test:visual": "node scripts/visual-baselines.mjs",
+    "test:visual:update": "node scripts/visual-baselines.mjs --update"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -38,7 +40,9 @@
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.1",
     "jsdom": "^27.2.0",
+    "pixelmatch": "^8.0.0",
     "playwright": "^1.65.1",
+    "pngjs": "^7.0.0",
     "typescript": "^5.9.3",
     "vite": "^7.2.2",
     "vitest": "^4.0.13"

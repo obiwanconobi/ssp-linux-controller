@@ -116,9 +116,11 @@ export const SettingsView = () => {
   const theme = useAppStore((state) => state.theme);
   const density = useAppStore((state) => state.density);
   const motion = useAppStore((state) => state.motion);
+  const compactChain = useAppStore((state) => state.compactChain);
   const setTheme = useAppStore((state) => state.setTheme);
   const setDensity = useAppStore((state) => state.setDensity);
   const setMotion = useAppStore((state) => state.setMotion);
+  const setCompactChain = useAppStore((state) => state.setCompactChain);
   const connection = useAppStore((state) => state.connection);
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
   const notify = useAppStore((state) => state.notify);
@@ -624,6 +626,22 @@ export const SettingsView = () => {
                           {value}
                         </button>
                       ))}
+                    </div>
+                  </div>
+                  <div className="settings-row">
+                    <div>
+                      <strong>Compact chain</strong>
+                      <span className="hint">
+                        Two knobs per pedal and a model-only amp plate for long chains
+                      </span>
+                    </div>
+                    <div className="segmented">
+                      <button type="button" aria-pressed={compactChain} onClick={() => setCompactChain(true)}>
+                        On
+                      </button>
+                      <button type="button" aria-pressed={!compactChain} onClick={() => setCompactChain(false)}>
+                        Off
+                      </button>
                     </div>
                   </div>
                 </div>

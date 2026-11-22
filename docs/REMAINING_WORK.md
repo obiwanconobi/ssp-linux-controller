@@ -184,9 +184,11 @@ part of the release candidate.
 - [x] Add a narrow-window preset drawer. The title bar exposes a Patches button
       below 860 px; selecting a preset closes the drawer, Escape closes it and
       returns focus, and axe/keyboard smokes cover it.
-- [ ] Add compact-chain mode for 12+ blocks.
-- [ ] Add visual regression baselines for Board, Amp room, EQ, Library,
-      Settings, Stage, tuner, and all themes.
+- [x] Add compact-chain mode: an Appearance toggle renders two knobs per shell
+      and a model-only amp plate with narrower shells.
+- [x] Add visual regression baselines for Board, Amp room, EQ, Library,
+      Settings, Stage, and tuner in all three themes (21 screenshots). The
+      comparison runs in CI; update baselines with `pnpm test:visual:update`.
 
 ## P4 — Hardening and release engineering
 
@@ -228,7 +230,7 @@ P1 defects.
    overwrite, single-item delete, EQ writes, chain move/link, USB unplug/replug,
    external changes with a pending edit, and device undo/redo.
 2. Start P3 with the WCAG contrast audit and axe-core/keyboard checks.
-3. Then compact-chain mode and visual regression baselines.
+3. P3 is complete; move to P4 hardening and release engineering.
 
 Those three unblock the release and close the highest-value safe gaps before
 the device-actor work begins.

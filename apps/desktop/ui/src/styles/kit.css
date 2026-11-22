@@ -465,6 +465,49 @@
   padding-top: 7px;
 }
 
+.pedal--compact {
+  --pedal-w: 92px;
+  padding: 8px 6px 7px;
+  gap: 3px;
+}
+
+.pedal--compact.pedal--mini {
+  --pedal-w: 76px;
+}
+
+.pedal--compact.pedal--cab {
+  --pedal-w: 158px;
+}
+
+.pedal--compact.pedal--amp {
+  --pedal-w: 150px;
+}
+
+.pedal--compact .pedal__knobs {
+  gap: 2px;
+  padding-top: 3px;
+}
+
+.pedal--compact .pedal__model {
+  height: 30px;
+  font-size: 10.5px;
+}
+
+.pedal--compact.pedal--amp .pedal__knobs {
+  display: none;
+}
+
+.pedal--compact.pedal--amp .pedal__model {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: auto;
+  padding: 8px 6px;
+  font-size: 12px;
+  -webkit-line-clamp: unset;
+}
+
 .pedal--amp {
   --pedal-w: var(--pedal-amp-w);
 }

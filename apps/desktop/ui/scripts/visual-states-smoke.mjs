@@ -224,7 +224,21 @@ try {
     await scan(`${theme}/error`);
     await page.locator('.toast__close').click();
 
-    console.log(`PASS ${theme} focused/pending/conflict/error`);
+    // Compact chain: two knobs per shell and a model-only amp plate.
+    await page.evaluate(() => window.__stompTest.store.getState().setCompactChain(true));
+    await page.waitForSelector('.signal-chain--compact');
+    assert(
+      (await page.locator('.pedal--compact.pedal--amp .pedal__knobs .knob').count()) === 0,
+      `${theme}/compact: amp is not model-only`,
+    );
+    assert(
+      (await page.locator('.pedal--compact:not(.pedal--amp) .pedal__knobs .knob').count()) > 0,
+      `${theme}/compact: standard pedals lost their compact knobs`,
+    );
+    await scan(`${theme}/compact-chain`);
+    await page.evaluate(() => window.__stompTest.store.getState().setCompactChain(false));
+
+    console.log(`PASS ${theme} focused/pending/conflict/error/compact`);
   }
 
   assert(errors.length === 0, `page errors:\n${errors.join('\n')}`);
