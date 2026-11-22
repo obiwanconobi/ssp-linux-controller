@@ -167,9 +167,11 @@ const GroupSection = ({
       <header className="inspector-group__head">
         <div>
           <span className="section-title">{group.label}</span>
-          <span className="inspector-group__kind mono">
-            {group.itemType === 'module' ? 'tempo module' : group.itemType === 'vfolder_tc' ? 'switchable group' : 'group'}
-          </span>
+          {(group.itemType === 'module' || group.itemType === 'vfolder_tc') && (
+            <span className="inspector-group__kind mono">
+              {group.itemType === 'module' ? 'tempo module' : 'switchable group'}
+            </span>
+          )}
         </div>
         {group.onOffId && (
           <button
@@ -313,7 +315,7 @@ export const Inspector = () => {
           <div>
             <h2 className="inspector__title">{block.label}</h2>
             <p className="inspector__sub">
-              {block.model ?? 'No model'} · {block.controls.length + block.groups.length} controls
+              {block.controls.length + block.groups.length} controls
               {block.fixed && ' · fixed slot'}
             </p>
           </div>
@@ -404,34 +406,37 @@ export const Inspector = () => {
         </div>
       </header>
 
-      {showType && typeControl && (
-        <Segmented
-          label={typeControl.label}
-          value={String(typeControl.value)}
-          options={typeOptions}
-          pending={pending.has(typeControl.id)}
-          onChange={(value) => setControl(typeControl.id, value)}
-        />
-      )}
-
-      {block.modelOptions && (
-        <div className="inspector__model">
-          <label className="field-label" htmlFor={`model-${block.id}`}>
-            Model
-            <span className="mono">{block.modelOptions.length} loaded</span>
-          </label>
-          <select
-            id={`model-${block.id}`}
-            className="select inspector__model-select"
-            value={block.model}
-            onChange={(event) => setBlockModel(block.id, event.target.value)}
-          >
-            {block.modelOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+      {(showType || block.modelOptions) && (
+        <div className="inspector__selectors">
+          {showType && typeControl && (
+            <Segmented
+              label={typeControl.label}
+              value={String(typeControl.value)}
+              options={typeOptions}
+              pending={pending.has(typeControl.id)}
+              onChange={(value) => setControl(typeControl.id, value)}
+            />
+          )}
+          {block.modelOptions && (
+            <div className="inspector__model">
+              <label className="field-label" htmlFor={`model-${block.id}`}>
+                Model
+                <span className="mono">{block.modelOptions.length} loaded</span>
+              </label>
+              <select
+                id={`model-${block.id}`}
+                className="select inspector__model-select"
+                value={block.model}
+                onChange={(event) => setBlockModel(block.id, event.target.value)}
+              >
+                {block.modelOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )}
 

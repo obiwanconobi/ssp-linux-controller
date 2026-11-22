@@ -128,15 +128,13 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
 
 ### UI polish
 
-1. Density pass on the inspector and utility rail: group secondary values,
-   reduce repeated labels, and keep the “exactly one primary action” rule.
-2. Add visual tests for focused, pending, conflict, and error states in all
+1. Add visual tests for focused, pending, conflict, and error states in all
    three themes. The base contrast audit and axe smoke are in CI.
-3. Virtualize the library table once slot lists exceed a few hundred rows.
-4. Add a narrow-window preset drawer (currently the rail hides below 900 px).
-5. Add a “compact chain” option for 12+ block chains: two knobs per standard
+2. Virtualize the library table once slot lists exceed a few hundred rows.
+3. Add a narrow-window preset drawer (currently the rail hides below 900 px).
+4. Add a “compact chain” option for 12+ block chains: two knobs per standard
    shell and a model-only plate.
-6. Visual regression baselines for Board, Amp room, EQ, Library, Settings, Stage,
+5. Visual regression baselines for Board, Amp room, EQ, Library, Settings, Stage,
    tuner, and the three themes.
 
 ### Hardware validation still open

@@ -110,8 +110,13 @@ try {
   const typeBox = await page.locator('.inspector__type').boundingBox();
   const modelBox = await page.locator('.inspector__model').boundingBox();
   assert(
-    Boolean(typeBox && modelBox && typeBox.y < modelBox.y),
-    'Type must appear above the model selector',
+    Boolean(
+      typeBox &&
+        modelBox &&
+        Math.abs(typeBox.y - modelBox.y) < 24 &&
+        typeBox.x < modelBox.x,
+    ),
+    'Type and Model should share a compact selector row',
   );
   await typeGroup.getByRole('button', { name: 'Parametric NAM' }).click();
   await page.waitForTimeout(250);

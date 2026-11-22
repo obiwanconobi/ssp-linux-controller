@@ -1,4 +1,4 @@
-import { Activity, CircleDot, HardDrive, Usb, Wifi } from 'lucide-react';
+import { CircleDot, Usb, Wifi } from 'lucide-react';
 import { useAppStore } from '../../stores/useAppStore';
 
 export const UtilityRail = () => {
@@ -82,9 +82,8 @@ export const UtilityRail = () => {
           </div>
         ) : (
           <div className="utility-empty">
-            <HardDrive size={16} />
             <span>No uploads in flight.</span>
-            <button type="button" className="btn btn--sm" onClick={() => setView('library')}>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setView('library')}>
               Open library
             </button>
           </div>
@@ -94,15 +93,7 @@ export const UtilityRail = () => {
       <section className="utility-card utility-card--activity panel">
         <header className="utility-card__head">
           <span className="eyebrow">Activity</span>
-          <button
-            type="button"
-            className="icon-btn"
-            style={{ width: 24, height: 24 }}
-            aria-label="Open full activity log"
-            onClick={() => setActivityOpen(true)}
-          >
-            <Activity size={13} />
-          </button>
+          <span className="mono utility-card__count">{activity.length} entries</span>
         </header>
         <ul className="activity-list activity-list--compact">
           {activity.slice(0, 6).map((entry) => (
