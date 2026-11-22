@@ -93,6 +93,7 @@ export const SettingsView = () => {
   const connection = useAppStore((state) => state.connection);
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
   const notify = useAppStore((state) => state.notify);
+  const appVersion = useAppStore((state) => state.appVersion);
   const [transport, setTransport] = useState<'usb' | 'network'>('usb');
   const [autoReconnect, setAutoReconnect] = useState(true);
   const [reconnectLaunch, setReconnectLaunch] = useState(true);
@@ -101,6 +102,7 @@ export const SettingsView = () => {
   const [resetText, setResetText] = useState('');
 
   const diagnosticText = [
+    `app      ${appVersion ? `v${appVersion}` : 'dev'}`,
     'USB 1-4  1d6b:0104  StompStation',
     'serial   STOMPPRO-10000000be183ca1-ACM',
     'driver   cdc_acm bound',
@@ -535,7 +537,7 @@ export const SettingsView = () => {
                   <h2>StompStation</h2>
                   <p className="hint">Pedalboard-first desktop controller for the Sonulab StompStation PRO.</p>
                 </div>
-                <span className="chip chip--good">v0.2.0</span>
+                <span className="chip chip--good">{appVersion ? `v${appVersion}` : 'dev'}</span>
               </header>
               <dl className="settings-meta">
                 <div>

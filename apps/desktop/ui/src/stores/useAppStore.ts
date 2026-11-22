@@ -107,6 +107,7 @@ interface AppStore {
   shortcutsOpen: boolean;
   toast: Toast | null;
   demoAllowed: boolean;
+  appVersion: string;
   lastEdit: { key: string; at: number };
   setView: (view: ViewId) => void;
   selectBlock: (id: string) => void;
@@ -146,6 +147,7 @@ interface AppStore {
   connectAuto: () => Promise<void>;
   connectReal: (address: string) => Promise<void>;
   setDemoAllowed: (allowed: boolean) => void;
+  setAppVersion: (version: string) => void;
   refreshDevice: () => Promise<void>;
   applyDeviceSnapshot: (snapshot: RustSnapshot) => void;
   disconnect: () => void;
@@ -391,6 +393,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   activityOpen: false,
   shortcutsOpen: false,
   toast: null,
+  appVersion: '',
   lastEdit: { key: '', at: 0 },
 
   setView: (view) => {
@@ -1299,6 +1302,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
 
   setDemoAllowed: (allowed) => set({ demoAllowed: allowed }),
+  setAppVersion: (appVersion) => set({ appVersion }),
 
   connectDemo: () => {
     if (get().connection.mode === 'device') {

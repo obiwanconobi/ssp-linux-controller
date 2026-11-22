@@ -96,11 +96,11 @@ where
 }
 
 #[tauri::command]
-pub fn get_bootstrap(state: State<'_, AppState>) -> Bootstrap {
+pub fn get_bootstrap(app: AppHandle, state: State<'_, AppState>) -> Bootstrap {
     let ports = stomp_transport::list_serial_ports();
     Bootstrap {
         product: "StompStation PRO".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: app.package_info().version.to_string(),
         platform: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
         connected: state.is_connected(),
         demo_allowed: state.demo_allowed.load(std::sync::atomic::Ordering::SeqCst),
@@ -651,7 +651,7 @@ fn read_tuner(device: &mut Device) -> IpcResult<TunerView> {
 }
 
 #[tauri::command]
-pub async fn copy_diagnostics(state: State<'_, AppState>) -> IpcResult<String> {
+pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> IpcResult<String> {
     let snapshot = with_device(state.device.clone(), |device| Ok(device.state())).await?;
     let transport = {
         let guard = lock(&state)?;
@@ -664,7 +664,7 @@ pub async fn copy_diagnostics(state: State<'_, AppState>) -> IpcResult<String> {
         "StompStation PRO diagnostic report".to_string(),
         format!(
             "app {} / {}",
-            env!("CARGO_PKG_VERSION"),
+            app.package_info().version,
             std::env::consts::OS
         ),
         format!("transport: {transport}"),

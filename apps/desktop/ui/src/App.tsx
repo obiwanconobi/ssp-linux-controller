@@ -94,6 +94,7 @@ export const App = () => {
     void (async () => {
       try {
         const bootstrap = await tauriClient.bootstrap();
+        useAppStore.getState().setAppVersion(bootstrap.version);
         useAppStore.getState().setDemoAllowed(bootstrap.demo_allowed);
         if (bootstrap.demo_allowed) {
           useAppStore.getState().connectDemo();

@@ -75,9 +75,11 @@ GitHub Actions builds the desktop app on every push and pull request:
 The workflow lives in [`.github/workflows/build.yml`](.github/workflows/build.yml).
 Each run uploads the installers/packages as downloadable workflow artifacts.
 Pushes to `master` publish or update the GitHub Release for the version in
-`apps/desktop/src-tauri/tauri.conf.json` (currently `v0.2.0`), with the
-installers attached. To cut a new release, bump that version and push; an
-explicit `v*` tag can also be pushed to publish or update that tag's release.
+`apps/desktop/src-tauri/tauri.conf.json`, with the installers attached. To cut
+a new release, bump that version and push; an explicit `v*` tag can also be
+pushed to publish or update that tag's release. CI fails when the workspace
+Cargo version, UI package version, or a pushed `v*` tag disagrees with
+`tauri.conf.json`.
 
 The Linux AppImage is larger than the Windows bundle because it embeds
 GTK/WebKitGTK, while Windows uses the system WebView2 runtime. macOS builds
