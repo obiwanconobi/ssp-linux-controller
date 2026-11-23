@@ -35,8 +35,10 @@ Validated:
   `test:startup`, `test:a11y`, `test:states`, `test:visual` all pass.
 - `appium driver doctor uiautomator2` reports 0 required fixes; `bundletool.jar`
   is the only optional warning.
-- CI emulator workflow: `.github/workflows/android-ui.yml` (API 36 emulator;
-  physical API 37 permission prompt remains manual).
+- CI emulator workflow: `.github/workflows/android-ui.yml` (API 37.1 16 KB-page
+  Google APIs system image on a Pixel 7 profile; the action's platform-install
+  input remains 36 because API 37 is published as the versioned
+  `platforms;android-37.0`. Physical API 37 permission prompt remains manual).
 
 Not validated:
 
