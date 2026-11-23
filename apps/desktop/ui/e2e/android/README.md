@@ -51,6 +51,13 @@ From the repo root:
 ./scripts/android-e2e.sh appium
 ```
 
+The wrapper stops an emulator it booted when it exits. If a run was interrupted
+or the emulator was started manually, clean up with:
+
+```bash
+./scripts/android-stop.sh
+```
+
 Or directly from this directory:
 
 ```bash

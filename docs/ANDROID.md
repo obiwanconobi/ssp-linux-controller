@@ -183,12 +183,16 @@ Appium.
 
 # Both
 ./scripts/android-e2e.sh both
+
+# Stop leftover local test emulators and the simulator
+./scripts/android-stop.sh
 ```
 
 The script builds `stompstation-x86_64-debug.apk` unless `--skip-build` is
 passed, boots `Pixel_10_Pro` if no device is connected, starts the simulator on
-`45700`, runs `adb reverse`, clears app data, and installs the APK. Artifacts go
-to `dist/android/e2e/`.
+`45700`, runs `adb reverse`, clears app data, and installs the APK. It stops an
+emulator it started when it exits; use `--keep-emulator` to leave it running.
+Artifacts go to `dist/android/e2e/`.
 
 Harness: `apps/desktop/ui/e2e/android/`. It switches from `NATIVE_APP` to
 `WEBVIEW_pro.stompstation.desktop`, uses the simulator over `adb reverse`, and

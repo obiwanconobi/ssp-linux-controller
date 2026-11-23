@@ -119,7 +119,15 @@ Options:
 --headless       boot the emulator without a window
 --skip-build     reuse dist/android/stompstation-x86_64-debug.apk
 --no-sim         assume the simulator already listens on STOMP_SIM_PORT
---shutdown       kill the emulator on exit (only if the script started it)
+--keep-emulator  leave an emulator started by this script running on exit
+--shutdown       compatibility alias; stopping the script-owned emulator is the default
+```
+
+The script stops an emulator it booted when it exits. Use `--keep-emulator` for
+rapid iteration, and stop any leftover test emulator or host simulator with:
+
+```bash
+./scripts/android-stop.sh
 ```
 
 Environment:

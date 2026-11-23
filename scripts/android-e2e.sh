@@ -9,7 +9,8 @@
 #   --headless        boot the emulator without a window
 #   --skip-build      reuse dist/android/stompstation-x86_64-debug.apk
 #   --no-sim          assume the simulator is already running on STOMP_SIM_PORT
-#   --shutdown        kill the emulator on exit
+#   --keep-emulator   leave an emulator started by this script running on exit
+#   --shutdown        compatibility alias; this is the default
 #
 # Environment:
 #   ANDROID_HOME / ANDROID_SDK_ROOT, JAVA_HOME, NDK_HOME
@@ -26,7 +27,7 @@ HARNESS="$UI/e2e/android"
 
 MODE="${1:-appium}"
 if [[ "$MODE" != "appium" && "$MODE" != "cdp" && "$MODE" != "both" ]]; then
-  echo "Usage: $0 [appium|cdp|both] [--headless] [--skip-build] [--no-sim] [--shutdown]" >&2
+  echo "Usage: $0 [appium|cdp|both] [--headless] [--skip-build] [--no-sim] [--keep-emulator] [--shutdown]" >&2
   exit 2
 fi
 shift || true
@@ -34,12 +35,13 @@ shift || true
 HEADLESS=0
 SKIP_BUILD=0
 START_SIM=1
-SHUTDOWN=0
+SHUTDOWN=1
 for argument in "$@"; do
   case "$argument" in
     --headless) HEADLESS=1 ;;
     --skip-build) SKIP_BUILD=1 ;;
     --no-sim) START_SIM=0 ;;
+    --keep-emulator) SHUTDOWN=0 ;;
     --shutdown) SHUTDOWN=1 ;;
     *) echo "Unknown option: $argument" >&2; exit 2 ;;
   esac
@@ -86,6 +88,8 @@ cleanup() {
     wait "$SIM_PID" 2>/dev/null || true
   fi
   adb reverse --remove "tcp:$SIM_PORT" >/dev/null 2>&1 || true
+  # Do not leave a headless emulator spinning after the suite. Only stop a
+  # device this script booted; a pre-existing device belongs to the caller.
   if [[ "$SHUTDOWN" == "1" && "$STARTED_EMULATOR" == "1" ]]; then
     adb emu kill >/dev/null 2>&1 || true
   fi
