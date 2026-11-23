@@ -109,20 +109,21 @@ jobs:
       - name: Run Appium suite in emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 36
-          target: google_apis
+          api-level: 37.0
+          system-image-api-level: 37.1
+          target: google_apis_ps16k
           arch: x86_64
-          profile: pixel_7_pro
-          ram-size: 4096M
+          profile: pixel_7
+          cores: 4
+          ram-size: 2048M
           heap-size: 512M
           disk-size: 4096M
           disable-animations: true
-          # The native DocumentsUI screens are unstable with the emulator's
-          # Vulkan/SwiftShader path on headless runners. Use GLES with a
-          # standard phone profile and enough RAM to keep the picker alive.
+          # Match the locally validated 16 KB-page API 37 image. API 36's
+          # headless SwiftShader image crashed while rendering DocumentsUI.
           emulator-options: >-
-            -no-window -gpu swiftshader_indirect -feature -Vulkan
-            -no-snapshot -noaudio -no-boot-anim -camera-back none -no-metrics
+            -no-window -gpu swangle -no-snapshot -noaudio -no-boot-anim
+            -camera-back none -no-metrics
           script: |
             set -euo pipefail
             ./target/debug/stomp-sim --port 45700 > /tmp/stomp-sim.log 2>&1 &
