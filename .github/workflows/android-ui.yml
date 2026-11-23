@@ -109,7 +109,11 @@ jobs:
       - name: Run Appium suite in emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 37.0
+          # The action installs `platforms;android-${api-level}`, and Google
+          # now publishes API 37 as the versioned platforms;android-37.0.
+          # Build against 37.0 in the explicit step above; run the API 37.1
+          # system image selected by system-image-api-level.
+          api-level: 36
           system-image-api-level: 37.1
           target: google_apis_ps16k
           arch: x86_64
