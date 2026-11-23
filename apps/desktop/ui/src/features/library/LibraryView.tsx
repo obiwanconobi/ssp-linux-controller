@@ -826,7 +826,9 @@ export const LibraryView = () => {
         overwriteDependencies: false,
       });
     } catch (error) {
-      notify(ipcErrorMessage(error), 'bad');
+      const message = ipcErrorMessage(error);
+      notify(message, 'bad');
+      addActivity('Preset import preflight failed', message, 'bad');
     }
   };
 

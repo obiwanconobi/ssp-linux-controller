@@ -233,8 +233,9 @@ bytes of raw `f32` samples (not WAV); the app now wraps it in the official
 `Brave.zip` `.pst` and all four dependency hashes byte-for-byte.
 
 The remaining 0.6.0 gate is hardware validation: input gain readback, Preset
-Level save/reload, import ACK/`used` semantics, the used-capture rename policy,
-and Parametric EQ writes. See
+Level save/reload, import `used`/cancelled-dependency semantics, the
+used-capture rename policy, and Parametric EQ writes. The import commit and
+duplicate-name behavior were validated on 2.5.3. See
 [`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md) V10–V15.
 
 ## P5 — Android, beta, and 1.0

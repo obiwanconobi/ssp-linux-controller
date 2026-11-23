@@ -234,12 +234,12 @@ The hardware-free suite is the release gate:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace          # 96 tests
+cargo test --workspace          # 99 tests
 ./scripts/smoke.sh              # simulator, chain edits, save path, preset, upload
 
 cd apps/desktop/ui
 pnpm lint
-pnpm test                       # 72 Vitest tests
+pnpm test                       # 73 Vitest tests
 pnpm build
 pnpm test:ui
 pnpm test:mobile

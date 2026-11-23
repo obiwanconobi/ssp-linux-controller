@@ -190,6 +190,11 @@ import path is deliberately narrower than a generic list uploader:
 - Existing captures with the same name are downloaded and compared. Identical
   files are reused; different content requires an explicit overwrite
   confirmation.
+- Every capture list is checked for enough free slots for **all** new
+  dependencies in the bundle, not one dependency at a time. Multiple new
+  captures in the same list reserve distinct slots before the first write; a
+  shortfall blocks the import with the list, free-slot count, and required
+  count.
 - Every dependency upload uses the existing ACK state machine and an explicit
   list-slot name from the manifest. The `.pst` upload uses the device's chunked
   name/data `dwrite` path, then reads the slot name and the full `.pst` back and
@@ -198,9 +203,15 @@ import path is deliberately narrower than a generic list uploader:
   preset slot was not verified. Do not retry until that partial state is
   understood.
 
-Hardware validation is still required for: the preset-list final-chunk ACK,
-whether the firmware updates `root\presets.used` immediately after a dependency
-upload, and how a cancelled dependency upload leaves its target slot.
+The preset-list write sequence is now implemented as name → data → name commit:
+chunk 0 carries the padded name, chunks 1..N carry the `.pst`, and a final
+`chunk:-1` write with the same name publishes the slot. The pedal silently
+ignores a preset upload whose name another slot already uses, even while ACKing
+every chunk, so duplicate names are rejected before any write. The commit path
+and duplicate-name rejection were validated on 2.5.3 on 2026-11-23. Hardware
+validation is still required for whether the firmware updates
+`root\presets.used` immediately after a dependency upload, and how a cancelled
+dependency upload leaves its target slot.
 
 ## Capture download and rename
 

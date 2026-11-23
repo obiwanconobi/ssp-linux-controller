@@ -16,6 +16,8 @@ Do not re-run these unless a related code path changes:
 - Tuner open/close with X, T, and Esc, including a tuner that was already on.
 - NAM A1 upload to a free amp slot.
 - NAM A2, PNAM, and IR uploads to free slots, including the final marker/ACK.
+- Preset import into an empty slot through the name → data → name commit
+  sequence, including duplicate-name rejection (validated on 2.5.3).
 - Clear Chain with fixed blocks and connectors preserved.
 - Ten-minute idle polling, read-only.
 - Save As to a new preset and duplicate-name rejection.
@@ -286,6 +288,11 @@ Repeat for a NAM, PNAM, and IR entry:
 cancellation leaves no partial destination file.
 
 ## V13 — Preset export and import (0.6.0)
+
+The import path uses a name → data → name commit, rejects duplicate preset
+names, and reserves enough distinct free slots in every capture list before
+writing. To test an import into an empty slot, use a bundle whose preset name is
+not already present, or choose the existing slot and confirm overwrite.
 
 1. Select a scratch preset with NAM/PNAM/IR dependencies.
 2. Export it and inspect `bdinfo.json`, `preset/`, and `dependencies/`.

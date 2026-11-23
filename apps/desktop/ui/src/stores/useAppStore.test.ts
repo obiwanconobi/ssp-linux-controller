@@ -227,6 +227,23 @@ describe('device connection integration', () => {
     expect(useAppStore.getState().save.edited).toBe(false);
   });
 
+  it('keeps preset import failures in the activity log', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.importPresetBundle.mockRejectedValueOnce(
+      new Error('preset upload failed after the dependencies were processed'),
+    );
+
+    const report = await useAppStore
+      .getState()
+      .importPreset('/tmp/preset.zip', 22, false, false);
+
+    expect(report).toBeNull();
+    const failure = useAppStore
+      .getState()
+      .activity.find((entry) => entry.title === 'Preset import failed');
+    expect(failure?.detail).toContain('preset upload failed');
+  });
+
   it('refreshes on resume but respects an explicit disconnect', async () => {
     await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
     client.refresh.mockClear();

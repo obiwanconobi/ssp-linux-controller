@@ -1293,7 +1293,11 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       if (name) get().setPreset(targetSlot);
       return completion.report;
     } catch (error) {
-      state.notify(ipcErrorMessage(error), 'bad');
+      const message = ipcErrorMessage(error);
+      state.notify(message, 'bad');
+      // Toast messages disappear after 2.6 s; keep the failure in the
+      // activity drawer so the exact error can be read or copied later.
+      state.addActivity('Preset import failed', message, 'bad');
       void get().refreshDevice();
       return null;
     }

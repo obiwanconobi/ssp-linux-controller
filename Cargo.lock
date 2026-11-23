@@ -3334,7 +3334,7 @@ checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
 
 [[package]]
 name = "stomp-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3350,7 +3350,7 @@ dependencies = [
 
 [[package]]
 name = "stomp-device"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "flate2",
  "indexmap 2.14.2",
@@ -3367,14 +3367,14 @@ dependencies = [
 
 [[package]]
 name = "stomp-eq"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "stomp-preset-bundle"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3386,7 +3386,7 @@ dependencies = [
 
 [[package]]
 name = "stomp-protocol"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "indexmap 2.14.2",
  "serde",
@@ -3396,7 +3396,7 @@ dependencies = [
 
 [[package]]
 name = "stomp-sim"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "flate2",
  "serde",
@@ -3406,7 +3406,7 @@ dependencies = [
 
 [[package]]
 name = "stomp-transport"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "mdns-sd",
  "serde",
@@ -3418,7 +3418,7 @@ dependencies = [
 
 [[package]]
 name = "stomp-upload"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "flate2",
  "hound",
@@ -3430,7 +3430,7 @@ dependencies = [
 
 [[package]]
 name = "stompstation-desktop"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",

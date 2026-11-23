@@ -1,6 +1,7 @@
 //! Synchronous device core. The Phase 0/1 actor wraps this behind one owner;
 //! the type itself owns the transport, cache, and revision counter.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -1320,6 +1321,9 @@ impl Device {
 
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
+        let capacity_errors = dependency_slot_shortfalls(&self.nodes, &bundle.dependencies);
+        let capacity_shortfall = !capacity_errors.is_empty();
+        errors.extend(capacity_errors);
         if let Some(index) = invalid_target {
             errors.push(format!(
                 "target preset slot {} is outside the list",
@@ -1346,10 +1350,15 @@ impl Device {
                 })
                 .map(|_| slot)
         }) {
-            warnings.push(format!(
-                "a preset named {:?} already exists in slot {}; importing into another slot \
-                 creates a duplicate name",
+            // The pedal silently ignores an upload whose name another slot
+            // already has, while still acknowledging every chunk. Treat this
+            // as an error instead of letting the import fail at read-back.
+            errors.push(format!(
+                "a preset named {:?} already exists in slot {}; the pedal ignores uploads \
+                 under a duplicate name. Choose slot {} to overwrite it, or rename/delete \
+                 the existing preset first",
                 bundle.manifest.preset.name,
+                slot + 1,
                 slot + 1
             ));
         }
@@ -1358,6 +1367,7 @@ impl Device {
         }
 
         let mut dependencies = Vec::new();
+        let mut claimed: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
         for dependency in &bundle.dependencies {
             let list = self
                 .nodes
@@ -1384,11 +1394,33 @@ impl Device {
             let existing_index = list
                 .iter()
                 .position(|name| name.as_str() == Some(dependency.manifest.name.as_str()));
-            let free_index = list
-                .iter()
-                .position(|name| name.as_str().map(str::trim).unwrap_or_default().is_empty());
-            let target_index = existing_index.or(free_index);
-            if target_index.is_none() {
+            let target_index = match existing_index {
+                Some(index) => {
+                    claimed
+                        .entry(dependency.manifest.node_path.clone())
+                        .or_default()
+                        .insert(index);
+                    Some(index)
+                }
+                None => {
+                    let slots = claimed
+                        .entry(dependency.manifest.node_path.clone())
+                        .or_default();
+                    let index = list
+                        .iter()
+                        .enumerate()
+                        .find(|(index, name)| {
+                            name.as_str().map(str::trim).unwrap_or_default().is_empty()
+                                && !slots.contains(index)
+                        })
+                        .map(|(index, _)| index);
+                    if let Some(index) = index {
+                        slots.insert(index);
+                    }
+                    index
+                }
+            };
+            if target_index.is_none() && !capacity_shortfall {
                 errors.push(format!(
                     "no free slot for dependency {:?} in {}",
                     dependency.manifest.name, dependency.manifest.node_path
@@ -1480,6 +1512,31 @@ impl Device {
                 options.target_slot + 1
             )));
         }
+        let preset_name = bundle.manifest.preset.name.trim();
+        if let Some(other) = names.iter().enumerate().find_map(|(slot, name)| {
+            if slot == options.target_slot {
+                return None;
+            }
+            name.as_str()
+                .filter(|name| !name.trim().is_empty() && name.eq_ignore_ascii_case(preset_name))
+                .map(|_| slot)
+        }) {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "a preset named {preset_name:?} already exists in slot {}; the pedal ignores \
+                 uploads under a duplicate name. Choose slot {} to overwrite it, or rename/delete \
+                 the existing preset first",
+                other + 1,
+                other + 1
+            )));
+        }
+
+        // Resolve and reserve every target slot before the first write. A
+        // bundle can contain more than one new capture for the same list, so
+        // each dependency must claim a distinct free slot.
+        let capacity_errors = dependency_slot_shortfalls(&self.nodes, &bundle.dependencies);
+        if !capacity_errors.is_empty() {
+            return Err(ProtocolError::InvalidRequest(capacity_errors.join("; ")));
+        }
 
         // Resolve every dependency before the first write. Existing captures
         // are downloaded and compared so an identical file is reused.
@@ -1489,6 +1546,7 @@ impl Device {
             reuse: bool,
         }
         let mut resolved: Vec<Resolved> = Vec::new();
+        let mut claimed: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
         for dependency in &bundle.dependencies {
             let list = self
                 .nodes
@@ -1504,11 +1562,12 @@ impl Device {
             let existing_index = list
                 .iter()
                 .position(|name| name.as_str() == Some(dependency.manifest.name.as_str()));
-            let free_index = list
-                .iter()
-                .position(|name| name.as_str().map(str::trim).unwrap_or_default().is_empty());
             let (target_index, reuse) = match existing_index {
                 Some(index) => {
+                    claimed
+                        .entry(dependency.manifest.node_path.clone())
+                        .or_default()
+                        .insert(index);
                     let existing =
                         self.download_list_item(&dependency.manifest.node_path, index)?;
                     let same = if dependency.manifest.extension == "wav" {
@@ -1534,12 +1593,24 @@ impl Device {
                     }
                 }
                 None => {
-                    let index = free_index.ok_or_else(|| {
-                        ProtocolError::InvalidRequest(format!(
-                            "no free slot for dependency {:?} in {}",
-                            dependency.manifest.name, dependency.manifest.node_path
-                        ))
-                    })?;
+                    let slots = claimed
+                        .entry(dependency.manifest.node_path.clone())
+                        .or_default();
+                    let index = list
+                        .iter()
+                        .enumerate()
+                        .find(|(index, name)| {
+                            name.as_str().map(str::trim).unwrap_or_default().is_empty()
+                                && !slots.contains(index)
+                        })
+                        .map(|(index, _)| index)
+                        .ok_or_else(|| {
+                            ProtocolError::InvalidRequest(format!(
+                                "no free slot for dependency {:?} in {}",
+                                dependency.manifest.name, dependency.manifest.node_path
+                            ))
+                        })?;
+                    slots.insert(index);
                     (index, false)
                 }
             };
@@ -1721,6 +1792,23 @@ impl Device {
             return Err(ProtocolError::Protocol(
                 "preset upload did not finish".into(),
             ));
+        }
+
+        // A preset slot is name → data chunks → name commit. The final
+        // name write at chunk -1 is what publishes the payload; without it
+        // the pedal leaves the slot unchanged even after acknowledging every
+        // data chunk.
+        let (commit_index, commit_chunk) =
+            self.dwrite_ack(list_path, index as i64, -1, &rename_hex(name))?;
+        if commit_index != -1 && commit_index != index as i64 {
+            return Err(ProtocolError::UploadRejected(format!(
+                "device acknowledged the wrong preset slot for commit (wanted {index}, got {commit_index})"
+            )));
+        }
+        if commit_chunk != -1 {
+            return Err(ProtocolError::Protocol(format!(
+                "preset commit did not finish (device asked for chunk {commit_chunk})"
+            )));
         }
 
         let read = self.read_path(list_path, Duration::from_millis(3_000));
@@ -2298,6 +2386,50 @@ fn bundle_error(error: BundleError) -> ProtocolError {
     ProtocolError::InvalidRequest(error.to_string())
 }
 
+/// Check that every list has enough free slots for all new captures in one
+/// bundle. Per-dependency checks are not enough: a bundle can contain several
+/// new captures for the same list, and each must get a distinct slot.
+fn dependency_slot_shortfalls(nodes: &NodeStore, dependencies: &[BundleDependency]) -> Vec<String> {
+    let mut required: BTreeMap<String, usize> = BTreeMap::new();
+    let mut available: BTreeMap<String, usize> = BTreeMap::new();
+    for dependency in dependencies {
+        let Some(list) = nodes
+            .get(&dependency.manifest.node_path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+        let existing = list
+            .iter()
+            .any(|name| name.as_str() == Some(dependency.manifest.name.as_str()));
+        if !existing {
+            *required
+                .entry(dependency.manifest.node_path.clone())
+                .or_default() += 1;
+        }
+        available.insert(
+            dependency.manifest.node_path.clone(),
+            list.iter()
+                .filter(|name| name.as_str().map(str::trim).unwrap_or_default().is_empty())
+                .count(),
+        );
+    }
+
+    required
+        .into_iter()
+        .filter_map(|(path, needed)| {
+            let free = available.get(&path).copied().unwrap_or(0);
+            (free < needed).then(|| {
+                format!(
+                    "{path} has {free} free slot(s) but the bundle needs {needed} new capture(s); \
+                     delete or free some slots first"
+                )
+            })
+        })
+        .collect()
+}
+
 fn decode_hex(text: &str) -> Result<Vec<u8>, ProtocolError> {
     let text = text.trim();
     if !text.len().is_multiple_of(2) {
@@ -2622,6 +2754,10 @@ mod tests {
                 )),
             ));
         }
+        steps.push(Step::new(
+            command::dwrite(path, index as i64, -1, &rename_hex(name)).unwrap(),
+            reply(format!(r#"dwrite {path}:{{"index":{index},"chunk":-1}}"#)),
+        ));
         let mut names = vec![String::new(); index + 1];
         names[index] = name.to_string();
         steps.push(Step::new(
@@ -2649,6 +2785,126 @@ mod tests {
         payload.resize(32768, 0);
         let archive = stomp_preset_bundle::write_bundle_to_vec(&manifest, &payload, &[]).unwrap();
         (archive, payload)
+    }
+
+    fn valid_nam(name: &str) -> Vec<u8> {
+        serde_json::to_vec(&json!({
+            "version":"0.5.4",
+            "architecture":"WaveNet",
+            "config":{},
+            "weights":[0.1,0.2],
+            "metadata":{"name":name,"gear_type":"amp"}
+        }))
+        .unwrap()
+    }
+
+    fn multi_capture_bundle() -> Vec<u8> {
+        let manifests: Vec<DependencyManifest> = ["Amp One", "Amp Two"]
+            .into_iter()
+            .map(|name| DependencyManifest {
+                name: name.to_string(),
+                extension: "nam".to_string(),
+                node_path: r"root\nam_amp".to_string(),
+                archive_path: format!("dependencies/root/nam_amp/{name}.nam"),
+            })
+            .collect();
+        let dependencies: Vec<BundleDependency> = manifests
+            .iter()
+            .map(|manifest| BundleDependency {
+                manifest: manifest.clone(),
+                bytes: valid_nam(&manifest.name),
+            })
+            .collect();
+        let manifest = BundleManifest::new("Two Captures", "2.5.3", manifests);
+        let mut payload = b"root\\app\\amp\\model:{\"value\":\"Amp A\"}\r\n".to_vec();
+        payload.resize(32768, 0);
+        write_bundle_to_vec(&manifest, &payload, &dependencies).unwrap()
+    }
+
+    fn insert_preset_slots(device: &mut Device, names: Value) {
+        device.nodes.insert(
+            r"root\presets",
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":names,
+                    "size":32768,
+                    "chunk":1024
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+    }
+
+    fn insert_amp_slots(device: &mut Device, names: Value) {
+        device.nodes.insert(
+            r"root\nam_amp",
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"nam",
+                    "value":names,
+                    "size":1048576,
+                    "chunk":1024
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+    }
+
+    #[test]
+    fn import_preflight_reserves_distinct_slots_for_multiple_captures() {
+        let archive = multi_capture_bundle();
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        insert_preset_slots(&mut device, json!(["A", "", ""]));
+        insert_amp_slots(&mut device, json!(["Existing", "", ""]));
+
+        let preflight = device.import_preflight(&archive, Some(1)).unwrap();
+        assert!(!preflight.blocked, "{preflight:?}");
+        let targets: Vec<_> = preflight
+            .dependencies
+            .iter()
+            .map(|dependency| dependency.target_index)
+            .collect();
+        assert_eq!(targets, vec![Some(1), Some(2)]);
+    }
+
+    #[test]
+    fn import_blocks_when_a_list_lacks_slots_for_all_captures() {
+        let archive = multi_capture_bundle();
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        insert_preset_slots(&mut device, json!(["A", "", ""]));
+        insert_amp_slots(&mut device, json!(["Existing", ""]));
+
+        let preflight = device.import_preflight(&archive, Some(1)).unwrap();
+        assert!(preflight.blocked, "{preflight:?}");
+        assert!(
+            preflight
+                .errors
+                .iter()
+                .any(|error| error.contains("1 free slot(s)") && error.contains("needs 2")),
+            "{preflight:?}"
+        );
+
+        let error = device
+            .import_bundle(
+                &archive,
+                ImportOptions {
+                    target_slot: 1,
+                    overwrite_preset: false,
+                    overwrite_dependencies: false,
+                },
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("free slot"), "{error}");
     }
 
     #[test]
@@ -2700,6 +2956,52 @@ mod tests {
                 .and_then(Value::as_str),
             Some("Imported Patch")
         );
+    }
+
+    #[test]
+    fn import_refuses_a_duplicate_preset_name() {
+        let (archive, _) = simple_bundle();
+        let path = r"root\presets";
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            path,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":["Imported Patch","",""],
+                    "size":32768,
+                    "chunk":1024
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+
+        let preflight = device.import_preflight(&archive, None).unwrap();
+        assert!(preflight.blocked, "{preflight:?}");
+        assert!(
+            preflight
+                .errors
+                .iter()
+                .any(|error| error.contains("duplicate name")),
+            "{preflight:?}"
+        );
+
+        let error = device
+            .import_bundle(
+                &archive,
+                ImportOptions {
+                    target_slot: 1,
+                    overwrite_preset: false,
+                    overwrite_dependencies: false,
+                },
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("duplicate name"), "{error}");
     }
 
     #[test]

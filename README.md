@@ -40,7 +40,7 @@ The project is deliberately split into two worlds:
 | Global input settings | Settings → Audio & pedal reads/writes `gain1`/`gain2` (−15…+15 dB, 0.1 steps) and displays the read-only `_connected1`/`_connected2` jack state. Gain writes are global and do not mark the preset dirty |
 | Preset Level | Uses firmware 2.5.3's `root\app\output\pst\level` (−20…+20 dB); the lower-bar stepper tracks the snapshot's range, supports 0.5 dB buttons and 0.1 dB arrow-key steps, and stays on the existing dirty/save path |
 | Parametric EQ graph | The in-chain `root\app\parametric_eq` block gets the shared Global EQ graph with four draggable/keyboard bands, Q wheel, selected-band highlighting, Flat reset, and numeric cards. The 8-band Graphic EQ and Global EQ paths are not reused |
-| Preset bundles | Export writes the device's stored `.pst` plus every `root\presets.used` dependency to the official `bdinfo.json`/`preset/`/`dependencies/` zip shape. The live `Brave` export now matches the official `Brave.zip` byte-for-byte for the `.pst` and all four dependencies. Import validates paths, manifest, `.pst` scope, NAM/PNAM/IR structure, and duplicate/missing dependencies before writing; identical captures are reused and partial writes are reported |
+| Preset bundles | Export writes the device's stored `.pst` plus every `root\presets.used` dependency to the official `bdinfo.json`/`preset/`/`dependencies/` zip shape. The live `Brave` export now matches the official `Brave.zip` byte-for-byte for the `.pst` and all four dependencies. Import validates paths, manifest, `.pst` scope, NAM/PNAM/IR structure, duplicate/missing dependencies, duplicate preset names, and free-slot capacity for every capture list before writing; identical captures are reused, multiple new captures reserve distinct slots, preset slots use the name → data → name commit sequence, and partial writes are reported |
 | Library downloads | NAM/PNAM downloads consume `dread` chunks from 1, decompress gzip, trim slot padding, and validate the model; IR slots return 2048 raw little-endian `f32` samples, which the app wraps in the same 48 kHz mono float WAV header the official app exports. Progress is cancellable at chunk boundaries and writes use a temp file |
 | Library rename | Renames use the 128-byte `dwrite` name chunk with readback and duplicate validation. Captures referenced by `root\presets.used` are blocked with the affected preset names until the firmware reference-update behavior is verified on hardware |
 | Add-block menu | Capped at `min(60vh, 440px)` with internal scrolling, collision padding, Radix type-ahead/keyboard navigation, and an 800×600 Playwright check |
@@ -206,12 +206,12 @@ Run the fast, hardware-free suite from the repository root:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace          # 96 Rust tests
+cargo test --workspace          # 99 Rust tests
 ./scripts/smoke.sh              # simulator -> core -> chain/save/preset/upload assertions
 
 cd apps/desktop/ui
 pnpm lint
-pnpm test                       # 72 Vitest tests
+pnpm test                       # 73 Vitest tests
 pnpm build
 pnpm test:ui                    # interaction smoke
 pnpm test:mobile                # phone layout/geometry smoke
