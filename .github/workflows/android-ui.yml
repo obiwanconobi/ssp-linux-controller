@@ -112,8 +112,17 @@ jobs:
           api-level: 36
           target: google_apis
           arch: x86_64
+          profile: pixel_7_pro
+          ram-size: 4096M
+          heap-size: 512M
+          disk-size: 4096M
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          # The native DocumentsUI screens are unstable with the emulator's
+          # Vulkan/SwiftShader path on headless runners. Use GLES with a
+          # standard phone profile and enough RAM to keep the picker alive.
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -feature -Vulkan
+            -no-snapshot -noaudio -no-boot-anim -camera-back none -no-metrics
           script: |
             set -euo pipefail
             ./target/debug/stomp-sim --port 45700 > /tmp/stomp-sim.log 2>&1 &
