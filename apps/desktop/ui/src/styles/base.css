@@ -562,10 +562,31 @@ svg {
   .dialog-content {
     top: auto;
     bottom: 0;
+    /* Android bottom sheets must clear the gesture bar. Zero on desktop. */
+    bottom: env(safe-area-inset-bottom, 0px);
     left: 0;
     width: 100%;
     max-height: 82vh;
+    max-height: min(82vh, calc(100dvh - env(safe-area-inset-top, 0px) - 12px));
     transform: none;
     border-radius: var(--radius-window) var(--radius-window) 0 0;
+  }
+
+  /* The connection sheet is a primary entry surface, not a transient action
+     sheet. Keep it centered and leave the fixed footer reachable. */
+  .dialog-content.connection-sheet {
+    top: 50%;
+    bottom: auto;
+    left: 50%;
+    width: min(560px, calc(100vw - 24px));
+    max-height: min(
+      84dvh,
+      calc(
+        100dvh - env(safe-area-inset-top, 0px) -
+          env(safe-area-inset-bottom, 0px) - 24px
+      )
+    );
+    transform: translate(-50%, -50%);
+    border-radius: var(--radius-window);
   }
 }

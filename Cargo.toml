@@ -6,15 +6,16 @@ members = [
     "crates/stomp-device",
     "crates/stomp-upload",
     "crates/stomp-eq",
+    "crates/stomp-preset-bundle",
     "crates/stomp-sim",
     "crates/stomp-cli",
     "apps/desktop/src-tauri",
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.89"
 license = "MIT"
 
 [workspace.dependencies]

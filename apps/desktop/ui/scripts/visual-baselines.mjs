@@ -119,6 +119,14 @@ try {
     };
 
     await capture('board', async () => undefined);
+    await capture('parametric-eq', async () => {
+      await page.locator('.chain-add').click();
+      await page.locator('.menu--blocks .menu__item', { hasText: 'Parametric EQ' }).click();
+      await page.waitForSelector('.parametric-eq .eq-band-card');
+      await page.locator('.inspector').evaluate((element) => {
+        element.scrollTo({ top: 255 });
+      });
+    });
     await capture('amp', async () => {
       await page.locator('.nav-tab', { hasText: 'Amp room' }).click();
       await page.waitForSelector('.amp-lane');

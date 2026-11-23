@@ -40,6 +40,14 @@ export const MasterStrip = () => {
 
   const activeUploads = uploads.filter((upload) => upload.state === 'uploading').length;
   const presetLevelAvailable = master.presetLevelAvailable !== false;
+  const presetLevelMin = master.presetLevelMin ?? -20;
+  const presetLevelMax = master.presetLevelMax ?? 20;
+  const presetLevelStep = master.presetLevelStep ?? 0.1;
+  const setPresetLevel = (value: number) =>
+    setMaster(
+      'presetLevel',
+      Math.min(presetLevelMax, Math.max(presetLevelMin, Number(value.toFixed(2)))),
+    );
 
   return (
     <section className="master-strip panel" aria-label="Master controls">
@@ -71,11 +79,48 @@ export const MasterStrip = () => {
             className="stepper__btn"
             aria-label="Decrease preset level"
             disabled={!presetLevelAvailable}
-            onClick={() => setMaster('presetLevel', Math.max(-12, master.presetLevel - 0.5))}
+            onClick={() => setPresetLevel(master.presetLevel - 0.5)}
           >
             <Minus size={11} />
           </button>
-          <span className="stepper__value mono" title={presetLevelAvailable ? undefined : 'Not exposed by this firmware'}>
+          <span
+            className="stepper__value mono"
+            role={presetLevelAvailable ? 'slider' : undefined}
+            tabIndex={presetLevelAvailable ? 0 : undefined}
+            aria-label="Preset level"
+            aria-valuemin={presetLevelMin}
+            aria-valuemax={presetLevelMax}
+            aria-valuenow={master.presetLevel}
+            aria-valuetext={`${master.presetLevel > 0 ? '+' : ''}${master.presetLevel.toFixed(1)} dB`}
+            title={
+              presetLevelAvailable
+                ? 'Arrow keys step 0.1 dB · Page Up/Down step 1 dB'
+                : 'Not exposed by this firmware'
+            }
+            onKeyDown={(event) => {
+              if (!presetLevelAvailable) return;
+              const step = event.shiftKey ? 1 : presetLevelStep;
+              if (event.key === 'ArrowUp' || event.key === 'ArrowRight') {
+                event.preventDefault();
+                setPresetLevel(master.presetLevel + step);
+              } else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') {
+                event.preventDefault();
+                setPresetLevel(master.presetLevel - step);
+              } else if (event.key === 'PageUp') {
+                event.preventDefault();
+                setPresetLevel(master.presetLevel + 1);
+              } else if (event.key === 'PageDown') {
+                event.preventDefault();
+                setPresetLevel(master.presetLevel - 1);
+              } else if (event.key === 'Home') {
+                event.preventDefault();
+                setPresetLevel(presetLevelMin);
+              } else if (event.key === 'End') {
+                event.preventDefault();
+                setPresetLevel(presetLevelMax);
+              }
+            }}
+          >
             {presetLevelAvailable
               ? `${master.presetLevel > 0 ? '+' : ''}${master.presetLevel.toFixed(1)}`
               : '—'}
@@ -85,7 +130,7 @@ export const MasterStrip = () => {
             className="stepper__btn"
             aria-label="Increase preset level"
             disabled={!presetLevelAvailable}
-            onClick={() => setMaster('presetLevel', Math.min(12, master.presetLevel + 0.5))}
+            onClick={() => setPresetLevel(master.presetLevel + 0.5)}
           >
             <Plus size={11} />
           </button>

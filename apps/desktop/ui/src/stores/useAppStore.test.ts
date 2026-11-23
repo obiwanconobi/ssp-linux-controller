@@ -39,10 +39,12 @@ const tuner = {
 const client = {
   connect: vi.fn(async () => info),
   getSnapshot: vi.fn(async () => fixture.snapshot),
+  refresh: vi.fn(async () => fixture.snapshot),
   selectBlock: vi.fn(async (path: string) => fixture.editors[path]),
   setBlock: vi.fn(async () => ({ ...fixture.snapshot, revision: fixture.snapshot.revision + 1 })),
   setControl: vi.fn(async (_path: string, _value: unknown) => fixture.snapshot),
   setMaster: vi.fn(async () => fixture.snapshot),
+  setInputGain: vi.fn(async () => fixture.snapshot),
   setEqBand: vi.fn(async () => fixture.snapshot),
   setEqType: vi.fn(async () => fixture.snapshot),
   setEqEnabled: vi.fn(async () => fixture.snapshot),
@@ -63,6 +65,26 @@ const client = {
     }),
   ),
   cancelUpload: vi.fn(async () => true),
+  downloadListItem: vi.fn(async () => ({ cancelled: false, file: null })),
+  cancelDownload: vi.fn(async () => true),
+  exportPreset: vi.fn(async () => ({
+    path: '/tmp/preset.zip',
+    preset_name: 'Preset',
+    dependencies: [],
+    bytes: 1024,
+  })),
+  preflightPresetImport: vi.fn(),
+  importPresetBundle: vi.fn(async () => ({
+    report: {
+      preset_name: 'Preset',
+      target_slot: 0,
+      dependencies_written: [],
+      dependencies_reused: [],
+      preset_bytes: 32768,
+    },
+    snapshot: fixture.snapshot,
+  })),
+  renameListItem: vi.fn(async () => fixture.snapshot),
   deleteListItem: vi.fn(async () => fixture.snapshot),
 };
 
@@ -118,6 +140,38 @@ describe('device connection integration', () => {
     state.setMaster('volume', 66);
     expect(client.setMaster).toHaveBeenCalledWith('volume', 66);
 
+    useAppStore.setState((current) => ({
+      save: { ...current.save, edited: false },
+    }));
+    state.setMaster('presetLevel', 3.4);
+    expect(client.setMaster).toHaveBeenCalledWith('preset_level', 3.4);
+    expect(useAppStore.getState().save.edited).toBe(true);
+
+    useAppStore.setState({
+      input: {
+        gain1: {
+          id: 'root\\settings\\input\\gain1',
+          name: 'gain1',
+          label: 'In 1 digital gain',
+          kind: 'float',
+          value: 0,
+          min: -15,
+          max: 15,
+          step: 0.1,
+          defaultValue: 0,
+          unit: 'dB',
+        },
+        gain2: null,
+        connected1: true,
+        connected2: false,
+      },
+    });
+    const editedBefore = useAppStore.getState().save.edited;
+    state.setInputGain(1, 3.4);
+    expect(client.setInputGain).toHaveBeenCalledWith(1, 3.4);
+    expect(useAppStore.getState().input.gain1?.value).toBe(3.4);
+    expect(useAppStore.getState().save.edited).toBe(editedBefore);
+
     state.setEqBand(2, { gain: 3.4 });
     expect(client.setEqBand).toHaveBeenCalledWith(2, 'gain', 3.4);
     // Let the mocked coalesced writes settle so no local value is still pending.
@@ -151,6 +205,38 @@ describe('device connection integration', () => {
       col: pitch?.slotCol,
       path: 'root\\app\\chorus',
     });
+  });
+
+  it('routes preset bundle export and import through the IPC client', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const state = useAppStore.getState();
+
+    const exported = await state.exportPreset(2, '/tmp/preset.zip');
+    expect(exported).toBe(true);
+    expect(client.exportPreset).toHaveBeenCalledWith(2, '/tmp/preset.zip', true);
+
+    const report = await state.importPreset('/tmp/preset.zip', 0, false, false);
+    expect(client.importPresetBundle).toHaveBeenCalledWith(
+      '/tmp/preset.zip',
+      0,
+      false,
+      false,
+    );
+    expect(report?.preset_name).toBe('Preset');
+    expect(client.setPreset).toHaveBeenCalled();
+    expect(useAppStore.getState().save.edited).toBe(false);
+  });
+
+  it('refreshes on resume but respects an explicit disconnect', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.refresh.mockClear();
+    await useAppStore.getState().resumeDevice();
+    expect(client.refresh).toHaveBeenCalled();
+
+    useAppStore.getState().disconnect();
+    client.refresh.mockClear();
+    await useAppStore.getState().resumeDevice();
+    expect(client.refresh).not.toHaveBeenCalled();
   });
 
   it('keeps edits dirty across a refresh and clears them only after save', async () => {

@@ -57,6 +57,51 @@ pub struct UploadCompletion {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct DownloadProgressEvent {
+    pub id: String,
+    pub list_path: String,
+    pub index: usize,
+    pub name: String,
+    pub kind: String,
+    pub chunk: usize,
+    pub total_chunks: usize,
+    pub progress: f64,
+    pub bytes: usize,
+    pub total_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadFile {
+    pub path: String,
+    pub list_path: String,
+    pub index: usize,
+    pub name: String,
+    pub kind: String,
+    pub extension: String,
+    pub bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadCompletion {
+    pub cancelled: bool,
+    pub file: Option<DownloadFile>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportCompletion {
+    pub path: String,
+    pub preset_name: String,
+    pub dependencies: Vec<String>,
+    pub bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportCompletion {
+    pub report: stomp_device::ImportReport,
+    pub snapshot: DeviceSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TunerView {
     pub available: bool,
     pub message: Option<String>,
@@ -261,6 +306,22 @@ pub async fn set_master(
 }
 
 #[tauri::command]
+pub async fn set_input_gain(
+    state: State<'_, AppState>,
+    channel: u8,
+    value: f64,
+) -> IpcResult<DeviceSnapshot> {
+    state
+        .actor
+        .call(|reply| ActorCommand::SetInputGain {
+            channel,
+            value,
+            reply,
+        })
+        .await
+}
+
+#[tauri::command]
 pub async fn set_eq_band(
     state: State<'_, AppState>,
     index: usize,
@@ -374,6 +435,105 @@ pub async fn begin_upload(
 #[tauri::command]
 pub fn cancel_upload(state: State<'_, AppState>) -> bool {
     state.actor.cancel_upload()
+}
+
+#[tauri::command]
+pub async fn download_list_item(
+    state: State<'_, AppState>,
+    id: String,
+    list_path: String,
+    index: usize,
+    destination: String,
+    overwrite: bool,
+) -> IpcResult<DownloadCompletion> {
+    state
+        .actor
+        .call(|reply| ActorCommand::DownloadListItem {
+            id,
+            list_path,
+            index,
+            destination,
+            overwrite,
+            reply,
+        })
+        .await
+}
+
+#[tauri::command]
+pub fn cancel_download(state: State<'_, AppState>) -> bool {
+    state.actor.cancel_download()
+}
+
+#[tauri::command]
+pub async fn export_preset(
+    state: State<'_, AppState>,
+    index: usize,
+    destination: String,
+    overwrite: bool,
+) -> IpcResult<ExportCompletion> {
+    state
+        .actor
+        .call(|reply| ActorCommand::ExportPreset {
+            index,
+            destination,
+            overwrite,
+            reply,
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn preflight_preset_import(
+    state: State<'_, AppState>,
+    bundle_path: String,
+    target_slot: Option<usize>,
+) -> IpcResult<stomp_device::ImportPreflight> {
+    state
+        .actor
+        .call(|reply| ActorCommand::PreflightPresetImport {
+            bundle_path,
+            target_slot,
+            reply,
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn import_preset_bundle(
+    state: State<'_, AppState>,
+    bundle_path: String,
+    target_slot: usize,
+    overwrite_preset: bool,
+    overwrite_dependencies: bool,
+) -> IpcResult<ImportCompletion> {
+    state
+        .actor
+        .call(|reply| ActorCommand::ImportPresetBundle {
+            bundle_path,
+            target_slot,
+            overwrite_preset,
+            overwrite_dependencies,
+            reply,
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn rename_list_item(
+    state: State<'_, AppState>,
+    list_path: String,
+    index: usize,
+    new_name: String,
+) -> IpcResult<DeviceSnapshot> {
+    state
+        .actor
+        .call(|reply| ActorCommand::RenameListItem {
+            list_path,
+            index,
+            new_name,
+            reply,
+        })
+        .await
 }
 
 #[tauri::command]

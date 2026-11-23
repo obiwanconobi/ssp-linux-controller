@@ -133,6 +133,105 @@ export const App = () => {
     };
   }, []);
 
+  // Android's hardware Back is handled by MainActivity, which calls this before
+  // finishing the activity. Close the topmost web overlay first. Radix handles
+  // Escape in the browser; this is the native-back equivalent.
+  useEffect(() => {
+    const handleBack = (): boolean => {
+      const state = useAppStore.getState();
+      if (state.tunerOpen) {
+        state.setTunerOpen(false);
+        return true;
+      }
+      if (state.commandOpen) {
+        state.setCommandOpen(false);
+        return true;
+      }
+      if (state.connectionOpen) {
+        state.setConnectionOpen(false);
+        return true;
+      }
+      if (state.presetDrawerOpen) {
+        state.setPresetDrawerOpen(false);
+        return true;
+      }
+      if (state.activityOpen) {
+        state.setActivityOpen(false);
+        return true;
+      }
+      if (state.shortcutsOpen) {
+        state.setShortcutsOpen(false);
+        return true;
+      }
+      if (state.view === 'board' && state.mobileBoardPane === 'edit') {
+        state.setMobileBoardPane('chain');
+        return true;
+      }
+      if (state.view !== 'board') {
+        state.setView('board');
+        return true;
+      }
+      return false;
+    };
+
+    const target = window as Window & { __stompHandleBack?: () => boolean };
+    target.__stompHandleBack = handleBack;
+    return () => {
+      delete target.__stompHandleBack;
+    };
+  }, []);
+
+  // Android lifecycle bridge: refresh/reconnect after background/resume and
+  // retry discovery after the Android 17 local-network permission changes.
+  useEffect(() => {
+    type AndroidWindow = Window & {
+      __stompOnResume?: () => boolean;
+      __stompLocalNetworkPermission?: (granted: boolean) => void;
+    };
+    const target = window as AndroidWindow;
+    target.__stompOnResume = () => {
+      const state = useAppStore.getState();
+      if (state.connection.mode !== 'device' || state.connection.connecting) {
+        return false;
+      }
+      void state.resumeDevice();
+      return true;
+    };
+    target.__stompLocalNetworkPermission = (granted) => {
+      const state = useAppStore.getState();
+      if (!granted) {
+        state.notify(
+          'Local network permission denied — allow it in Android Settings to reach the pedal over Wi-Fi',
+          'warn',
+        );
+        return;
+      }
+      state.addActivity(
+        'Local network access granted',
+        'retrying Wi-Fi discovery',
+        'good',
+      );
+      // The launch scan may still be finishing when the permission dialog is
+      // accepted. Retry after it settles instead of losing the grant.
+      let attempts = 0;
+      const retryDiscovery = () => {
+        const current = useAppStore.getState();
+        if (current.connection.connected) return;
+        if (current.connection.connecting) {
+          attempts += 1;
+          if (attempts < 12) window.setTimeout(retryDiscovery, 1_000);
+          return;
+        }
+        void current.connectAuto();
+      };
+      retryDiscovery();
+    };
+    return () => {
+      delete target.__stompOnResume;
+      delete target.__stompLocalNetworkPermission;
+    };
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isTyping(event.target)) return;

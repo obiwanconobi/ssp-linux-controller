@@ -7,6 +7,14 @@
   flex-direction: column;
   height: 100dvh;
   min-height: 0;
+  /* Android draws the WebView edge-to-edge behind the status and gesture
+     bars. Keep the app chrome out from under them. These insets are zero on
+     desktop, so the shell geometry there is unchanged. */
+  padding:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
 }
 
 .app-main {
@@ -272,6 +280,18 @@
   border-color: var(--accent);
 }
 
+.connection-pill__label,
+.connection-pill__label-short {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-pill__label-short {
+  display: none;
+}
+
 .connection-pill--on {
   color: var(--text-2);
   border-color: color-mix(in srgb, var(--led) 30%, var(--hairline));
@@ -342,6 +362,10 @@
   min-width: 16px;
   min-height: 16px;
   font-size: 8px;
+}
+
+.nav-tab__short {
+  display: none;
 }
 
 .nav-tabs__context {
@@ -495,6 +519,8 @@
   height: 100%;
   max-height: none;
   padding: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   border: 0;
   border-left: 1px solid var(--hairline);
   border-radius: 0;
@@ -2487,9 +2513,25 @@
   color: var(--text-2);
 }
 
+.stepper__value:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .library-table__actions {
-  width: 36px;
+  width: 1%;
   text-align: right;
+  white-space: nowrap;
+}
+
+.library-table__actions .icon-btn + .icon-btn {
+  margin-left: 3px;
+}
+
+.icon-btn--blocked {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .library-table tbody tr:hover {
@@ -2661,6 +2703,17 @@
   padding-top: 3px;
   padding-bottom: 3px;
   font-size: 10px;
+}
+
+.preflight__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.dialog-content--wide {
+  width: min(760px, calc(100vw - 32px));
 }
 
 .preflight__warning {
@@ -3090,6 +3143,17 @@
 .settings-note .mono {
   color: var(--text-2);
   font-size: 9px;
+}
+
+.settings-knob--missing {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-height: 92px;
+  padding: 10px;
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-panel);
 }
 
 .settings-knobs {
@@ -3781,6 +3845,12 @@
   }
 }
 
+.menu--blocks {
+  max-height: min(60vh, 440px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .menu__label {
   padding: 5px 8px;
   color: var(--muted);
@@ -3970,6 +4040,8 @@
   width: min(440px, 94vw);
   display: flex;
   flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   border-left: 1px solid var(--hairline);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 20%),
@@ -4024,6 +4096,22 @@
 
 .connection-sheet {
   width: min(640px, calc(100vw - 32px));
+  /* Keep the Connect/Disconnect footer reachable on phones. The body scrolls
+     independently instead of pushing the footer below the viewport. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.connection-sheet .dialog-head,
+.connection-sheet .dialog-foot {
+  flex: 0 0 auto;
+}
+
+.connection-sheet .dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .connection-sheet__body {
@@ -4162,6 +4250,7 @@
   position: fixed;
   right: 18px;
   bottom: 48px;
+  bottom: calc(48px + env(safe-area-inset-bottom, 0px));
   z-index: 95;
   pointer-events: none;
 }
@@ -4281,7 +4370,7 @@
   }
 
   .title-bar__state .btn--ghost,
-  .title-bar__help {
+  .title-bar__help-btn {
     display: none;
   }
 
@@ -4348,12 +4437,57 @@
     display: inline-flex;
   }
 
-  .nav-tab span:not(.kbd) {
+  /* Below 860px the preset rail is replaced by the Patches button, which
+     makes the action cluster wider than the one-line header can hold. Give
+     the title bar two rows here so the preset nav is never squeezed. */
+  .title-bar {
+    height: auto;
+    min-height: 54px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  .title-bar__brand {
+    width: auto;
+    min-width: 0;
+  }
+
+  .preset-nav {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
+
+  .title-bar__state {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    min-width: 0;
+    margin-left: auto;
+    gap: 2px;
+  }
+
+  .nav-tab__label {
+    display: none;
+  }
+
+  .nav-tab__short {
+    display: inline;
+  }
+
+  .nav-tabs__list {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav-tabs__list::-webkit-scrollbar {
     display: none;
   }
 
   .nav-tab {
-    padding: 0 10px;
+    padding: 0 9px;
+    gap: 5px;
+    font-size: 11px;
   }
 
   .nav-tab__key {
@@ -4435,6 +4569,31 @@
   .library-side {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  /* The library stacks its table and upload rail on small screens. Let the
+     whole view scroll and give the table a usable minimum height; otherwise
+     the stacked rows squeeze the table down to zero height. */
+  .library-view {
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .library-view__grid {
+    flex: 0 0 auto;
+  }
+
+  .library-view__grid .library-main {
+    min-height: 460px;
+  }
+
+  .library-table {
+    min-width: 620px;
+  }
+
+  .library-table th,
+  .library-table td {
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 620px) {
@@ -4442,21 +4601,75 @@
     padding: 8px;
   }
 
-  .title-bar {
-    height: auto;
-    min-height: 54px;
+  /* The phone header keeps only the actions that are needed on a touch
+     screen. Without this the state cluster keeps its intrinsic desktop width
+     and pushes the document wider than the viewport. */
+  .title-bar__state > .chip {
+    display: none;
+  }
+
+  .title-bar__state .icon-btn,
+  .title-bar__save,
+  .title-bar__presets {
+    flex: 0 0 auto;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .title-bar__save-label,
+  .title-bar__presets-label {
+    display: none;
+  }
+
+  .connection-pill {
+    flex: 0 1 auto;
+    max-width: 112px;
+    min-width: 0;
+    padding: 4px 9px;
+  }
+
+  .connection-pill__label {
+    display: none;
+  }
+
+  .connection-pill__label-short {
+    display: inline;
+  }
+
+  /* Settings rows that pair a label with selector/input controls need to
+     stack on phones; otherwise the controls are compressed into a sliver. */
+  .settings-row {
+    gap: 12px;
+  }
+
+  .settings-row--stack {
     flex-wrap: wrap;
-    padding: 6px 10px;
+    align-items: flex-start;
   }
 
-  .preset-nav {
-    order: 3;
-    flex-basis: 100%;
-    justify-content: space-between;
+  .settings-row--stack > div:first-child {
+    flex: 1 1 100%;
   }
 
-  .title-bar__state {
-    margin-left: auto;
+  .settings-row--stack .settings-inline {
+    flex: 1 1 100%;
+  }
+
+  .settings-inline {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .settings-inline .field-label,
+  .settings-inline .select {
+    grid-column: 1 / -1;
+  }
+
+  .settings-card__head,
+  .danger-zone {
+    flex-wrap: wrap;
   }
 
   .view-head {
@@ -4468,12 +4681,388 @@
     justify-content: flex-start;
   }
 
+  .library-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .library-toolbar .search-field {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .library-toolbar__spacer {
+    display: none;
+  }
+
+  .library-scope__subs {
+    flex-wrap: wrap;
+  }
+
   .master-strip {
     margin: 0 8px;
   }
 
   .status-bar__left .mono,
   .status-bar__right .status-link {
+    display: none;
+  }
+
+  .nav-tab {
+    padding: 0 7px;
+    gap: 4px;
+    font-size: 10px;
+  }
+
+  /* Phone board: a wrapped, knob-free chain overview and a full-height editor
+     instead of a horizontally scrolling pedal rail above a tiny inspector. */
+  .mobile-board {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: 8px;
+  }
+
+  .mobile-chain {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .mobile-chain__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 1px solid var(--hairline-soft);
+  }
+
+  .mobile-chain__head h1 {
+    margin-top: 1px;
+    font-size: 20px;
+    line-height: 1.1;
+  }
+
+  .mobile-chain__meta {
+    display: block;
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .mobile-chain__actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+  }
+
+  .mobile-chain__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  .mobile-block-card {
+    --block-color: var(--utility);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    min-height: 62px;
+    padding: 8px;
+    border-radius: var(--radius-panel);
+    border: 1px solid color-mix(in srgb, var(--block-color) 35%, var(--hairline));
+    background:
+      linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--block-color) 22%, var(--surface)),
+        var(--surface) 72%
+      );
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mobile-block-card[data-family='drive'] { --block-color: var(--drive); }
+  .mobile-block-card[data-family='cab'] { --block-color: var(--cab); }
+  .mobile-block-card[data-family='mod'] { --block-color: var(--mod); }
+  .mobile-block-card[data-family='delay'] { --block-color: var(--delay); }
+  .mobile-block-card[data-family='reverb'] { --block-color: var(--reverb); }
+
+  .mobile-block-card:hover,
+  .mobile-block-card:focus-visible {
+    border-color: color-mix(in srgb, var(--block-color) 60%, var(--hairline));
+  }
+
+  .mobile-block-card__number {
+    color: var(--muted);
+    font-size: 8px;
+  }
+
+  .mobile-block-card__dot {
+    width: 7px;
+    height: 64%;
+    min-height: 30px;
+    flex: 0 0 auto;
+    border-radius: 2px;
+    background: var(--block-color);
+  }
+
+  .mobile-block-card__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .mobile-block-card__text strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .mobile-block-card__text small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .mobile-block-card__state {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    text-transform: uppercase;
+  }
+
+  .mobile-block-card__state.is-on {
+    color: var(--led);
+  }
+
+  .mobile-block-card__fixed {
+    flex: 0 0 auto;
+    color: var(--muted-2);
+    font-family: var(--font-mono);
+    font-size: 7px;
+    text-transform: uppercase;
+  }
+
+  .mobile-block-card > svg {
+    flex: 0 0 auto;
+    color: var(--muted);
+  }
+
+  .mobile-chain__empty {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 24px 14px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .mobile-chain__hint {
+    padding: 0 10px 9px;
+    font-size: 9px;
+  }
+
+  .mobile-board--editor .inspector--mobile {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .inspector--mobile {
+    border-radius: var(--radius-panel);
+  }
+
+  .inspector--mobile .inspector__head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--surface);
+  }
+
+  .inspector--mobile .inspector__selectors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inspector--mobile .control-grid {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    padding: 12px 10px;
+  }
+
+  .inspector--mobile .control-grid--group {
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  }
+
+  .inspector--mobile .inspector-group {
+    margin: 0 10px 8px;
+  }
+
+  .inspector__back-btn {
+    flex: 0 0 auto;
+    margin-right: 2px;
+  }
+}
+
+/* Landscape phones and short tablet windows: keep the chrome compact and let
+   the board content scroll instead of clipping the inspector behind the master
+   strip. Desktop windows keep their normal fixed-height layout. */
+@media (orientation: landscape) and (max-height: 620px) {
+  .title-bar {
+    height: 44px;
+    min-height: 44px;
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 4px 8px;
+  }
+
+  .preset-nav {
+    order: initial;
+    flex: 1 1 auto;
+    flex-basis: auto;
+  }
+
+  .nav-tabs {
+    min-height: 36px;
+  }
+
+  .app-main {
+    padding: 6px 8px;
+  }
+
+  .app-main--board {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .board-view {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .chain-hero {
+    flex: 0 0 auto;
+  }
+
+  /* Landscape phones need the chain and the top of the inspector on screen.
+     Keep the signal path compact and compress its title row. */
+  .chain-hero__head {
+    min-height: 0;
+    padding: 2px 8px;
+    border-bottom: 0;
+  }
+
+  .chain-hero__head .eyebrow,
+  .chain-hero__head .view-head__meta,
+  .chain-hero__head .view-head__hint {
+    display: none;
+  }
+
+  .chain-hero__head h1 {
+    font-size: 15px;
+    line-height: 1.1;
+  }
+
+  .signal-chain {
+    --pedal-h: 150px;
+    --pedal-standard-w: 94px;
+    --pedal-amp-w: 165px;
+    --pedal-mini-w: 76px;
+  }
+
+  .signal-chain__inner {
+    padding: 8px 12px 6px;
+  }
+
+  .pedal {
+    padding-top: 6px;
+    gap: 2px;
+  }
+
+  .pedal__plate {
+    min-height: 17px;
+    padding: 0 3px;
+    font-size: 8px;
+  }
+
+  .pedal__model {
+    height: 23px;
+    font-size: 9.5px;
+    line-height: 1.15;
+  }
+
+  .pedal__knobs {
+    gap: 2px;
+    padding-top: 2px;
+  }
+
+  .pedal__knobs .knob__label {
+    font-size: 7.5px;
+  }
+
+  .pedal__knobs .knob__readout {
+    font-size: 8.5px;
+  }
+
+  .pedal__foot {
+    padding-top: 0;
+  }
+
+  .pedal__state {
+    font-size: 7.5px;
+  }
+
+  .footswitch {
+    width: 28px;
+    height: 28px;
+  }
+
+  .board-workbench {
+    min-height: 380px;
+  }
+
+  .master-strip {
+    flex-wrap: nowrap;
+    gap: 10px;
+    min-height: 60px;
+    margin: 0 8px;
+    padding: 4px 10px;
+  }
+
+  .master-strip__title {
+    display: none;
+  }
+
+  .master-strip__meters {
+    order: initial;
+    flex-basis: auto;
+  }
+
+  .master-strip__actions {
+    margin-left: 0;
+  }
+
+  .status-bar {
+    min-height: 26px;
+  }
+
+  .status-bar__left .mono,
+  .status-bar__right .status-link span {
     display: none;
   }
 }

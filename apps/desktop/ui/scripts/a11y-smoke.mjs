@@ -71,8 +71,8 @@ try {
     if (message.type() === 'error') errors.push(`console: ${message.text()}`);
   });
 
-  const scan = async (label) => {
-    const results = await new AxeBuilder({ page })
+  const scan = async (label, target = page) => {
+    const results = await new AxeBuilder({ page: target })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();
     if (results.violations.length > 0) {
@@ -104,6 +104,14 @@ try {
 
     await page.locator('.nav-tab', { hasText: 'Board' }).click();
     await page.waitForSelector('.pedal');
+    await page.locator('.chain-add').click();
+    await page.locator('.menu--blocks .menu__item', { hasText: 'Parametric EQ' }).click();
+    await page.waitForSelector('.parametric-eq .eq-band-card');
+    await page.waitForTimeout(180);
+    await scan(`${theme}/parametric-eq`);
+    await page.locator('.nav-tab', { hasText: 'Board' }).click();
+    await page.waitForSelector('.pedal');
+
     await page.keyboard.press('t');
     await page.waitForSelector('.tuner-deck');
     await page.waitForTimeout(250);
@@ -173,6 +181,51 @@ try {
   await page.waitForTimeout(250);
   await scan('narrow/preset-drawer');
   await page.keyboard.press('Escape');
+
+  // Phone layout: wrapped chain cards, the full-screen block editor, and the
+  // centered connection sheet each need their own accessibility pass.
+  const mobileContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    userAgent:
+      'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
+    colorScheme: 'dark',
+    timezoneId: 'UTC',
+    locale: 'en-US',
+  });
+  const mobilePage = await mobileContext.newPage();
+  mobilePage.on('pageerror', (error) => errors.push(`mobile pageerror: ${error.message}`));
+  mobilePage.on('console', (message) => {
+    if (message.type() === 'error') errors.push(`mobile console: ${message.text()}`);
+  });
+  await mobilePage.addInitScript(() => {
+    localStorage.setItem('stomp.theme', 'studio');
+    localStorage.setItem('stomp.density', 'comfortable');
+    localStorage.setItem('stomp.motion', 'reduced');
+    Math.random = () => 0.5;
+  });
+  await mobilePage.goto(`${base}/#board`, { waitUntil: 'networkidle' });
+  await mobilePage.waitForSelector('.mobile-block-card');
+  assert(
+    (await mobilePage.locator('#nav-tab-amp').count()) === 0,
+    'Amp room must not be reachable on phones',
+  );
+  await scan('mobile/chain', mobilePage);
+
+  await mobilePage.locator('.mobile-block-card').first().click();
+  await mobilePage.waitForSelector('.inspector--mobile');
+  await scan('mobile/editor', mobilePage);
+
+  await mobilePage.locator('.inspector__back-btn').click();
+  await mobilePage.waitForSelector('.mobile-block-card');
+  await mobilePage.locator('.connection-pill').click();
+  await mobilePage.waitForSelector('.connection-sheet');
+  await scan('mobile/connection', mobilePage);
+  await mobilePage.keyboard.press('Escape');
+  await mobileContext.close();
 
   assert(errors.length === 0, `page errors:\n${errors.join('\n')}`);
   console.log('A11Y SMOKE PASSED');

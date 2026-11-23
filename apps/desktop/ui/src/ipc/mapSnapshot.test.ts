@@ -103,6 +103,53 @@ describe('mapSnapshot', () => {
     expect(ir.activeSlot).toBe(0);
   });
 
+  it('maps global input settings and the 2.5.3 preset level range', () => {
+    const snapshot = structuredClone(fixture.snapshot);
+    snapshot.master.preset_level = {
+      id: 'root\\app\\output\\pst\\level',
+      label: 'Preset level',
+      value: 3.4,
+      min: -20,
+      max: 20,
+      step: 0.1,
+      unit: 'dB',
+    };
+    snapshot.input = {
+      gain1: {
+        id: 'root\\settings\\input\\gain1',
+        label: 'In 1 digital gain',
+        value: -3.5,
+        min: -15,
+        max: 15,
+        step: 0.1,
+        unit: 'dB',
+      },
+      gain2: null,
+      connected1: true,
+      connected2: false,
+    };
+    const mappedInput = mapSnapshot(snapshot, fixture.editors, info, {
+      preset,
+      connection,
+      eq: [],
+    });
+    expect(mappedInput.master.presetLevel).toBe(3.4);
+    expect(mappedInput.master.presetLevelMin).toBe(-20);
+    expect(mappedInput.master.presetLevelMax).toBe(20);
+    expect(mappedInput.master.presetLevelStep).toBe(0.1);
+    expect(mappedInput.input.gain1).toMatchObject({
+      label: 'In 1 digital gain',
+      value: -3.5,
+      min: -15,
+      max: 15,
+      step: 0.1,
+      unit: 'dB',
+    });
+    expect(mappedInput.input.gain2).toBeNull();
+    expect(mappedInput.input.connected1).toBe(true);
+    expect(mappedInput.input.connected2).toBe(false);
+  });
+
   it('switches connection state to the device transport', () => {
     expect(mapped.connection.mode).toBe('device');
     expect(mapped.connection.connected).toBe(true);

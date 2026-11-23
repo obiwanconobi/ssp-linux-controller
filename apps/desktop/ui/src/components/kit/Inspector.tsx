@@ -1,8 +1,19 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Boxes, MoreHorizontal, Trash2, Unlock, ArrowLeftRight, Replace } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  Boxes,
+  ChevronLeft,
+  MoreHorizontal,
+  Replace,
+  Trash2,
+  Unlock,
+} from 'lucide-react';
+import { isMobileRuntime } from '../../ipc/client';
+import { parametricEqModel } from '../../lib/parametricEq';
 import { useAppStore } from '../../stores/useAppStore';
 import type { Block, Control, ControlGroup } from '../../types';
 import { Knob } from './Knob';
+import { ParametricEqPanel } from './ParametricEqPanel';
 
 const familyLabel: Record<Block['family'], string> = {
   gate: 'Gate',
@@ -256,7 +267,13 @@ const GroupSection = ({
   );
 };
 
-export const Inspector = () => {
+export const Inspector = ({
+  mobile = false,
+  onBack,
+}: {
+  mobile?: boolean;
+  onBack?: () => void;
+} = {}) => {
   const block = useAppStore((state) => state.blocks.find((item) => item.id === state.selectedBlockId));
   const blocks = useAppStore((state) => state.blocks);
   const pending = new Set(useAppStore((state) => state.pending));
@@ -273,7 +290,16 @@ export const Inspector = () => {
 
   if (!block) {
     return (
-      <section className="inspector panel inspector--empty">
+      <section className={`inspector panel inspector--empty${mobile ? ' inspector--mobile' : ''}`}>
+        {onBack && (
+          <button
+            type="button"
+            className="btn btn--sm inspector__back-btn"
+            onClick={onBack}
+          >
+            <ChevronLeft size={14} /> All blocks
+          </button>
+        )}
         <Boxes size={26} aria-hidden="true" />
         <h2>Select a block</h2>
         <p>The inspector follows the chain: choose a pedal to edit its controls here.</p>
@@ -296,6 +322,10 @@ export const Inspector = () => {
       item.id !== block.id &&
       !blocks.some((existing) => existing.id === item.id || existing.label === item.label),
   );
+  const parametricEq = parametricEqModel(block);
+  const visibleGroups = block.groups.filter(
+    (group) => group.id !== parametricEq?.group.id,
+  );
 
   const toggleGroup = (id: string, value: boolean) => {
     if (id.endsWith('on_off')) {
@@ -306,9 +336,23 @@ export const Inspector = () => {
   };
 
   return (
-    <section className="inspector panel" aria-label={`${block.label} inspector`}>
+    <section
+      className={`inspector panel${mobile ? ' inspector--mobile' : ''}`}
+      aria-label={`${block.label} inspector`}
+    >
       <header className="inspector__head">
         <div className="inspector__identity">
+          {onBack && (
+            <button
+              type="button"
+              className="icon-btn inspector__back-btn"
+              aria-label="Back to signal chain"
+              title="Back to signal chain"
+              onClick={onBack}
+            >
+              <ChevronLeft size={16} />
+            </button>
+          )}
           <span className={`inspector__badge inspector__badge--${block.family}`}>
             {familyLabel[block.family]}
           </span>
@@ -440,7 +484,7 @@ export const Inspector = () => {
         </div>
       )}
 
-      {block.family === 'amp' && (
+      {block.family === 'amp' && !mobile && !isMobileRuntime() && (
         <button type="button" className="inspector__focus" onClick={() => setView('amp')}>
           <Boxes size={13} />
           Open amp room
@@ -474,7 +518,9 @@ export const Inspector = () => {
         )}
       </div>
 
-      {block.groups.map((group) => (
+      {parametricEq && <ParametricEqPanel block={block} />}
+
+      {visibleGroups.map((group) => (
         <GroupSection
           key={group.id}
           group={group}

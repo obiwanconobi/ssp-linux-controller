@@ -4,6 +4,7 @@ import {
   applyDemoLaneType,
   AVAILABLE_BLOCKS,
   cloneBlocks,
+  formatBytes,
   INITIAL_ACTIVITY,
   INITIAL_BLOCKS,
   INITIAL_EQ,
@@ -22,7 +23,11 @@ import {
   slotOf,
   type ChainSlotRef,
 } from '../lib/chainSlots';
-import { presetNameError } from '../lib/presetNames';
+import {
+  commitAndroidSaveTarget,
+  prepareAndroidSaveTarget,
+} from '../lib/androidFiles';
+import { listNameError, presetNameError } from '../lib/presetNames';
 import {
   allBlockControls,
   blockControl,
@@ -37,6 +42,7 @@ import {
   coalesce,
   flushCoalesced,
   ipcErrorMessage,
+  isMobileRuntime,
   isStaleWriteError,
   isTauriRuntime,
   tauriClient,
@@ -44,6 +50,7 @@ import {
 import type {
   ConnectionInfo,
   RustBlockEditor,
+  RustImportReport,
   RustSnapshot,
   RustUploadProgress,
 } from '../ipc/client';
@@ -51,6 +58,7 @@ import {
   mapAvailableBlocks,
   mapBlock,
   mapEq,
+  mapInput,
   mapLists,
   mapMaster,
   mapMeters,
@@ -68,6 +76,7 @@ import type {
   DeviceChainEdit,
   DeviceOperation,
   EqBand,
+  InputState,
   LibraryList,
   MasterField,
   MasterState,
@@ -97,11 +106,13 @@ interface Toast {
 
 interface AppStore {
   view: ViewId;
+  mobileBoardPane: 'chain' | 'edit';
   selectedBlockId: string | null;
   blocks: Block[];
   availableBlocks: typeof AVAILABLE_BLOCKS;
   emptySlots: Array<{ row: number; col: number }>;
   master: MasterState;
+  input: InputState;
   eq: EqBand[];
   eqEnabled: boolean;
   preset: PresetState;
@@ -134,11 +145,20 @@ interface AppStore {
   appVersion: string;
   lastEdit: { key: string; at: number };
   setView: (view: ViewId) => void;
+  setMobileBoardPane: (pane: 'chain' | 'edit') => void;
   selectBlock: (id: string) => void;
   setPreset: (index: number) => void;
   savePreset: () => void;
   savePresetAs: (name: string) => boolean;
   renamePreset: (oldName: string, newName: string) => void;
+  exportPreset: (index: number, destination: string) => Promise<boolean>;
+  importPreset: (
+    bundlePath: string,
+    targetSlot: number,
+    overwritePreset: boolean,
+    overwriteDependencies: boolean,
+  ) => Promise<RustImportReport | null>;
+  renameCapture: (listId: string, index: number, newName: string) => void;
   deletePreset: (index: number) => void;
   deleteCapture: (listId: string, index: number) => void;
   addPreset: () => void;
@@ -155,6 +175,7 @@ interface AppStore {
   clearChain: () => void;
   replaceBlock: (id: string, replacementId: string) => void;
   setMaster: (field: keyof MasterState, value: number) => void;
+  setInputGain: (channel: 1 | 2, value: number) => void;
   setEqBand: (index: number, patch: Partial<EqBand>) => void;
   setEqEnabled: (enabled: boolean) => void;
   flattenEq: () => void;
@@ -177,6 +198,7 @@ interface AppStore {
   setAppVersion: (version: string) => void;
   refreshDevice: () => Promise<void>;
   applyDeviceSnapshot: (snapshot: RustSnapshot) => void;
+  resumeDevice: () => Promise<void>;
   disconnect: () => void;
   addUpload: (file: {
     name: string;
@@ -239,6 +261,36 @@ const demoBoot = () => ({
   availableBlocks: AVAILABLE_BLOCKS,
   emptySlots: [] as Array<{ row: number; col: number }>,
   master: { ...INITIAL_MASTER } as MasterState,
+  input: {
+    gain1: {
+      id: 'root\\settings\\input\\gain1',
+      name: 'gain1',
+      label: 'In 1 digital gain',
+      kind: 'float',
+      value: 0,
+      min: -15,
+      max: 15,
+      step: 0.1,
+      defaultValue: 0,
+      unit: 'dB',
+      decimals: 1,
+    },
+    gain2: {
+      id: 'root\\settings\\input\\gain2',
+      name: 'gain2',
+      label: 'In 2 digital gain',
+      kind: 'float',
+      value: 0,
+      min: -15,
+      max: 15,
+      step: 0.1,
+      defaultValue: 0,
+      unit: 'dB',
+      decimals: 1,
+    },
+    connected1: true,
+    connected2: false,
+  } as InputState,
   eq: INITIAL_EQ.map((band) => ({ ...band })),
   eqEnabled: true,
   preset: {
@@ -289,10 +341,19 @@ const emptyBoot = () => ({
     volumeMax: 100,
     presetLevel: 0,
     presetLevelAvailable: false,
+    presetLevelMin: -20,
+    presetLevelMax: 20,
+    presetLevelStep: 0.1,
     tempo: 120,
     tempoMin: 20,
     tempoMax: 300,
   } as MasterState,
+  input: {
+    gain1: null,
+    gain2: null,
+    connected1: null,
+    connected2: null,
+  } as InputState,
   eq: [] as EqBand[],
   eqEnabled: false,
   preset: {
@@ -337,6 +398,86 @@ const buildDemoBlock = (
   footswitch: number,
   link: Block['link'] = 'series',
 ): Block => {
+  if (available.id === 'parametric_eq') {
+    const bands: Array<[string, number, number, number]> = [
+      ['LPS', 90, 4, 0.7],
+      ['BP', 640, 2.5, 1.2],
+      ['BP', 3200, -2, 2.4],
+      ['HPS', 9000, 3, 0.7],
+    ];
+    const controls = bands.flatMap(([type, frequency, gain, q], index) => {
+      const base = `parametric_eq.eq_par`;
+      return [
+        {
+          id: `${base}.band_${index}`,
+          name: `band_${index}`,
+          label: `Band ${index + 1} gain`,
+          kind: 'float' as const,
+          value: gain,
+          defaultValue: 0,
+          min: -15,
+          max: 15,
+          step: 0.1,
+          unit: 'dB',
+        },
+        {
+          id: `${base}.freq_${index}`,
+          name: `freq_${index}`,
+          label: `Band ${index + 1} frequency`,
+          kind: 'float' as const,
+          value: frequency,
+          defaultValue: 1000,
+          min: 50,
+          max: 20000,
+          step: 1,
+          unit: 'Hz',
+        },
+        {
+          id: `${base}.q_${index}`,
+          name: `q_${index}`,
+          label: `Band ${index + 1} Q`,
+          kind: 'float' as const,
+          value: q,
+          defaultValue: 0.707,
+          min: 0.1,
+          max: 10,
+          step: 0.05,
+        },
+        {
+          id: `${base}.type_${index}`,
+          name: `type_${index}`,
+          label: `Band ${index + 1} type`,
+          kind: 'choice' as const,
+          value: type,
+          defaultValue: 'BP',
+          options: ['LPS', 'LP', 'BP', 'HP', 'HPS'],
+        },
+      ];
+    });
+    return {
+      id: `${available.id}-${Date.now()}`,
+      label: available.label,
+      shortName: 'PEQ',
+      family: 'utility',
+      on: true,
+      fixed: false,
+      link,
+      model: available.desc,
+      footswitch,
+      controls: [],
+      groups: [
+        {
+          id: 'parametric_eq.eq_par',
+          label: 'Parametric EQ',
+          itemType: 'module',
+          enabled: true,
+          onOffId: 'parametric_eq.on_off',
+          controls,
+        },
+      ],
+    };
+  }
+
   const family = (['chorus', 'flanger', 'rotary'].includes(available.id)
     ? 'mod'
     : 'utility') as Block['family'];
@@ -395,7 +536,17 @@ const buildDemoBlock = (
 const VIEWS: ViewId[] = ['board', 'amp', 'eq', 'library', 'settings', 'stage'];
 const initialView = (): ViewId => {
   const hash = window.location.hash.replace('#', '');
-  return VIEWS.includes(hash as ViewId) ? (hash as ViewId) : 'board';
+  const view = VIEWS.includes(hash as ViewId) ? (hash as ViewId) : 'board';
+  // Amp room is desktop-only; an old mobile deep link should land on Board.
+  if (view === 'amp' && isMobileRuntime()) {
+    try {
+      window.history.replaceState(null, '', '#board');
+    } catch {
+      /* embedded webview may restrict history */
+    }
+    return 'board';
+  }
+  return view;
 };
 
 async function collectDevice(
@@ -416,9 +567,15 @@ async function collectDevice(
 
 let lastTunerPoll = 0;
 let tunerPollInFlight = false;
+/** True after an explicit Disconnect so resume does not silently reconnect. */
+let userDisconnected = false;
 let lastExternalSignature = '';
 let lastDeviceSnapshot: RustSnapshot | null = null;
 const pendingBlockWrites = new Map<string, { on: boolean; until: number }>();
+/// Global input gains are not preset data, so they are kept out of the
+/// conflict system. Track the optimistic value briefly so a poll cannot
+/// rewind a knob while its coalesced write is in flight.
+const pendingInputWrites = new Map<string, { value: number; until: number }>();
 
 type PendingWriteKind = 'control' | 'model' | 'master' | 'eq';
 interface PendingDeviceWrite {
@@ -818,6 +975,7 @@ async function applyDeviceOperation(
 
 export const useAppStore = create<AppStore>()((set, get) => ({
   view: initialView(),
+  mobileBoardPane: 'chain',
   ...initialBoot,
   theme: appearance.theme,
   density: appearance.density,
@@ -840,13 +998,18 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   lastEdit: { key: '', at: 0 },
 
   setView: (view) => {
-    set({ view, commandOpen: false });
+    // Amp room is a desktop visualisation; phones edit the amp block in the
+    // normal inspector instead.
+    const next = view === 'amp' && isMobileRuntime() ? 'board' : view;
+    set({ view: next, commandOpen: false, mobileBoardPane: 'chain' });
     try {
-      window.history.replaceState(null, '', `#${view}`);
+      window.history.replaceState(null, '', `#${next}`);
     } catch {
       /* embedded webview may restrict history */
     }
   },
+
+  setMobileBoardPane: (pane) => set({ mobileBoardPane: pane }),
 
   selectBlock: (id) => set({ selectedBlockId: id }),
 
@@ -856,10 +1019,12 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     if (!name) return;
     const recent = [name, ...preset.recent.filter((item) => item !== name)].slice(0, 6);
     pendingBlockWrites.clear();
+    pendingInputWrites.clear();
     pendingDeviceWrites.clear();
     recentLocalBlockWrites.clear();
     set({
       preset: { ...preset, current: name, index, recent },
+      mobileBoardPane: 'chain',
       conflicts: [],
       deviceUndoStack: [],
       deviceRedoStack: [],
@@ -1054,6 +1219,157 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           void get().refreshDevice();
         });
     }
+  },
+
+  exportPreset: async (index, destination) => {
+    const state = get();
+    if (state.connection.mode !== 'device') {
+      state.notify('Connect to a pedal to export a preset bundle', 'warn');
+      return false;
+    }
+    try {
+      const saveTarget = prepareAndroidSaveTarget(
+        destination,
+        `preset-${index + 1}.zip`,
+      );
+      const result = await tauriClient.exportPreset(index, saveTarget.rustPath, true);
+      commitAndroidSaveTarget(saveTarget);
+      state.addActivity(
+        'Preset exported',
+        `${result.preset_name} · ${result.dependencies.length} dependencies · ${formatBytes(result.bytes)}`,
+        'good',
+      );
+      state.notify(`${result.preset_name} exported`, 'good');
+      return true;
+    } catch (error) {
+      state.notify(ipcErrorMessage(error), 'bad');
+      return false;
+    }
+  },
+
+  importPreset: async (
+    bundlePath,
+    targetSlot,
+    overwritePreset,
+    overwriteDependencies,
+  ) => {
+    const state = get();
+    if (state.connection.mode !== 'device') {
+      state.notify('Connect to a pedal to import a preset bundle', 'warn');
+      return null;
+    }
+    try {
+      const completion = await tauriClient.importPresetBundle(
+        bundlePath,
+        targetSlot,
+        overwritePreset,
+        overwriteDependencies,
+      );
+      state.applyDeviceSnapshot(completion.snapshot);
+      const name = completion.snapshot.preset.names[targetSlot];
+      set((current) => ({
+        lists: mapLists(completion.snapshot),
+        preset: {
+          ...current.preset,
+          names: completion.snapshot.preset.names,
+          current: name ?? current.preset.current,
+          index: name ? targetSlot : current.preset.index,
+        },
+        save: {
+          ...current.save,
+          revision: completion.snapshot.revision,
+          edited: false,
+          lastSaved: now(),
+        },
+      }));
+      state.addActivity(
+        'Preset imported',
+        `${completion.report.preset_name} · slot ${targetSlot + 1} · ` +
+          `${completion.report.dependencies_written.length} written, ` +
+          `${completion.report.dependencies_reused.length} reused`,
+        'good',
+      );
+      state.notify(`${completion.report.preset_name} imported`, 'good');
+      if (name) get().setPreset(targetSlot);
+      return completion.report;
+    } catch (error) {
+      state.notify(ipcErrorMessage(error), 'bad');
+      void get().refreshDevice();
+      return null;
+    }
+  },
+
+  renameCapture: (listId, index, newName) => {
+    const trimmed = newName.trim();
+    const problem = listNameError(trimmed);
+    if (problem) {
+      get().notify(problem, 'bad');
+      return;
+    }
+    const { lists, connection } = get();
+    const list = lists.find((item) => item.id === listId);
+    const slot = list?.slots[index];
+    if (!list || !slot?.used) {
+      get().notify('That capture slot is empty', 'warn');
+      return;
+    }
+    if (slot.usedBy?.length) {
+      const names = slot.usedBy
+        .map((presetIndex) => get().preset.names[presetIndex] || `slot ${presetIndex + 1}`)
+        .join(', ');
+      get().notify(
+        `“${slot.name}” is used by ${names}; rename is blocked until firmware reference updates are verified`,
+        'warn',
+      );
+      return;
+    }
+    if (
+      list.slots.some(
+        (entry) =>
+          entry.index !== index &&
+          entry.name &&
+          entry.name.toLowerCase() === trimmed.toLowerCase(),
+      )
+    ) {
+      get().notify(`A capture named “${trimmed}” already exists in this list`, 'bad');
+      return;
+    }
+
+    const detail = `${slot.name} → ${trimmed} · ${list.label} slot ${index + 1}`;
+    if (connection.mode === 'device') {
+      tauriClient
+        .renameListItem(uploadTargetPath(listId), index, trimmed)
+        .then((snapshot) => {
+          get().applyDeviceSnapshot(snapshot);
+          get().addActivity('Capture renamed', detail, 'good');
+          get().notify(`${slot.name} renamed to ${trimmed}`, 'good');
+          // An active loader may still hold the old name; refresh the block
+          // editor so the UI shows what the firmware actually resolves.
+          if (slot.active) {
+            window.setTimeout(() => void get().refreshDevice(), 250);
+          }
+        })
+        .catch((error) => {
+          get().notify(ipcErrorMessage(error), 'bad');
+          void get().refreshDevice();
+        });
+      return;
+    }
+
+    set((state) => ({
+      lists: state.lists.map((item) =>
+        item.id === listId
+          ? {
+              ...item,
+              slots: item.slots.map((entry) =>
+                entry.index === index ? { ...entry, name: trimmed } : entry,
+              ),
+            }
+          : item,
+      ),
+    }));
+    get().addActivity('Capture renamed', detail, 'good');
+    get().notify(`${slot.name} renamed to ${trimmed}`, 'good');
   },
 
   deletePreset: (index) => {
@@ -1958,6 +2274,39 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }
   },
 
+  setInputGain: (channel, value) => {
+    const state = get();
+    const key = channel === 1 ? 'gain1' : 'gain2';
+    const control = state.input[key];
+    if (!control) {
+      get().notify(`Input ${channel} gain is not exposed by this firmware`, 'warn');
+      return;
+    }
+    const clamped = Math.min(
+      control.max ?? 15,
+      Math.max(control.min ?? -15, Number(value.toFixed(2))),
+    );
+    set({
+      input: { ...state.input, [key]: { ...control, value: clamped } },
+    });
+    if (state.connection.mode === 'device') {
+      const pendingKey = `gain${channel}`;
+      pendingInputWrites.set(pendingKey, { value: clamped, until: Date.now() + 1_600 });
+      coalesce(
+        `input.gain${channel}`,
+        () => tauriClient.setInputGain(channel, clamped),
+        (message) => {
+          pendingInputWrites.delete(pendingKey);
+          get().notify(message, 'bad');
+          void get().refreshDevice();
+        },
+        () => {
+          pendingInputWrites.delete(pendingKey);
+        },
+      );
+    }
+  },
+
   setEqBand: (index, patch) => {
     const state = get();
     const before = snapshotOf(state);
@@ -2287,10 +2636,12 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   setAppVersion: (appVersion) => set({ appVersion }),
 
   connectDemo: () => {
+    userDisconnected = false;
     if (get().connection.mode === 'device') {
       tauriClient.disconnect().catch(() => undefined);
     }
     pendingBlockWrites.clear();
+    pendingInputWrites.clear();
     pendingDeviceWrites.clear();
     recentLocalBlockWrites.clear();
     lastDeviceSnapshot = null;
@@ -2321,7 +2672,10 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   },
 
   connectAuto: async () => {
+    if (get().connection.connecting) return;
+    userDisconnected = false;
     pendingBlockWrites.clear();
+    pendingInputWrites.clear();
     pendingDeviceWrites.clear();
     recentLocalBlockWrites.clear();
     set((state) => ({
@@ -2402,7 +2756,9 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   },
 
   connectReal: async (address) => {
+    userDisconnected = false;
     pendingBlockWrites.clear();
+    pendingInputWrites.clear();
     pendingDeviceWrites.clear();
     recentLocalBlockWrites.clear();
     set((state) => ({
@@ -2476,6 +2832,27 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       }));
       get().addActivity('Connection failed', message, 'bad');
       get().notify(message, 'bad');
+    }
+  },
+
+  resumeDevice: async () => {
+    const current = get();
+    if (
+      current.connection.mode !== 'device' ||
+      current.connection.connecting ||
+      userDisconnected
+    ) {
+      return;
+    }
+    try {
+      const snapshot = await tauriClient.refresh();
+      get().applyDeviceSnapshot(snapshot);
+      if (get().connection.connected) return;
+    } catch {
+      // The actor may have lost the transport while the activity was paused.
+    }
+    if (!get().connection.connected && !userDisconnected) {
+      await get().connectAuto();
     }
   },
 
@@ -2769,9 +3146,22 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         );
       });
 
+    const nextInput = mapInput(snapshot);
+    for (const key of ['gain1', 'gain2'] as const) {
+      const pending = pendingInputWrites.get(key);
+      if (!pending) continue;
+      if (Date.now() < pending.until) {
+        const control = nextInput[key];
+        if (control) nextInput[key] = { ...control, value: pending.value };
+      } else {
+        pendingInputWrites.delete(key);
+      }
+    }
+
     set((current) => ({
       blocks: chainChanged || changedPaths.length ? blocks : current.blocks,
       master: nextMaster,
+      input: nextInput,
       eq: nextEq,
       eqEnabled: nextEqEnabled,
       conflicts: [...conflicts.values()],
@@ -2808,7 +3198,9 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   },
 
   disconnect: () => {
+    userDisconnected = true;
     pendingBlockWrites.clear();
+    pendingInputWrites.clear();
     pendingDeviceWrites.clear();
     recentLocalBlockWrites.clear();
     lastDeviceSnapshot = null;

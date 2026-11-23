@@ -234,14 +234,15 @@ The hardware-free suite is the release gate:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace          # 43 tests
+cargo test --workspace          # 96 tests
 ./scripts/smoke.sh              # simulator, chain edits, save path, preset, upload
 
 cd apps/desktop/ui
 pnpm lint
-pnpm test                       # 61 Vitest tests
+pnpm test                       # 72 Vitest tests
 pnpm build
 pnpm test:ui
+pnpm test:mobile
 pnpm test:startup
 pnpm test:a11y
 pnpm test:keyboard
@@ -282,7 +283,9 @@ Android constraints:
 - the physical phone has not been tested;
 - release APKs are signed with the local Android debug key for sideloading.
 
-See [`ANDROID.md`](ANDROID.md) for build and install instructions.
+See [`ANDROID.md`](ANDROID.md) for build and install instructions and
+[`ANDROID_UI_TESTING.md`](ANDROID_UI_TESTING.md) for the emulator UI/native-shell
+harness and its remaining physical-device work.
 
 ## Upload flow (wired 2026-11-22)
 

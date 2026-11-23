@@ -1,50 +1,15 @@
 import { RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import { EqGraph, EQ_BAND_COLORS } from '../../components/kit/EqGraph';
 import { Knob } from '../../components/kit/Knob';
-import {
-  bandResponseDb,
-  combinedResponseDb,
-  EQ_GRID_FREQUENCIES,
-  EQ_GRID_GAINS,
-  formatGain,
-  formatHz,
-  frequencyFromLog,
-  logFrequency,
-  MAX_GAIN,
-} from '../../lib/eq';
+import { bandTypeLabel, formatGain, formatHz } from '../../lib/eq';
 import { useAppStore } from '../../stores/useAppStore';
 import type { EqBand, EqBandType } from '../../types';
 
-const WIDTH = 1000;
-const HEIGHT = 360;
-const LEFT = 58;
-const RIGHT = 982;
-const TOP = 18;
-const BOTTOM = 314;
-const PLOT_W = RIGHT - LEFT;
-const PLOT_H = BOTTOM - TOP;
-const MID = (TOP + BOTTOM) / 2;
-const Y_SCALE = PLOT_H / 2 / MAX_GAIN;
-const BAND_COLORS = ['var(--band-1)', 'var(--band-2)', 'var(--band-3)', 'var(--band-4)'];
+const BAND_COLORS = EQ_BAND_COLORS;
 const BAND_TYPES: EqBandType[] = ['LPS', 'BP', 'HPS', 'LP', 'HP'];
 
-const xFor = (frequency: number) => LEFT + logFrequency(frequency) * PLOT_W;
-const yFor = (gain: number) => MID - gain * Y_SCALE;
-
-const curvePath = (bands: EqBand[], index?: number): string => {
-  const points = 280;
-  return Array.from({ length: points }, (_, point) => {
-    const frequency = frequencyFromLog(point / (points - 1));
-    const gain =
-      index == null
-        ? combinedResponseDb(bands, frequency)
-        : bandResponseDb(bands[index], frequency);
-    return `${point === 0 ? 'M' : 'L'}${xFor(frequency).toFixed(2)},${yFor(gain).toFixed(2)}`;
-  }).join(' ');
-};
-
-const typeLabel = (type: EqBandType) =>
-  type === 'LPS' ? 'Low shelf' : type === 'HPS' ? 'High shelf' : 'Bell';
+const typeLabel = bandTypeLabel;
 
 interface Snapshot {
   bands: EqBand[];
@@ -58,53 +23,9 @@ export const EqView = () => {
   const flattenEq = useAppStore((state) => state.flattenEq);
   const notify = useAppStore((state) => state.notify);
   const [selected, setSelected] = useState(2);
-  const [dragging, setDragging] = useState<number | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const graphRef = useRef<HTMLDivElement>(null);
 
   const enabled = eqEnabled;
-
-  const pointFromEvent = (event: React.PointerEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * WIDTH;
-    const y = ((event.clientY - rect.top) / rect.height) * HEIGHT;
-    const fraction = Math.min(1, Math.max(0, (x - LEFT) / PLOT_W));
-    const frequency = frequencyFromLog(fraction);
-    const gain = Math.min(MAX_GAIN, Math.max(-MAX_GAIN, (MID - y) / Y_SCALE));
-    return { frequency, gain };
-  };
-
-  const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
-    if (dragging == null) return;
-    const { frequency, gain } = pointFromEvent(event);
-    setEqBand(dragging + 1, {
-      frequency: Math.round(frequency),
-      gain: Number(gain.toFixed(1)),
-    });
-  };
-
-  const selectedBand = bands.find((band) => band.index === selected) ?? bands[0];
-  const selectedBandRef = useRef(selectedBand);
-  useEffect(() => {
-    selectedBandRef.current = selectedBand;
-  }, [selectedBand]);
-
-  useEffect(() => {
-    const element = graphRef.current;
-    if (!element) return;
-    const onWheel = (event: WheelEvent) => {
-      const band = selectedBandRef.current;
-      if (!band) return;
-      event.preventDefault();
-      const delta = event.deltaY > 0 ? -0.05 : 0.05;
-      setEqBand(band.index, {
-        q: Math.min(10, Math.max(0.1, Number((band.q + delta).toFixed(2)))),
-      });
-    };
-    element.addEventListener('wheel', onWheel, { passive: false });
-    return () => element.removeEventListener('wheel', onWheel);
-  }, [setEqBand]);
 
   const takeSnapshot = () => {
     setSnapshot({ bands: bands.map((band) => ({ ...band })) });
@@ -174,126 +95,13 @@ export const EqView = () => {
           </div>
         </header>
 
-        <div className="eq-graph" ref={graphRef}>
-          <svg
-            ref={svgRef}
-            className="eq-graph__svg"
-            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-            role="group"
-            aria-label="Global EQ response graph"
-            onPointerMove={onPointerMove}
-            onPointerUp={() => setDragging(null)}
-            onPointerCancel={() => setDragging(null)}
-          >
-            {EQ_GRID_GAINS.map((gain) => (
-              <g key={gain}>
-                <line
-                  x1={LEFT}
-                  x2={RIGHT}
-                  y1={yFor(gain)}
-                  y2={yFor(gain)}
-                  className={`eq-graph__grid${gain === 0 ? ' eq-graph__grid--major' : ''}`}
-                />
-                <text x={LEFT - 14} y={yFor(gain) + 3} textAnchor="end" className="eq-graph__label">
-                  {gain > 0 ? `+${gain}` : gain}
-                </text>
-              </g>
-            ))}
-            {EQ_GRID_FREQUENCIES.map((frequency) => (
-              <g key={frequency}>
-                <line
-                  x1={xFor(frequency)}
-                  x2={xFor(frequency)}
-                  y1={TOP}
-                  y2={BOTTOM}
-                  className="eq-graph__grid"
-                />
-                <text
-                  x={xFor(frequency)}
-                  y={BOTTOM + 18}
-                  textAnchor="middle"
-                  className="eq-graph__label"
-                >
-                  {frequency >= 1000 ? `${frequency / 1000}k` : frequency}
-                </text>
-              </g>
-            ))}
-            <text x={LEFT - 14} y={TOP + 4} textAnchor="end" className="eq-graph__label">
-              dB
-            </text>
-
-            {bands.map((band, index) => (
-              <path
-                key={`band-${band.index}`}
-                d={curvePath(bands, index)}
-                className={`eq-graph__band${selected === band.index ? ' eq-graph__band--selected' : ''}`}
-                style={{ stroke: BAND_COLORS[index] }}
-              />
-            ))}
-            <path d={curvePath(bands)} className="eq-graph__combined" />
-
-            {bands.map((band, index) => {
-              const x = xFor(band.frequency);
-              const y = yFor(band.gain);
-              const isSelected = selected === band.index;
-              return (
-                <g key={`handle-${band.index}`}>
-                  {isSelected && (
-                    <circle cx={x} cy={y} r={16} fill={BAND_COLORS[index]} opacity={0.14} />
-                  )}
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={isSelected ? 11 : 8}
-                    fill={BAND_COLORS[index]}
-                    className={`eq-graph__handle${isSelected ? ' eq-graph__handle--selected' : ''}`}
-                    role="slider"
-                    tabIndex={0}
-                    aria-label={`Band ${band.index}, ${typeLabel(band.type)}, ${formatHz(band.frequency)}, ${formatGain(band.gain)}, Q ${band.q}`}
-                    aria-valuemin={-MAX_GAIN}
-                    aria-valuemax={MAX_GAIN}
-                    aria-valuenow={band.gain}
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      setSelected(band.index);
-                      setDragging(band.index - 1);
-                      svgRef.current?.setPointerCapture(event.pointerId);
-                    }}
-                    onKeyDown={(event) => {
-                      const step = event.shiftKey ? 0.1 : 1;
-                      if (event.key === 'ArrowUp') {
-                        event.preventDefault();
-                        setEqBand(band.index, { gain: Math.min(MAX_GAIN, band.gain + step) });
-                      } else if (event.key === 'ArrowDown') {
-                        event.preventDefault();
-                        setEqBand(band.index, { gain: Math.max(-MAX_GAIN, band.gain - step) });
-                      } else if (event.key === 'ArrowLeft') {
-                        event.preventDefault();
-                        setEqBand(band.index, { frequency: Math.max(20, band.frequency * 0.95) });
-                      } else if (event.key === 'ArrowRight') {
-                        event.preventDefault();
-                        setEqBand(band.index, { frequency: Math.min(20000, band.frequency * 1.05) });
-                      }
-                    }}
-                  />
-                  <text
-                    x={x}
-                    y={y + 3}
-                    textAnchor="middle"
-                    className="eq-graph__handle-label"
-                    fill="var(--canvas)"
-                    fontFamily="var(--font-mono)"
-                    fontSize="9"
-                    fontWeight="700"
-                    pointerEvents="none"
-                  >
-                    {band.index}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
-        </div>
+        <EqGraph
+          bands={bands}
+          selected={selected}
+          onSelect={setSelected}
+          onChange={(index, patch) => setEqBand(index, patch)}
+          ariaLabel="Global EQ response graph"
+        />
       </section>
 
       <div className="eq-view__cards">

@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Knob } from '../../components/kit/Knob';
-import { ipcErrorMessage, isTauriRuntime, tauriClient } from '../../ipc/client';
+import { ipcErrorMessage, isMobileRuntime, isTauriRuntime, tauriClient } from '../../ipc/client';
 import type { DiscoveredDevice, PortInfo } from '../../ipc/client';
 import { THEMES } from '../../theme/themes';
 import { useAppStore } from '../../stores/useAppStore';
@@ -113,6 +113,9 @@ const MiniControl = ({
 
 export const SettingsView = () => {
   const [section, setSection] = useState<Section>('connection');
+  // Android (and iOS) builds have no USB serial transport; the connection
+  // sheet already hides it, so keep Settings on the Wi-Fi path too.
+  const mobile = isMobileRuntime();
   const theme = useAppStore((state) => state.theme);
   const density = useAppStore((state) => state.density);
   const motion = useAppStore((state) => state.motion);
@@ -122,12 +125,14 @@ export const SettingsView = () => {
   const setMotion = useAppStore((state) => state.setMotion);
   const setCompactChain = useAppStore((state) => state.setCompactChain);
   const connection = useAppStore((state) => state.connection);
+  const input = useAppStore((state) => state.input);
+  const setInputGain = useAppStore((state) => state.setInputGain);
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
   const notify = useAppStore((state) => state.notify);
   const copyDiagnostics = useAppStore((state) => state.copyDiagnostics);
   const appVersion = useAppStore((state) => state.appVersion);
   const activity = useAppStore((state) => state.activity);
-  const [transport, setTransport] = useState<'usb' | 'network'>('usb');
+  const [transport, setTransport] = useState<'usb' | 'network'>(mobile ? 'network' : 'usb');
   const [autoReconnect, setAutoReconnect] = useState(true);
   const [reconnectLaunch, setReconnectLaunch] = useState(true);
   const [alias, setAlias] = useState('Studio board');
@@ -276,23 +281,25 @@ export const SettingsView = () => {
                     <h2>Connection</h2>
                     <p className="hint">Choose how the app reaches the pedal.</p>
                   </div>
-                  <span className="chip chip--good">USB preferred</span>
+                  <span className="chip chip--good">{mobile ? 'Wi-Fi' : 'USB preferred'}</span>
                 </header>
-                <div className="segmented settings-transport" role="group" aria-label="Transport">
-                  <button type="button" aria-pressed={transport === 'usb'} onClick={() => setTransport('usb')}>
-                    <Usb size={12} /> USB
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={transport === 'network'}
-                    onClick={() => setTransport('network')}
-                  >
-                    <Wifi size={12} /> Network
-                  </button>
-                </div>
-                {transport === 'usb' ? (
+                {!mobile && (
+                  <div className="segmented settings-transport" role="group" aria-label="Transport">
+                    <button type="button" aria-pressed={transport === 'usb'} onClick={() => setTransport('usb')}>
+                      <Usb size={12} /> USB
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={transport === 'network'}
+                      onClick={() => setTransport('network')}
+                    >
+                      <Wifi size={12} /> Network
+                    </button>
+                  </div>
+                )}
+                {transport === 'usb' && !mobile ? (
                   <div className="settings-rows">
-                    <div className="settings-row">
+                    <div className="settings-row settings-row--stack">
                       <div>
                         <strong>Serial port</strong>
                         <span className="hint">CDC-ACM · 115200 baud</span>
@@ -522,18 +529,90 @@ export const SettingsView = () => {
               <header className="settings-card__head">
                 <div>
                   <h2>Audio & pedal</h2>
-                  <p className="hint">These controls mirror existing device nodes.</p>
+                  <p className="hint">Input gains write the pedal; connection state is display-only.</p>
                 </div>
-                <span className="chip">Output stage</span>
+                <span className="chip">Global</span>
               </header>
               <div className="settings-knobs">
-                <MiniControl id="input.gain" label="Input gain" value={0} min={-12} max={12} step={0.5} unit="dB" />
-                <MiniControl id="input.level" label="Input level" value={50} min={0} max={100} step={1} />
+                {input.gain1 ? (
+                  <div className="settings-knob">
+                    <Knob
+                      control={input.gain1}
+                      size="md"
+                      onChange={(value) => setInputGain(1, value)}
+                      format={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}`}
+                    />
+                  </div>
+                ) : (
+                  <div className="settings-knob settings-knob--missing">
+                    <span className="field-label">In 1 digital gain</span>
+                    <span className="hint">Not exposed by this firmware</span>
+                  </div>
+                )}
+                {input.gain2 ? (
+                  <div className="settings-knob">
+                    <Knob
+                      control={input.gain2}
+                      size="md"
+                      onChange={(value) => setInputGain(2, value)}
+                      format={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}`}
+                    />
+                  </div>
+                ) : (
+                  <div className="settings-knob settings-knob--missing">
+                    <span className="field-label">In 2 digital gain</span>
+                    <span className="hint">Not exposed by this firmware</span>
+                  </div>
+                )}
                 <MiniControl id="ctrl.min" label="EXP min" value={0} min={0} max={100} step={1} />
                 <MiniControl id="ctrl.max" label="EXP max" value={100} min={0} max={100} step={1} />
                 <MiniControl id="phones" label="Headphones" value={70} min={0} max={100} step={1} />
               </div>
               <div className="settings-rows">
+                <div className="settings-row">
+                  <div>
+                    <strong>In 1 connection</strong>
+                    <span className="hint">Read-only · firmware reports the jack state</span>
+                  </div>
+                  <span
+                    className={`chip ${input.connected1 ? 'chip--good' : ''}`}
+                    aria-label={`Input 1 connection: ${
+                      input.connected1 == null
+                        ? 'unknown'
+                        : input.connected1
+                          ? 'connected'
+                          : 'not connected'
+                    }`}
+                  >
+                    {input.connected1 == null
+                      ? 'Unknown'
+                      : input.connected1
+                        ? 'Connected'
+                        : 'No signal'}
+                  </span>
+                </div>
+                <div className="settings-row">
+                  <div>
+                    <strong>In 2 connection</strong>
+                    <span className="hint">Read-only · never written by the app</span>
+                  </div>
+                  <span
+                    className={`chip ${input.connected2 ? 'chip--good' : ''}`}
+                    aria-label={`Input 2 connection: ${
+                      input.connected2 == null
+                        ? 'unknown'
+                        : input.connected2
+                          ? 'connected'
+                          : 'not connected'
+                    }`}
+                  >
+                    {input.connected2 == null
+                      ? 'Unknown'
+                      : input.connected2
+                        ? 'Connected'
+                        : 'No signal'}
+                  </span>
+                </div>
                 <div className="settings-row">
                   <div>
                     <strong>Ground lift</strong>

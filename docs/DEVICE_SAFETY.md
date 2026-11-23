@@ -29,20 +29,24 @@ Key findings:
   and the app's model loader is not expected to survive an empty model.
 - The device was recovered with a company-provided firmware and a device reset.
 
-Never repeat this test. Synthetic or structurally empty models are simulator
-fixtures only, never hardware uploads.
+The exact source `.nam` and recorded upload result are quarantined in
+[`../fixtures/incidents/2026-11-22-soft-brick/`](../fixtures/incidents/2026-11-22-soft-brick/).
+Do not upload that file. Never repeat this test. Synthetic or structurally
+empty models are simulator fixtures only, never hardware uploads.
 
 ## Non-negotiable rules
 
-1. **Uploads may target only these five capture lists:**
+1. **Capture uploads may target only these five lists:**
    - `root\nam_amp`
    - `root\nam_drive`
    - `root\pnam_list`
    - `root\pnam_drive`
    - `root\ir_list`
 
-   Never write to `root\presets`, `root\settings`, `root\sys\_upd`,
-   `/home/app_run`, or any arbitrary node with capture-like data.
+   Never write capture-like data to `root\settings`, `root\sys\_upd`,
+   `/home/app_run`, or an arbitrary node. `root\presets` is written only by the
+   preset-bundle importer below, using the validated `.pst` payload path; never
+   upload a raw capture into it.
 
 2. **Never send `supd` or `upd` outside the official firmware updater.** Those
    write the application image and reboot the pedal.
@@ -165,12 +169,62 @@ dwrite <listPath>:{"index":N,"chunk":-1,"value":"00" * 128}
 - The firmware's exact zero-fill and ACK behavior is still hardware-unverified;
   test on a scratch/backed-up list first.
 
+## Preset bundle import
+
+Preset bundle import writes dependencies first and the preset payload last. The
+import path is deliberately narrower than a generic list uploader:
+
+- `bdinfo.json` must name `StompStation`/`StompStation PRO`, a `2.x` version,
+  `root\presets`, a `.pst` entry under `preset/`, and dependencies that resolve
+  to one of the five capture lists.
+- Archive entries are regular relative paths only. Absolute paths, `..`,
+  backslashes, duplicate entries, undeclared entries, and any path outside
+  `bdinfo.json`, `preset/`, or `dependencies/` are rejected before a device
+  write.
+- The `.pst` must contain only `root\app\...` paths, with no duplicates, valid
+  JSON objects, and no global-settings or global-EQ paths. Its size is capped at
+  32 KiB.
+- Dependencies are structurally validated before transfer: NAM/PNAM model
+  structure and IR WAV headers. Missing or duplicate dependencies block the
+  import.
+- Existing captures with the same name are downloaded and compared. Identical
+  files are reused; different content requires an explicit overwrite
+  confirmation.
+- Every dependency upload uses the existing ACK state machine and an explicit
+  list-slot name from the manifest. The `.pst` upload uses the device's chunked
+  name/data `dwrite` path, then reads the slot name and the full `.pst` back and
+  compares them with the source.
+- A failure returns which dependencies were already written and states that the
+  preset slot was not verified. Do not retry until that partial state is
+  understood.
+
+Hardware validation is still required for: the preset-list final-chunk ACK,
+whether the firmware updates `root\presets.used` immediately after a dependency
+upload, and how a cancelled dependency upload leaves its target slot.
+
+## Capture download and rename
+
+- Downloads are read-only device operations. Chunk 0 is never requested; list
+  payload chunks start at 1. NAM/PNAM gzip is decompressed, slot padding is
+  trimmed, and the model is validated. IR slots hold **2048 raw little-endian
+  `f32` samples (8192 bytes), not a WAV file** (confirmed live on 2.5.3); the app
+  wraps them in the official 48 kHz mono float WAV header before writing. Files
+  are written through a temporary path and never overwrite without a Save dialog
+  confirmation.
+- Capture rename uses `dwrite <list>:{"index":N,"chunk":-1,"value":"<128-byte
+  name>"}` and verifies the name by reading the list back. Empty slots,
+  duplicate names, control characters, and names over 63 bytes are rejected.
+- A capture referenced by any preset is **blocked** from rename until the
+  scratch-preset hardware test proves the firmware rewrites references. The UI
+  shows the affected preset names from `root\presets.used`.
+
 ## Code map
 
 | Concern | Location |
 | --- | --- |
 | Model structure validation, preflight, chunking, gzip/marker | `crates/stomp-upload/src/lib.rs` |
-| Target-list guard, ACK loop, progress, cancel boundary, list deletion | `crates/stomp-device/src/device.rs` |
+| Target-list guard, ACK loop, progress, cancel boundary, list deletion, downloads, rename, preset export/import orchestration | `crates/stomp-device/src/device.rs` |
+| Bundle manifest, archive path/PST validation, deterministic zip writer | `crates/stomp-preset-bundle/src/lib.rs` |
 | Poll pause, Tauri events, concurrent-upload guard | `apps/desktop/src-tauri/src/commands.rs` |
 | File picker, preflight panel, queue, highlight | `apps/desktop/ui/src/features/library/LibraryView.tsx` |
 | Upload state, progress, cancel, delete actions, snapshot refresh | `apps/desktop/ui/src/stores/useAppStore.ts` |

@@ -1,0 +1,126 @@
+name: Android UI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - 'apps/desktop/src-tauri/gen/android/**'
+      - 'apps/desktop/src-tauri/capabilities/**'
+      - 'apps/desktop/ui/**'
+      - 'crates/**'
+      - 'scripts/android-e2e.sh'
+      - 'scripts/build-android.sh'
+      - '.github/workflows/android-ui.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/src-tauri/gen/android/**'
+      - 'apps/desktop/src-tauri/capabilities/**'
+      - 'apps/desktop/ui/e2e/android/**'
+      - 'scripts/android-e2e.sh'
+      - 'scripts/build-android.sh'
+      - '.github/workflows/android-ui.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    name: Appium emulator suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      ANDROID_NDK_VERSION: '28.2.13676358'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            apps/desktop/ui/pnpm-lock.yaml
+            apps/desktop/ui/e2e/android/pnpm-lock.yaml
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          sdkmanager --install "ndk;${ANDROID_NDK_VERSION}" "platforms;android-37" "build-tools;36.0.0"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version '^2' --locked
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Build debug APK and simulator
+        shell: bash
+        run: |
+          ./scripts/build-android.sh x86_64 debug
+          cargo build -p stomp-sim
+
+      - name: Run Appium suite in emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+            ./target/debug/stomp-sim --port 45700 > /tmp/stomp-sim.log 2>&1 &
+            SIM_PID=$!
+            trap 'kill "$SIM_PID" 2>/dev/null || true' EXIT
+            sleep 2
+            ./scripts/android-e2e.sh appium --skip-build --no-sim
+
+      - name: Upload Android test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-ui-artifacts
+          if-no-files-found: ignore
+          path: |
+            dist/android/e2e/

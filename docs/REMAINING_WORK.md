@@ -223,16 +223,44 @@ The next feature set is tracked in [`V0.6.0_PLAN.md`](V0.6.0_PLAN.md):
 input settings, Preset Level, Add-block scrolling, the Parametric EQ graph,
 preset export/import, Library downloads, and Library rename.
 
+All eight items are implemented and covered by simulator/Rust tests, Vitest,
+UI smoke, axe, keyboard, and visual baselines. The official local `Brave.zip`
+imports into the simulator and its read-back `.pst` is byte-identical.
+
+Live 2.5.3 verification on 2026-11-23 confirmed the IR slot payload is 8192
+bytes of raw `f32` samples (not WAV); the app now wraps it in the official
+8248-byte float-WAV container. A live `Brave` export matched the official
+`Brave.zip` `.pst` and all four dependency hashes byte-for-byte.
+
+The remaining 0.6.0 gate is hardware validation: input gain readback, Preset
+Level save/reload, import ACK/`used` semantics, the used-capture rename policy,
+and Parametric EQ writes. See
+[`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md) V10–V15.
+
 ## P5 — Android, beta, and 1.0
 
 ### Android
 
+- [x] Emulator UI harness: Playwright/CDP smoke plus Appium/UiAutomator2/
+  WebdriverIO for launch, connect, parameter edit + save, and Android Back.
+- [ ] Physical-phone UI suite (Wi-Fi/mDNS and manual address).
+- [x] Rotation, background/resume, and native file-picker specs.
+- [x] Typed-knob test through Appium `setValue`/`sendKeys`.
+- [x] Android visual baselines reviewed; decided against separate baselines
+      (browser baselines + Android geometry/screenshot artifacts).
+- [x] CI emulator job for the UI suite.
 - [ ] Physical-phone Wi-Fi/mDNS test.
-- [ ] Play Store AAB and upload-key signing.
-- [ ] Tablet/landscape layout.
-- [ ] Reconnect-on-resume.
-- [ ] Android 17 `ACCESS_LOCAL_NETWORK` runtime permission.
+- [x] Play Store AAB build and upload-key signing path (script supports
+      `release aab` + `STOMPSTATION_KEYSTORE`; a real upload key is user-supplied).
+- [x] Tablet/landscape layout (short-window board scroll and compact chrome).
+- [x] Phone UX: wrapped knob-free chain overview, full-height block editor,
+      centered connection sheet, labeled tabs, and Amp room omitted from mobile
+      navigation.
+- [x] Reconnect-on-resume.
+- [x] Android 17 `ACCESS_LOCAL_NETWORK` runtime permission.
 - [ ] Optional USB-OTG serial.
+- UI harness and remaining test work:
+  [`ANDROID_UI_TESTING.md`](ANDROID_UI_TESTING.md).
 
 ### Beta and 1.0
 

@@ -27,7 +27,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 
 use crate::commands::{
-    read_tuner, unavailable_tuner, TunerView, UploadCompletion, UploadProgressEvent,
+    read_tuner, unavailable_tuner, DownloadCompletion, DownloadFile, DownloadProgressEvent,
+    ExportCompletion, ImportCompletion, TunerView, UploadCompletion, UploadProgressEvent,
 };
 use crate::error::{IpcError, IpcResult};
 
@@ -113,6 +114,11 @@ pub enum ActorCommand {
         value: f64,
         reply: Reply<DeviceSnapshot>,
     },
+    SetInputGain {
+        channel: u8,
+        value: f64,
+        reply: Reply<DeviceSnapshot>,
+    },
     SetEqBand {
         index: usize,
         field: String,
@@ -150,6 +156,38 @@ pub enum ActorCommand {
         slot: Option<usize>,
         reply: Reply<UploadCompletion>,
     },
+    DownloadListItem {
+        id: String,
+        list_path: String,
+        index: usize,
+        destination: String,
+        overwrite: bool,
+        reply: Reply<DownloadCompletion>,
+    },
+    ExportPreset {
+        index: usize,
+        destination: String,
+        overwrite: bool,
+        reply: Reply<ExportCompletion>,
+    },
+    PreflightPresetImport {
+        bundle_path: String,
+        target_slot: Option<usize>,
+        reply: Reply<stomp_device::ImportPreflight>,
+    },
+    ImportPresetBundle {
+        bundle_path: String,
+        target_slot: usize,
+        overwrite_preset: bool,
+        overwrite_dependencies: bool,
+        reply: Reply<ImportCompletion>,
+    },
+    RenameListItem {
+        list_path: String,
+        index: usize,
+        new_name: String,
+        reply: Reply<DeviceSnapshot>,
+    },
     DeleteListItem {
         list_path: String,
         index: usize,
@@ -177,12 +215,17 @@ impl ActorCommand {
                 | Self::RenamePreset { .. }
                 | Self::EditChain { .. }
                 | Self::SetMaster { .. }
+                | Self::SetInputGain { .. }
                 | Self::SetEqBand { .. }
                 | Self::SetEqType { .. }
                 | Self::SetEqEnabled { .. }
                 | Self::SetAlias { .. }
                 | Self::FactoryReset { .. }
                 | Self::BeginUpload { .. }
+                | Self::DownloadListItem { .. }
+                | Self::ExportPreset { .. }
+                | Self::ImportPresetBundle { .. }
+                | Self::RenameListItem { .. }
                 | Self::DeleteListItem { .. }
                 | Self::TunerOpen { .. }
                 | Self::TunerClose { .. }
@@ -211,6 +254,8 @@ pub struct ActorHandle {
     pending_writes: Arc<AtomicUsize>,
     upload_active: Arc<AtomicBool>,
     upload_cancel: Arc<AtomicBool>,
+    download_active: Arc<AtomicBool>,
+    download_cancel: Arc<AtomicBool>,
     app: Arc<Mutex<Option<AppHandle>>>,
 }
 
@@ -222,6 +267,8 @@ impl ActorHandle {
         let pending_writes = Arc::new(AtomicUsize::new(0));
         let upload_active = Arc::new(AtomicBool::new(false));
         let upload_cancel = Arc::new(AtomicBool::new(false));
+        let download_active = Arc::new(AtomicBool::new(false));
+        let download_cancel = Arc::new(AtomicBool::new(false));
         let app = Arc::new(Mutex::new(None));
 
         let actor = Actor {
@@ -232,6 +279,8 @@ impl ActorHandle {
             pending_writes: pending_writes.clone(),
             upload_active: upload_active.clone(),
             upload_cancel: upload_cancel.clone(),
+            download_active: download_active.clone(),
+            download_cancel: download_cancel.clone(),
             device: None,
             last_target: None,
             last_info: None,
@@ -259,6 +308,8 @@ impl ActorHandle {
             pending_writes,
             upload_active,
             upload_cancel,
+            download_active,
+            download_cancel,
             app,
         }
     }
@@ -276,6 +327,15 @@ impl ActorHandle {
     pub fn cancel_upload(&self) -> bool {
         if self.upload_active.load(Ordering::SeqCst) {
             self.upload_cancel.store(true, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn cancel_download(&self) -> bool {
+        if self.download_active.load(Ordering::SeqCst) {
+            self.download_cancel.store(true, Ordering::SeqCst);
             true
         } else {
             false
@@ -394,6 +454,8 @@ struct Actor {
     pending_writes: Arc<AtomicUsize>,
     upload_active: Arc<AtomicBool>,
     upload_cancel: Arc<AtomicBool>,
+    download_active: Arc<AtomicBool>,
+    download_cancel: Arc<AtomicBool>,
     device: Option<Device>,
     last_target: Option<Target>,
     last_info: Option<ConnectionInfo>,
@@ -578,6 +640,15 @@ impl Actor {
                     device.set_master(&control, value)
                 });
             }
+            ActorCommand::SetInputGain {
+                channel,
+                value,
+                reply,
+            } => {
+                self.write_snapshot(generation, reply, WRITE_COOLDOWN, |device| {
+                    device.set_input_gain(channel, value)
+                });
+            }
             ActorCommand::SetEqBand {
                 index,
                 field,
@@ -635,6 +706,70 @@ impl Actor {
             } => {
                 let _ =
                     reply.send(self.begin_upload(generation, id, kind, &file_path, &target, slot));
+            }
+            ActorCommand::DownloadListItem {
+                id,
+                list_path,
+                index,
+                destination,
+                overwrite,
+                reply,
+            } => {
+                let _ = reply.send(self.download_list_item(
+                    generation,
+                    id,
+                    &list_path,
+                    index,
+                    &destination,
+                    overwrite,
+                ));
+            }
+            ActorCommand::ExportPreset {
+                index,
+                destination,
+                overwrite,
+                reply,
+            } => {
+                let _ = reply.send(self.export_preset(generation, index, &destination, overwrite));
+            }
+            ActorCommand::PreflightPresetImport {
+                bundle_path,
+                target_slot,
+                reply,
+            } => {
+                let result = std::fs::read(&bundle_path)
+                    .map_err(|error| {
+                        IpcError::internal(format!("could not read the bundle: {error}"))
+                    })
+                    .and_then(|bytes| {
+                        self.with_device(|device| device.import_preflight(&bytes, target_slot))
+                    });
+                let _ = reply.send(result);
+            }
+            ActorCommand::ImportPresetBundle {
+                bundle_path,
+                target_slot,
+                overwrite_preset,
+                overwrite_dependencies,
+                reply,
+            } => {
+                let _ = reply.send(self.import_preset_bundle(
+                    generation,
+                    &bundle_path,
+                    target_slot,
+                    overwrite_preset,
+                    overwrite_dependencies,
+                ));
+            }
+            ActorCommand::RenameListItem {
+                list_path,
+                index,
+                new_name,
+                reply,
+            } => {
+                self.write_snapshot(generation, reply, WRITE_COOLDOWN, |device| {
+                    device.rename_list_item(&list_path, index, &new_name)
+                });
             }
             ActorCommand::DeleteListItem {
                 list_path,
@@ -776,6 +911,7 @@ impl Actor {
         self.connected.store(false, Ordering::SeqCst);
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.upload_active.store(false, Ordering::SeqCst);
+        self.download_active.store(false, Ordering::SeqCst);
         self.state_signature = None;
     }
 
@@ -966,6 +1102,244 @@ impl Actor {
                 }
                 Err(error.into())
             }
+        }
+    }
+
+    fn download_list_item(
+        &mut self,
+        generation: u64,
+        id: String,
+        list_path: &str,
+        index: usize,
+        destination: &str,
+        overwrite: bool,
+    ) -> IpcResult<DownloadCompletion> {
+        if generation != self.generation.load(Ordering::SeqCst) {
+            return Err(stale_error());
+        }
+        if self.download_active.swap(true, Ordering::SeqCst) {
+            return Err(IpcError::from(ProtocolError::InvalidRequest(
+                "another download is already in flight".into(),
+            )));
+        }
+        self.download_cancel.store(false, Ordering::SeqCst);
+
+        let destination_path = std::path::PathBuf::from(destination);
+        if destination_path.as_os_str().is_empty() {
+            self.download_active.store(false, Ordering::SeqCst);
+            return Err(IpcError::from(ProtocolError::InvalidRequest(
+                "choose a destination file".into(),
+            )));
+        }
+        if destination_path.exists() && !overwrite {
+            self.download_active.store(false, Ordering::SeqCst);
+            return Err(IpcError::from(ProtocolError::InvalidRequest(format!(
+                "{} already exists; choose another name",
+                destination_path.display()
+            ))));
+        }
+
+        let app = self.app.lock().ok().and_then(|guard| guard.clone());
+        let cancel = self.download_cancel.clone();
+        let download_id = id.clone();
+        let target_label = list_path.to_string();
+        let result = {
+            let Some(device) = self.device.as_mut() else {
+                self.download_active.store(false, Ordering::SeqCst);
+                return Err(IpcError::from(ProtocolError::NotConnected));
+            };
+            device.download_list_item_with_progress(list_path, index, |progress| {
+                if let Some(app) = app.as_ref() {
+                    let total = progress.total_chunks.max(1);
+                    let _ = app.emit(
+                        "device://download",
+                        DownloadProgressEvent {
+                            id: download_id.clone(),
+                            list_path: target_label.clone(),
+                            index: progress.index,
+                            name: progress.name.clone(),
+                            kind: progress.kind.clone(),
+                            chunk: progress.chunk,
+                            total_chunks: progress.total_chunks,
+                            progress: (progress.chunk as f64 / total as f64) * 100.0,
+                            bytes: progress.bytes,
+                            total_bytes: progress.total_bytes,
+                        },
+                    );
+                }
+                !cancel.load(Ordering::SeqCst)
+            })
+        };
+        self.download_active.store(false, Ordering::SeqCst);
+
+        let file = match result {
+            Ok(Some(file)) => file,
+            Ok(None) => {
+                return Ok(DownloadCompletion {
+                    cancelled: true,
+                    file: None,
+                })
+            }
+            Err(error) => {
+                let fatal = is_connection_loss(&error);
+                let message = error.to_string();
+                if fatal {
+                    self.connection_lost(&message);
+                }
+                return Err(error.into());
+            }
+        };
+
+        if let Some(parent) = destination_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|error| {
+                    IpcError::internal(format!("could not create the destination folder: {error}"))
+                })?;
+            }
+        }
+        let temp = destination_path.with_file_name(format!(
+            ".{}.{}.part",
+            destination_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("download"),
+            std::process::id()
+        ));
+        if let Err(error) = std::fs::write(&temp, &file.raw) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(IpcError::internal(format!(
+                "could not write the download: {error}"
+            )));
+        }
+        if destination_path.exists() {
+            if let Err(error) = std::fs::remove_file(&destination_path) {
+                let _ = std::fs::remove_file(&temp);
+                return Err(IpcError::internal(format!(
+                    "could not replace the existing file: {error}"
+                )));
+            }
+        }
+        if let Err(error) = std::fs::rename(&temp, &destination_path) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(IpcError::internal(format!(
+                "could not finish the download: {error}"
+            )));
+        }
+
+        Ok(DownloadCompletion {
+            cancelled: false,
+            file: Some(DownloadFile {
+                path: destination_path.to_string_lossy().to_string(),
+                list_path: file.list_path,
+                index: file.index,
+                name: file.name,
+                kind: file.kind,
+                extension: file.extension,
+                bytes: file.bytes,
+            }),
+        })
+    }
+
+    fn export_preset(
+        &mut self,
+        generation: u64,
+        index: usize,
+        destination: &str,
+        overwrite: bool,
+    ) -> IpcResult<ExportCompletion> {
+        if generation != self.generation.load(Ordering::SeqCst) {
+            return Err(stale_error());
+        }
+        let destination_path = std::path::PathBuf::from(destination);
+        if destination_path.as_os_str().is_empty() {
+            return Err(IpcError::from(ProtocolError::InvalidRequest(
+                "choose a destination file".into(),
+            )));
+        }
+        if destination_path.exists() && !overwrite {
+            return Err(IpcError::from(ProtocolError::InvalidRequest(format!(
+                "{} already exists; choose another name",
+                destination_path.display()
+            ))));
+        }
+        let export = self.with_device(|device| device.export_preset_bundle(index))?;
+
+        if let Some(parent) = destination_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|error| {
+                    IpcError::internal(format!("could not create the destination folder: {error}"))
+                })?;
+            }
+        }
+        let temp = destination_path.with_file_name(format!(
+            ".{}.{}.part",
+            destination_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("preset"),
+            std::process::id()
+        ));
+        if let Err(error) = std::fs::write(&temp, &export.archive) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(IpcError::internal(format!(
+                "could not write the preset bundle: {error}"
+            )));
+        }
+        if destination_path.exists() {
+            if let Err(error) = std::fs::remove_file(&destination_path) {
+                let _ = std::fs::remove_file(&temp);
+                return Err(IpcError::internal(format!(
+                    "could not replace the existing file: {error}"
+                )));
+            }
+        }
+        if let Err(error) = std::fs::rename(&temp, &destination_path) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(IpcError::internal(format!(
+                "could not finish the preset bundle: {error}"
+            )));
+        }
+        self.after_write(WRITE_COOLDOWN);
+        Ok(ExportCompletion {
+            path: destination_path.to_string_lossy().to_string(),
+            preset_name: export.preset_name,
+            dependencies: export.dependencies,
+            bytes: export.archive_bytes,
+        })
+    }
+
+    fn import_preset_bundle(
+        &mut self,
+        generation: u64,
+        bundle_path: &str,
+        target_slot: usize,
+        overwrite_preset: bool,
+        overwrite_dependencies: bool,
+    ) -> IpcResult<ImportCompletion> {
+        if generation != self.generation.load(Ordering::SeqCst) {
+            return Err(stale_error());
+        }
+        let bytes = std::fs::read(bundle_path)
+            .map_err(|error| IpcError::internal(format!("could not read the bundle: {error}")))?;
+        let result = self.with_device(|device| {
+            let report = device.import_bundle(
+                &bytes,
+                stomp_device::ImportOptions {
+                    target_slot,
+                    overwrite_preset,
+                    overwrite_dependencies,
+                },
+            )?;
+            Ok((report, device.state()))
+        });
+        self.after_write(UPLOAD_COOLDOWN);
+        match result {
+            Ok((report, snapshot)) => {
+                let snapshot = self.stamp(snapshot);
+                self.last_snapshot = Some(snapshot.clone());
+                Ok(ImportCompletion { report, snapshot })
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -1515,6 +1889,8 @@ mod tests {
             pending_writes: Arc::new(AtomicUsize::new(0)),
             upload_active: Arc::new(AtomicBool::new(false)),
             upload_cancel: Arc::new(AtomicBool::new(false)),
+            download_active: Arc::new(AtomicBool::new(false)),
+            download_cancel: Arc::new(AtomicBool::new(false)),
             device: None,
             last_target: Some(Target::Tcp {
                 host: "127.0.0.1".to_string(),

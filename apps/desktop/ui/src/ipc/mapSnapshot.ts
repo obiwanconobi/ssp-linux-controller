@@ -6,6 +6,7 @@ import type {
   ControlGroup,
   EqBand,
   EqBandType,
+  InputState,
   LibraryList,
   MasterState,
   MeterState,
@@ -14,6 +15,7 @@ import type {
 import type {
   ConnectionInfo,
   RustBlockEditor,
+  RustControlValue,
   RustEditorNode,
   RustSnapshot,
 } from './client';
@@ -216,7 +218,7 @@ export const mapBlock = (
   return {
     id: editor.path,
     label: editor.label,
-    shortName: SHORT_NAMES[family],
+    shortName: name === 'parametric_eq' ? 'PEQ' : SHORT_NAMES[family],
     family,
     on: editor.on ?? slot?.on ?? false,
     fixed: slot?.fixed ?? false,
@@ -249,6 +251,7 @@ export interface MappedDevice {
   blocks: Block[];
   availableBlocks: Array<{ id: string; label: string; desc: string }>;
   master: MasterState;
+  input: InputState;
   eq: EqBand[];
   eqEnabled: boolean;
   lists: LibraryList[];
@@ -272,9 +275,42 @@ export const mapMaster = (snapshot: RustSnapshot): MasterState => ({
   volumeMax: snapshot.master.volume?.max ?? 100,
   presetLevel: snapshot.master.preset_level?.value ?? 0,
   presetLevelAvailable: snapshot.master.preset_level != null,
+  presetLevelMin: snapshot.master.preset_level?.min ?? -20,
+  presetLevelMax: snapshot.master.preset_level?.max ?? 20,
+  presetLevelStep:
+    snapshot.master.preset_level && snapshot.master.preset_level.step > 0
+      ? snapshot.master.preset_level.step
+      : 0.1,
   tempo: snapshot.master.tempo?.value ?? 120,
   tempoMin: snapshot.master.tempo?.min ?? 20,
   tempoMax: snapshot.master.tempo?.max ?? 300,
+});
+
+const toGlobalControl = (
+  control: RustControlValue | null,
+  label: string,
+): Control | null => {
+  if (!control) return null;
+  return {
+    id: control.id,
+    name: control.id.split('\\').pop() ?? control.id,
+    label: control.label || label,
+    kind: 'float',
+    value: control.value,
+    min: control.min,
+    max: control.max,
+    step: control.step > 0 ? control.step : 0.1,
+    defaultValue: control.value,
+    unit: control.unit || undefined,
+    decimals: 1,
+  };
+};
+
+export const mapInput = (snapshot: RustSnapshot): InputState => ({
+  gain1: toGlobalControl(snapshot.input?.gain1 ?? null, 'In 1 digital gain'),
+  gain2: toGlobalControl(snapshot.input?.gain2 ?? null, 'In 2 digital gain'),
+  connected1: snapshot.input?.connected1 ?? null,
+  connected2: snapshot.input?.connected2 ?? null,
 });
 
 export const mapEq = (
@@ -307,6 +343,7 @@ export const mapLists = (snapshot: RustSnapshot): LibraryList[] =>
       name: slot.name,
       used: slot.used,
       active: slot.active,
+      usedBy: slot.used_by ?? [],
     })),
   }));
 
@@ -360,6 +397,7 @@ export function mapSnapshot(
     blocks,
     availableBlocks: mapAvailableBlocks(snapshot),
     master: mapMaster(snapshot),
+    input: mapInput(snapshot),
     eq: eqView.eq,
     eqEnabled: eqView.eqEnabled,
     lists: mapLists(snapshot),

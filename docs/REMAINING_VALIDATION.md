@@ -242,6 +242,102 @@ expected level/latency tolerance.
 **Record:** capture name, slot, reference path, recorded files, and any null-test
 result.
 
+## V10 — Input gain and connection state (0.6.0)
+
+1. Open **Settings → Audio & pedal**.
+2. Note `In 1 connection` / `In 2 connection` and plug/unplug each input.
+3. Refresh and confirm the read-only state follows the pedal.
+4. Write In 1 gain to −6.0 dB, refresh, then reconnect and read it back.
+5. Repeat for In 2 at +3.5 dB.
+6. Confirm changing gain does **not** mark the preset edited; save another
+   parameter and confirm the dirty flag is explained by that parameter.
+7. Set both gains back to their original values.
+
+**Pass:** both gains survive refresh/reconnect within 0.1 dB; connection state
+matches the jacks; gain alone does not force a preset save.
+
+## V11 — Preset Level (0.6.0)
+
+1. Confirm the lower-bar stepper is enabled and shows one decimal.
+2. Use the buttons to move by 0.5 dB and the arrow keys to move by 0.1 dB.
+3. Set a scratch preset to +6.0 dB and save.
+4. Reload another preset, then reload the scratch preset; confirm +6.0 dB.
+5. Export the preset and inspect `root\app\output\pst\level` in the `.pst`.
+6. Import the bundle into an empty slot and confirm the level round-trips.
+
+**Pass:** the control reads/writes −20…+20 dB, saves with the preset, and
+survives export/import.
+
+## V12 — Library downloads (0.6.0)
+
+Repeat for a NAM, PNAM, and IR entry:
+
+1. Click Download on a used Library row and save to a scratch folder.
+2. Confirm progress advances and the progress card can cancel between chunks.
+3. Cancel once and verify no final file appears.
+4. Download again to completion.
+5. For NAM/PNAM, parse the file as JSON and confirm the model structure.
+6. For IR, confirm the saved file is a 8248-byte float WAV: RIFF/WAVE, format
+   3, mono, 48 kHz, 32-bit, 2048 samples. Device IR slots store raw `f32`
+   samples; the app adds the header.
+7. Compare a downloaded NAM with the official app's copy when available.
+
+**Pass:** files are byte-plausible, compressed models are decompressed, and
+cancellation leaves no partial destination file.
+
+## V13 — Preset export and import (0.6.0)
+
+1. Select a scratch preset with NAM/PNAM/IR dependencies.
+2. Export it and inspect `bdinfo.json`, `preset/`, and `dependencies/`.
+3. Compare the exported `.pst` with the official app's export of the same slot
+   after removing archive filename metadata.
+4. Import the bundle into an empty preset slot.
+5. Confirm identical dependencies are reused and the preset list name appears.
+6. Read back the imported `.pst` and compare it with the source.
+7. Edit a preset, export, import into another empty slot, and confirm every
+   value matches.
+8. Try a no-dependency preset and a deliberately malformed archive; confirm the
+   malformed archive is rejected before any write.
+9. During a scratch import, cancel a dependency upload and verify the reported
+   partial state and target slot.
+
+**Pass:** export matches the official shape, import selects an empty slot by
+default, identical dependencies are reused, and failures name partial writes.
+
+## V14 — Capture rename and reference updates (0.6.0)
+
+Use scratch presets only.
+
+1. Rename an unused NAM capture; refresh and confirm the name/readback.
+2. Repeat for PNAM and IR.
+3. Create a scratch preset that uses a scratch NAM capture.
+4. Try to rename that capture in Library; confirm it is blocked and the dialog
+   names the affected preset.
+5. Run the manual experiment: rename it through the official app or a scratch
+   write, reload the preset, and record whether `root\app\amp\model` and
+   `root\presets.used` changed.
+6. Repeat for PNAM and IR.
+7. Decide whether v0.6.0 keeps used-capture blocking or allows rename with an
+   affected-preset warning.
+
+**Pass:** unused captures rename safely; used-capture behavior is documented and
+matches the implemented policy.
+
+## V15 — Parametric EQ graph writes (0.6.0)
+
+1. Add the in-chain Parametric EQ block to a scratch preset.
+2. Drag each band, use arrow keys, and change type/frequency/gain/Q in the
+   cards.
+3. Refresh and confirm the graph and cards keep the written values.
+4. Save, reload, and confirm the values persist.
+5. Bypass the block and confirm the graph remains editable and bypass state is
+   separate.
+6. Export the preset and confirm `root\app\parametric_eq\eq_par` values are in
+   the `.pst`.
+
+**Pass:** every graph/card edit round-trips through the block's own controls and
+does not touch the Global EQ or Graphic EQ paths.
+
 ## Evidence to capture
 
 For every test, record:
@@ -274,5 +370,7 @@ These remain deliberately deferred:
 - multi-item list deletion (P1.2);
 - factory reset (P1.3);
 - Android physical-device, mDNS, USB-OTG, and Play Store validation;
+- Android physical-device UI/native-shell validation (the emulator harness is
+  in [`ANDROID_UI_TESTING.md`](ANDROID_UI_TESTING.md));
 - Windows/macOS clean-machine installer checks;
 - signing, notarization, and updater validation.

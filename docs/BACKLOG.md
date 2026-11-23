@@ -4,7 +4,7 @@ See [`V0.6.0_PLAN.md`](V0.6.0_PLAN.md) for the next release scope: input
 settings, Preset Level, Add-block scrolling, the Parametric EQ graph, preset
 export/import, Library file downloads, and Library file renaming.
 
-Last updated: 2026-11-22
+Last updated: 2026-11-23
 
 ## UI feedback — this pass
 
@@ -70,11 +70,22 @@ Last updated: 2026-11-22
   under `dist/android/` (gitignored).
 - Release APKs build for `aarch64` and `x86_64`; the x86_64 release was run in a
   Pixel 10 Pro API 37 emulator and loaded the full simulator board over TCP.
-- Remaining: physical-phone Wi-Fi/mDNS test, Play Store AAB/upload-key signing,
-  tablet/landscape layout, USB-OTG serial (optional), reconnect-on-resume, and
-  the Android 17 `ACCESS_LOCAL_NETWORK` runtime request before moving
-  `targetSdk` from 36 to 37.
-- Details: [`docs/ANDROID.md`](ANDROID.md).
+- Android UI harness added under `apps/desktop/ui/e2e/android/` with
+  `./scripts/android-e2e.sh` for a fast Playwright/CDP smoke and an
+  Appium/UiAutomator2/WebdriverIO suite. The emulator suite covers launch,
+  connect, a real parameter edit + save, and Android Back closing overlays.
+- Android Back now closes the topmost web overlay instead of exiting the app.
+  The connection sheet footer is fixed while its body scrolls so
+  Connect/Disconnect stay reachable on phones.
+- Remaining UI-test work: physical-phone run, rotation/background/native
+  file-picker specs, a typed-knob Appium test, Android-specific visual
+  baselines, and a CI emulator job.
+- Remaining Android work: physical-phone Wi-Fi/mDNS test, Play Store
+  AAB/upload-key signing, tablet/landscape layout, USB-OTG serial (optional),
+  reconnect-on-resume, and the Android 17 `ACCESS_LOCAL_NETWORK` runtime request
+  before moving `targetSdk` from 36 to 37.
+- Details: [`docs/ANDROID.md`](ANDROID.md) and
+  [`docs/ANDROID_UI_TESTING.md`](ANDROID_UI_TESTING.md).
 
 ## Verified on hardware (2.4.4, 2026-11-20)
 

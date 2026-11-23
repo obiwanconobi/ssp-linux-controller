@@ -22,9 +22,8 @@ android {
         applicationId = "pro.stompstation.desktop"
         minSdk = 24
         // Android 17 (SDK 37) enforces the runtime ACCESS_LOCAL_NETWORK
-        // permission for LAN/mDNS. This sideload build targets 36 so Wi-Fi
-        // works today; bump to 37 together with the permission request.
-        targetSdk = 36
+        // permission for LAN/mDNS. MainActivity requests it before discovery.
+        targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }

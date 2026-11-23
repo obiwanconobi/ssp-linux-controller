@@ -1,0 +1,14 @@
+[package]
+name = "stomp-preset-bundle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+stomp-protocol = { path = "../stomp-protocol" }
+stomp-upload = { path = "../stomp-upload" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }

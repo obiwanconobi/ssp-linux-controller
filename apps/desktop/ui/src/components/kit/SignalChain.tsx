@@ -101,7 +101,7 @@ const SortablePedal = ({
   );
 };
 
-const AvailableBlocksMenu = ({
+export const AvailableBlocksMenu = ({
   label,
   onSelect,
   children,
@@ -115,7 +115,12 @@ const AvailableBlocksMenu = ({
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>{children}</DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="menu" sideOffset={8} align="start">
+        <DropdownMenu.Content
+          className="menu menu--blocks"
+          sideOffset={8}
+          align="start"
+          collisionPadding={12}
+        >
           <DropdownMenu.Label className="menu__label">{label}</DropdownMenu.Label>
           {availableBlocks.length === 0 ? (
             <DropdownMenu.Item className="menu__item" disabled>

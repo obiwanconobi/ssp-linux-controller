@@ -87,9 +87,20 @@ export interface MasterState {
   volumeMax?: number;
   presetLevel: number;
   presetLevelAvailable?: boolean;
+  presetLevelMin?: number;
+  presetLevelMax?: number;
+  presetLevelStep?: number;
   tempo: number;
   tempoMin?: number;
   tempoMax?: number;
+}
+
+/** Global input settings. These are not preset data and never mark a preset dirty. */
+export interface InputState {
+  gain1: Control | null;
+  gain2: Control | null;
+  connected1: boolean | null;
+  connected2: boolean | null;
 }
 
 export type EqBandType = 'LPS' | 'BP' | 'HPS' | 'LP' | 'HP';
@@ -118,6 +129,8 @@ export interface LibrarySlot {
   name: string;
   used: boolean;
   active: boolean;
+  /** Preset slot indices whose `used` map references this capture. */
+  usedBy?: number[];
 }
 
 export interface LibraryList {

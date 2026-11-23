@@ -6,28 +6,38 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use stomp_preset_bundle::{
+    dependency_archive_path, read_bundle, write_bundle_to_vec, BundleDependency, BundleError,
+    BundleManifest, DependencyManifest,
+};
 use stomp_protocol::command;
 use stomp_protocol::editor::{block_editor, BlockEditor};
 use stomp_protocol::frame::{parse_message, FrameBuffer, ParsedLine};
 use stomp_protocol::node::NodeStore;
-use stomp_protocol::preset::{preset_name_error, preset_state, rename_hex, PresetState};
+use stomp_protocol::preset::{
+    list_name_error, preset_name_error, preset_references, preset_state, presets_using, rename_hex,
+    PresetState,
+};
 use stomp_protocol::router::{available_blocks, chain_blocks, load_chain, ChainSlot, LinkType};
 use stomp_protocol::{
-    normalize_path, path_name, path_parent, ProtocolError, DEFAULT_CHAIN, IR_PATH, NAME_SIZE,
-    NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH, PRESET_LIST_PATH, PRESET_PATH,
+    normalize_path, path_name, path_parent, ProtocolError, CHUNK_SIZE, DEFAULT_CHAIN, IR_PATH,
+    NAME_SIZE, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH, PRESET_LIST_PATH, PRESET_PATH,
 };
 use stomp_transport::{ScriptedTransport, SerialTransport, TcpTransport, Transport};
 use stomp_upload::{
-    preflight, prepare_upload, AckOutcome, Preflight, PreparedUpload, UploadKind, UploadState,
+    decode_downloaded_model, decode_ir, encode_ir_wav, preflight, prepare_upload, validate_capture,
+    AckOutcome, Preflight, PreparedUpload, UploadKind, UploadState,
 };
 
 use crate::snapshot::{
-    capabilities, device_info, eq_view, library_lists, master_view, meters, AvailableBlock,
-    ChainView, DeviceSnapshot, PresetView,
+    capabilities, device_info, eq_view, input_view, library_lists, master_view, meters,
+    AvailableBlock, ChainView, DeviceSnapshot, PresetView, INPUT_GAIN_1_PATH, INPUT_GAIN_2_PATH,
 };
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(3_000);
 pub const BROWSE_TIMEOUT: Duration = Duration::from_millis(8_000);
+/// Firmware 2.5.3 stores one 32 KiB `.pst` payload per preset list slot.
+pub const PRESET_SLOT_SIZE: usize = 32 * 1024;
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,6 +71,87 @@ pub struct UploadProgress {
     pub ack: usize,
     pub total_acks: usize,
     pub bytes_sent: usize,
+    pub total_bytes: usize,
+}
+
+/// One downloaded list item. `raw` is the original file bytes (decompressed for
+/// NAM/PNAM); it is not sent across the Tauri boundary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DownloadedListFile {
+    pub list_path: String,
+    pub index: usize,
+    pub name: String,
+    pub kind: String,
+    pub extension: String,
+    pub compressed: bool,
+    pub bytes: usize,
+    #[serde(skip)]
+    pub raw: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresetExport {
+    pub preset_name: String,
+    pub preset_index: usize,
+    pub dependencies: Vec<String>,
+    pub archive_bytes: usize,
+    #[serde(skip)]
+    pub archive: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportDependencyPlan {
+    pub name: String,
+    pub extension: String,
+    pub node_path: String,
+    pub archive_path: String,
+    pub bytes: usize,
+    pub existing_index: Option<usize>,
+    pub target_index: Option<usize>,
+    pub action: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportPreflight {
+    pub preset_name: String,
+    pub preset_bytes: usize,
+    pub preset_entries: usize,
+    pub chain_blocks: Vec<String>,
+    pub chain_changes: Vec<String>,
+    pub target_slot: Option<usize>,
+    pub target_occupied_by: Option<String>,
+    pub empty_slots: Vec<usize>,
+    pub dependencies: Vec<ImportDependencyPlan>,
+    pub blocked: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImportOptions {
+    pub target_slot: usize,
+    pub overwrite_preset: bool,
+    pub overwrite_dependencies: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportReport {
+    pub preset_name: String,
+    pub target_slot: usize,
+    pub dependencies_written: Vec<String>,
+    pub dependencies_reused: Vec<String>,
+    pub preset_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DownloadProgress {
+    pub list_path: String,
+    pub index: usize,
+    pub name: String,
+    pub kind: String,
+    pub chunk: usize,
+    pub total_chunks: usize,
+    pub bytes: usize,
     pub total_bytes: usize,
 }
 
@@ -322,6 +413,12 @@ impl Device {
             let Some(object) = line.object() else {
                 continue;
             };
+            if line.command.as_deref() == Some("dread") {
+                // `dread` payload lines are transfer bytes, not node fields.
+                // Merging them would replace a list's `value` array with the
+                // last hex chunk.
+                continue;
+            }
             if line.command.as_deref() == Some("dwrite")
                 && (object.contains_key("index") || object.contains_key("chunk"))
             {
@@ -721,6 +818,36 @@ impl Device {
         self.set_value(&eq.on_path, json!(if enabled { "ON" } else { "OFF" }))
     }
 
+    /// Write one input channel's digital gain. These are global settings, not
+    /// preset data, so they deliberately do not touch the preset dirty state.
+    pub fn set_input_gain(&mut self, channel: u8, value: f64) -> Result<(), ProtocolError> {
+        let path = match channel {
+            1 => INPUT_GAIN_1_PATH,
+            2 => INPUT_GAIN_2_PATH,
+            other => {
+                return Err(ProtocolError::InvalidRequest(format!(
+                    "unknown input channel {other}"
+                )))
+            }
+        };
+        if !value.is_finite() {
+            return Err(ProtocolError::InvalidRequest(
+                "input gain must be a finite number".into(),
+            ));
+        }
+        let node = self.nodes.get(path).ok_or_else(|| {
+            ProtocolError::Unsupported(format!("input {channel} gain is not exposed"))
+        })?;
+        let min = node.min().unwrap_or(-15.0);
+        let max = node.max().unwrap_or(15.0);
+        if value < min - 1e-6 || value > max + 1e-6 {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "input {channel} gain must be between {min} and {max} dB"
+            )));
+        }
+        self.set_value(path, json!(value))
+    }
+
     pub fn set_master(&mut self, kind: &str, value: f64) -> Result<(), ProtocolError> {
         let master = master_view(&self.nodes);
         let control = match kind {
@@ -825,6 +952,19 @@ impl Device {
             .ok_or_else(|| ProtocolError::Protocol("upload was cancelled unexpectedly".into()))
     }
 
+    pub fn upload_named(
+        &mut self,
+        kind: UploadKind,
+        raw: &[u8],
+        file_name: &str,
+        name: &str,
+        target: &str,
+        slot: Option<usize>,
+    ) -> Result<UploadResult, ProtocolError> {
+        self.upload_named_with_progress(kind, raw, file_name, Some(name), target, slot, |_| true)?
+            .ok_or_else(|| ProtocolError::Protocol("upload was cancelled unexpectedly".into()))
+    }
+
     /// Upload while reporting each ACK boundary.
     ///
     /// The callback returns `true` to continue or `false` to stop before the
@@ -837,18 +977,43 @@ impl Device {
         file_name: &str,
         target: &str,
         slot: Option<usize>,
+        on_progress: F,
+    ) -> Result<Option<UploadResult>, ProtocolError>
+    where
+        F: FnMut(&UploadProgress) -> bool,
+    {
+        self.upload_named_with_progress(kind, raw, file_name, None, target, slot, on_progress)
+    }
+
+    /// Upload a capture while forcing the list slot name. Bundle import uses
+    /// this so the dependency keeps the name recorded in `bdinfo.json` instead
+    /// of whatever metadata the capture happens to contain.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upload_named_with_progress<F>(
+        &mut self,
+        kind: UploadKind,
+        raw: &[u8],
+        file_name: &str,
+        name_override: Option<&str>,
+        target: &str,
+        slot: Option<usize>,
         mut on_progress: F,
     ) -> Result<Option<UploadResult>, ProtocolError>
     where
         F: FnMut(&UploadProgress) -> bool,
     {
         let preflight = self.preflight_upload(kind, raw, file_name, target, slot)?;
+        let name = name_override.unwrap_or(&preflight.name);
+        if let Some(problem) = list_name_error(name.trim()) {
+            return Err(ProtocolError::InvalidRequest(problem.into()));
+        }
+        let name = name.trim();
         let slot_size = self
             .nodes
             .get(target)
             .and_then(|node| node.size())
             .map(|size| size as usize);
-        let prepared = prepare_upload(kind, raw, &preflight.name, slot_size)?;
+        let prepared = prepare_upload(kind, raw, name, slot_size)?;
         let result = self.perform_upload(target, preflight.slot, &prepared, &mut on_progress)?;
         // Even a cancelled upload resyncs the target list so the UI never
         // shows a slot state that the device has already moved past.
@@ -940,6 +1105,880 @@ impl Device {
         }))
     }
 
+    // ---- preset export --------------------------------------------------
+
+    /// Collect the selected preset's `.pst` and every capture in
+    /// `root\presets.used`, then build and verify a bundle archive.
+    pub fn export_preset_bundle(&mut self, index: usize) -> Result<PresetExport, ProtocolError> {
+        let preset = preset_state(&self.nodes);
+        let list_path = preset
+            .list_path
+            .clone()
+            .ok_or_else(|| ProtocolError::Unsupported("preset list is unavailable".into()))?;
+        let preset_name = preset
+            .names
+            .get(index)
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| {
+                ProtocolError::InvalidRequest(format!("preset slot {} is empty", index + 1))
+            })?;
+        let firmware = self
+            .nodes
+            .value_str(r"root\sys\_ver")
+            .filter(|version| version.starts_with("2."))
+            .unwrap_or("2.5.3")
+            .to_string();
+
+        let all_references = preset_references(&self.nodes);
+        let references: Vec<_> = all_references
+            .iter()
+            .filter(|reference| reference.preset_index == index)
+            .collect();
+        let mut manifests = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for reference in references {
+            if reference.list_path.is_empty() || reference.extension.is_empty() {
+                return Err(ProtocolError::InvalidRequest(format!(
+                    "preset {preset_name:?} uses an unrecognized dependency path {}; \
+                     export is blocked",
+                    reference.node_path
+                )));
+            }
+            if !seen.insert((reference.list_path.clone(), reference.capture.clone())) {
+                continue;
+            }
+            let archive_path = dependency_archive_path(&reference.capture, &reference.list_path)
+                .ok_or_else(|| {
+                    ProtocolError::InvalidRequest(format!(
+                        "{} is not a supported dependency list",
+                        reference.list_path
+                    ))
+                })?;
+            manifests.push(DependencyManifest {
+                name: reference.capture.clone(),
+                extension: reference.extension.clone(),
+                node_path: reference.list_path.clone(),
+                archive_path,
+            });
+        }
+        manifests.sort_by(|left, right| left.archive_path.cmp(&right.archive_path));
+        if manifests
+            .windows(2)
+            .any(|pair| pair[0].archive_path == pair[1].archive_path)
+        {
+            return Err(ProtocolError::InvalidRequest(
+                "two dependencies resolve to the same archive path; export is blocked".into(),
+            ));
+        }
+
+        // Verify every dependency is present before downloading anything, so a
+        // missing capture blocks export cleanly instead of leaving a partial
+        // transfer.
+        for manifest in &manifests {
+            let names = self
+                .nodes
+                .get(&manifest.node_path)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    ProtocolError::InvalidRequest(format!(
+                        "dependency list {} is unavailable",
+                        manifest.node_path
+                    ))
+                })?;
+            if !names
+                .iter()
+                .any(|name| name.as_str() == Some(manifest.name.as_str()))
+            {
+                return Err(ProtocolError::InvalidRequest(format!(
+                    "dependency {:?} is missing from {}",
+                    manifest.name, manifest.node_path
+                )));
+            }
+        }
+
+        let preset_payload = self.download_list_item(&list_path, index)?;
+        let mut dependencies = Vec::new();
+        for manifest in &manifests {
+            let dependency_index = {
+                let list = self
+                    .nodes
+                    .get(&manifest.node_path)
+                    .and_then(|node| node.value())
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| {
+                        ProtocolError::InvalidRequest(format!(
+                            "dependency list {} is unavailable",
+                            manifest.node_path
+                        ))
+                    })?;
+                list.iter()
+                    .position(|name| name.as_str() == Some(manifest.name.as_str()))
+                    .ok_or_else(|| {
+                        ProtocolError::InvalidRequest(format!(
+                            "dependency {:?} is missing from {}",
+                            manifest.name, manifest.node_path
+                        ))
+                    })?
+            };
+            let file = self.download_list_item(&manifest.node_path, dependency_index)?;
+            dependencies.push(BundleDependency {
+                manifest: manifest.clone(),
+                bytes: file.raw,
+            });
+        }
+
+        let bundle_manifest = BundleManifest::new(&preset_name, &firmware, manifests);
+        let archive = write_bundle_to_vec(&bundle_manifest, &preset_payload.raw, &dependencies)
+            .map_err(bundle_error)?;
+        // Re-open the archive before reporting success.
+        let loaded = read_bundle(&archive).map_err(bundle_error)?;
+        if loaded.preset_bytes != preset_payload.raw
+            || loaded.dependencies.len() != dependencies.len()
+            || loaded
+                .dependencies
+                .iter()
+                .zip(dependencies.iter())
+                .any(|(loaded, source)| {
+                    loaded.bytes != source.bytes
+                        || loaded.manifest.name != source.manifest.name
+                        || loaded.manifest.node_path != source.manifest.node_path
+                })
+            || loaded.manifest.preset.name != preset_name
+        {
+            return Err(ProtocolError::Protocol(
+                "exported archive failed its verification pass".into(),
+            ));
+        }
+        Ok(PresetExport {
+            preset_name,
+            preset_index: index,
+            dependencies: dependencies
+                .iter()
+                .map(|dependency| dependency.manifest.name.clone())
+                .collect(),
+            archive_bytes: archive.len(),
+            archive,
+        })
+    }
+
+    // ---- preset import --------------------------------------------------
+
+    /// Validate a bundle against the current lists without writing anything.
+    pub fn import_preflight(
+        &mut self,
+        bundle_bytes: &[u8],
+        target_slot: Option<usize>,
+    ) -> Result<ImportPreflight, ProtocolError> {
+        let bundle = read_bundle(bundle_bytes).map_err(bundle_error)?;
+        let preset = preset_state(&self.nodes);
+        let list_path = preset
+            .list_path
+            .clone()
+            .ok_or_else(|| ProtocolError::Unsupported("preset list is unavailable".into()))?;
+        let names = self
+            .nodes
+            .get(&list_path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+            .ok_or_else(|| ProtocolError::Unsupported("preset list is unavailable".into()))?;
+        let empty_slots: Vec<usize> = names
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| name.as_str().map(str::trim).unwrap_or_default().is_empty())
+            .map(|(index, _)| index)
+            .collect();
+        let invalid_target = target_slot.filter(|index| *index >= names.len());
+        let target = if invalid_target.is_some() {
+            None
+        } else {
+            target_slot.or_else(|| empty_slots.first().copied())
+        };
+        let target_occupied_by = target
+            .and_then(|index| names.get(index))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string);
+
+        let current_chain: std::collections::BTreeSet<String> = chain_blocks(&self.nodes)
+            .into_iter()
+            .map(|block| block.path)
+            .collect();
+        let bundle_chain: std::collections::BTreeSet<String> =
+            bundle.summary.chain_blocks.iter().cloned().collect();
+        let mut chain_changes: Vec<String> = bundle_chain
+            .difference(&current_chain)
+            .map(|path| format!("+ {}", path_name(path)))
+            .collect();
+        chain_changes.extend(
+            current_chain
+                .difference(&bundle_chain)
+                .map(|path| format!("- {}", path_name(path))),
+        );
+
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        if let Some(index) = invalid_target {
+            errors.push(format!(
+                "target preset slot {} is outside the list",
+                index + 1
+            ));
+        } else if target.is_none() {
+            errors
+                .push("there is no free preset slot; choose an occupied slot to overwrite".into());
+        }
+        if let Some(name) = &target_occupied_by {
+            warnings.push(format!(
+                "preset slot {} currently contains {name:?}",
+                target.unwrap_or_default() + 1
+            ));
+        }
+        if let Some(slot) = names.iter().enumerate().find_map(|(slot, name)| {
+            if target == Some(slot) {
+                return None;
+            }
+            name.as_str()
+                .filter(|name| {
+                    !name.trim().is_empty()
+                        && name.eq_ignore_ascii_case(bundle.manifest.preset.name.trim())
+                })
+                .map(|_| slot)
+        }) {
+            warnings.push(format!(
+                "a preset named {:?} already exists in slot {}; importing into another slot \
+                 creates a duplicate name",
+                bundle.manifest.preset.name,
+                slot + 1
+            ));
+        }
+        if bundle.dependencies.is_empty() {
+            warnings.push("this bundle has no capture dependencies".into());
+        }
+
+        let mut dependencies = Vec::new();
+        for dependency in &bundle.dependencies {
+            let list = self
+                .nodes
+                .get(&dependency.manifest.node_path)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array);
+            let Some(list) = list else {
+                errors.push(format!(
+                    "{} is not available on this device",
+                    dependency.manifest.node_path
+                ));
+                dependencies.push(ImportDependencyPlan {
+                    name: dependency.manifest.name.clone(),
+                    extension: dependency.manifest.extension.clone(),
+                    node_path: dependency.manifest.node_path.clone(),
+                    archive_path: dependency.manifest.archive_path.clone(),
+                    bytes: dependency.bytes.len(),
+                    existing_index: None,
+                    target_index: None,
+                    action: "blocked".into(),
+                });
+                continue;
+            };
+            let existing_index = list
+                .iter()
+                .position(|name| name.as_str() == Some(dependency.manifest.name.as_str()));
+            let free_index = list
+                .iter()
+                .position(|name| name.as_str().map(str::trim).unwrap_or_default().is_empty());
+            let target_index = existing_index.or(free_index);
+            if target_index.is_none() {
+                errors.push(format!(
+                    "no free slot for dependency {:?} in {}",
+                    dependency.manifest.name, dependency.manifest.node_path
+                ));
+            }
+            if existing_index.is_some() {
+                let users = presets_using(
+                    &self.nodes,
+                    &dependency.manifest.node_path,
+                    &dependency.manifest.name,
+                );
+                let usage = if users.is_empty() {
+                    String::new()
+                } else {
+                    format!("; it is referenced by {} preset(s)", users.len())
+                };
+                warnings.push(format!(
+                    "{:?} already exists in {}{usage}; its content will be compared before overwriting",
+                    dependency.manifest.name, dependency.manifest.node_path
+                ));
+            }
+            dependencies.push(ImportDependencyPlan {
+                name: dependency.manifest.name.clone(),
+                extension: dependency.manifest.extension.clone(),
+                node_path: dependency.manifest.node_path.clone(),
+                archive_path: dependency.manifest.archive_path.clone(),
+                bytes: dependency.bytes.len(),
+                existing_index,
+                target_index,
+                action: if existing_index.is_some() {
+                    "compare".into()
+                } else if target_index.is_some() {
+                    "upload".into()
+                } else {
+                    "blocked".into()
+                },
+            });
+        }
+
+        Ok(ImportPreflight {
+            preset_name: bundle.manifest.preset.name,
+            preset_bytes: bundle.preset_bytes.len(),
+            preset_entries: bundle.summary.entries,
+            chain_blocks: bundle.summary.chain_blocks,
+            chain_changes,
+            target_slot: target,
+            target_occupied_by,
+            empty_slots,
+            dependencies,
+            blocked: !errors.is_empty(),
+            errors,
+            warnings,
+        })
+    }
+
+    /// Write dependencies first, then the preset payload. Every step is
+    /// verified; a partial failure names what was already written.
+    pub fn import_bundle(
+        &mut self,
+        bundle_bytes: &[u8],
+        options: ImportOptions,
+    ) -> Result<ImportReport, ProtocolError> {
+        let bundle = read_bundle(bundle_bytes).map_err(bundle_error)?;
+        let preset = preset_state(&self.nodes);
+        let list_path = preset
+            .list_path
+            .clone()
+            .ok_or_else(|| ProtocolError::Unsupported("preset list is unavailable".into()))?;
+        let names = self
+            .nodes
+            .get(&list_path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+            .ok_or_else(|| ProtocolError::Unsupported("preset list is unavailable".into()))?;
+        if options.target_slot >= names.len() {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "target slot {} is outside the preset list",
+                options.target_slot + 1
+            )));
+        }
+        let occupied = names
+            .get(options.target_slot)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        if occupied.is_some() && !options.overwrite_preset {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "preset slot {} is occupied; confirm overwrite or choose an empty slot",
+                options.target_slot + 1
+            )));
+        }
+
+        // Resolve every dependency before the first write. Existing captures
+        // are downloaded and compared so an identical file is reused.
+        struct Resolved {
+            plan: ImportDependencyPlan,
+            bytes: Vec<u8>,
+            reuse: bool,
+        }
+        let mut resolved: Vec<Resolved> = Vec::new();
+        for dependency in &bundle.dependencies {
+            let list = self
+                .nodes
+                .get(&dependency.manifest.node_path)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    ProtocolError::InvalidRequest(format!(
+                        "{} is not available on this device",
+                        dependency.manifest.node_path
+                    ))
+                })?;
+            let existing_index = list
+                .iter()
+                .position(|name| name.as_str() == Some(dependency.manifest.name.as_str()));
+            let free_index = list
+                .iter()
+                .position(|name| name.as_str().map(str::trim).unwrap_or_default().is_empty());
+            let (target_index, reuse) = match existing_index {
+                Some(index) => {
+                    let existing =
+                        self.download_list_item(&dependency.manifest.node_path, index)?;
+                    let same = if dependency.manifest.extension == "wav" {
+                        // IR WAV containers may differ in metadata while holding
+                        // the same 2048 samples. Compare decoded audio.
+                        match (decode_ir(&existing.raw), decode_ir(&dependency.bytes)) {
+                            (Ok(left), Ok(right)) => left == right,
+                            _ => existing.raw == dependency.bytes,
+                        }
+                    } else {
+                        existing.raw == dependency.bytes
+                    };
+                    if same {
+                        (index, true)
+                    } else if options.overwrite_dependencies {
+                        (index, false)
+                    } else {
+                        return Err(ProtocolError::InvalidRequest(format!(
+                            "dependency {:?} already exists with different content in {}; \
+                             confirm overwrite before importing",
+                            dependency.manifest.name, dependency.manifest.node_path
+                        )));
+                    }
+                }
+                None => {
+                    let index = free_index.ok_or_else(|| {
+                        ProtocolError::InvalidRequest(format!(
+                            "no free slot for dependency {:?} in {}",
+                            dependency.manifest.name, dependency.manifest.node_path
+                        ))
+                    })?;
+                    (index, false)
+                }
+            };
+            resolved.push(Resolved {
+                plan: ImportDependencyPlan {
+                    name: dependency.manifest.name.clone(),
+                    extension: dependency.manifest.extension.clone(),
+                    node_path: dependency.manifest.node_path.clone(),
+                    archive_path: dependency.manifest.archive_path.clone(),
+                    bytes: dependency.bytes.len(),
+                    existing_index,
+                    target_index: Some(target_index),
+                    action: if reuse {
+                        "reuse".into()
+                    } else if existing_index.is_some() {
+                        "overwrite".into()
+                    } else {
+                        "upload".into()
+                    },
+                },
+                bytes: dependency.bytes.clone(),
+                reuse,
+            });
+        }
+
+        let mut written = Vec::new();
+        let mut reused = Vec::new();
+        for dependency in &resolved {
+            if dependency.reuse {
+                reused.push(dependency.plan.name.clone());
+                continue;
+            }
+            let kind = upload_kind_for_list(&dependency.plan.node_path).ok_or_else(|| {
+                ProtocolError::InvalidRequest(format!(
+                    "{} is not a supported capture list",
+                    dependency.plan.node_path
+                ))
+            })?;
+            let file_name = format!("{}.{}", dependency.plan.name, dependency.plan.extension);
+            let result = self.upload_named(
+                kind,
+                &dependency.bytes,
+                &file_name,
+                &dependency.plan.name,
+                &dependency.plan.node_path,
+                dependency.plan.target_index,
+            );
+            match result {
+                Ok(_) => written.push(dependency.plan.name.clone()),
+                Err(error) => {
+                    let partial = if written.is_empty() {
+                        "no dependencies were written".to_string()
+                    } else {
+                        format!(
+                            "dependencies written before the failure: {}",
+                            written.join(", ")
+                        )
+                    };
+                    return Err(ProtocolError::Protocol(format!(
+                        "import stopped while writing dependency {:?}: {error}. {partial}. \
+                         The preset was not written; retry after resolving the dependency.",
+                        dependency.plan.name
+                    )));
+                }
+            }
+        }
+
+        let preset_name = bundle.manifest.preset.name.clone();
+        if let Err(error) = self.upload_preset_payload(
+            &list_path,
+            options.target_slot,
+            &preset_name,
+            &bundle.preset_bytes,
+        ) {
+            let partial = if written.is_empty() {
+                "no dependencies were written".to_string()
+            } else {
+                format!("dependencies already written: {}", written.join(", "))
+            };
+            return Err(ProtocolError::Protocol(format!(
+                "preset upload failed after the dependencies were processed: {error}. {partial}. \
+                 The target preset slot was not verified; retry the import."
+            )));
+        }
+
+        Ok(ImportReport {
+            preset_name,
+            target_slot: options.target_slot,
+            dependencies_written: written,
+            dependencies_reused: reused,
+            preset_bytes: bundle.preset_bytes.len(),
+        })
+    }
+
+    fn upload_preset_payload(
+        &mut self,
+        list_path: &str,
+        index: usize,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<(), ProtocolError> {
+        if let Some(problem) = preset_name_error(name.trim()) {
+            return Err(ProtocolError::InvalidRequest(problem.into()));
+        }
+        let name = name.trim();
+        let node = self
+            .nodes
+            .get(list_path)
+            .ok_or_else(|| ProtocolError::Unsupported(format!("{list_path} is unavailable")))?;
+        let slot_size = node
+            .size()
+            .map(|size| size as usize)
+            .unwrap_or(PRESET_SLOT_SIZE);
+        let chunk_size = node.chunk().unwrap_or(CHUNK_SIZE as u64).max(1) as usize;
+        if bytes.is_empty() || bytes.len() > slot_size {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "preset payload is {} bytes; expected 1..={slot_size}",
+                bytes.len()
+            )));
+        }
+        let mut payload = bytes.to_vec();
+        payload.resize(slot_size, 0);
+        let total_chunks = payload.len().div_ceil(chunk_size);
+
+        let (ack_index, ack_chunk) =
+            self.dwrite_ack(list_path, index as i64, 0, &rename_hex(name))?;
+        if ack_index != -1 && ack_index != index as i64 {
+            return Err(ProtocolError::UploadRejected(format!(
+                "device acknowledged the wrong preset slot (wanted {index}, got {ack_index})"
+            )));
+        }
+        if ack_chunk == -1 {
+            return Err(ProtocolError::Protocol(
+                "device completed the preset upload before the data chunks".into(),
+            ));
+        }
+
+        let mut completed = false;
+        for (offset, chunk) in payload.chunks(chunk_size).enumerate() {
+            let number = offset + 1;
+            let (ack_index, ack_chunk) = self.dwrite_ack(
+                list_path,
+                index as i64,
+                number as i64,
+                &stomp_protocol::hex_encode(chunk),
+            )?;
+            if ack_index != -1 && ack_index != index as i64 {
+                return Err(ProtocolError::UploadRejected(format!(
+                    "device acknowledged the wrong preset slot at chunk {number} \
+                     (wanted {index}, got {ack_index})"
+                )));
+            }
+            if ack_chunk == -1 {
+                if number != total_chunks {
+                    return Err(ProtocolError::Protocol(format!(
+                        "device completed the preset upload at chunk {number} of {total_chunks}"
+                    )));
+                }
+                completed = true;
+                break;
+            }
+            if ack_chunk == number as i64 {
+                // Repeated ACK: keep going with the next chunk, mirroring the
+                // capture uploader.
+                continue;
+            }
+            if ack_chunk != number as i64 + 1 {
+                return Err(ProtocolError::Protocol(format!(
+                    "unexpected preset ACK at chunk {number}: device asked for {ack_chunk}"
+                )));
+            }
+            if number == total_chunks {
+                // Firmware may accept the final chunk without sending -1. The
+                // read-back below is the authority.
+                completed = true;
+            }
+        }
+        if !completed {
+            return Err(ProtocolError::Protocol(
+                "preset upload did not finish".into(),
+            ));
+        }
+
+        let read = self.read_path(list_path, Duration::from_millis(3_000));
+        let stored = self
+            .nodes
+            .get(list_path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+            .and_then(|items| items.get(index))
+            .and_then(Value::as_str);
+        if stored != Some(name) {
+            return match read {
+                Err(error) => Err(ProtocolError::Protocol(format!(
+                    "preset was acknowledged but the list could not be read back: {error}"
+                ))),
+                Ok(_) => Err(ProtocolError::Protocol(
+                    "device did not store the imported preset name".into(),
+                )),
+            };
+        }
+
+        let readback = self.download_list_item(list_path, index)?;
+        if readback.raw != payload {
+            return Err(ProtocolError::Protocol(
+                "imported preset read-back does not match the uploaded payload".into(),
+            ));
+        }
+        self.revision += 1;
+        Ok(())
+    }
+
+    // ---- list downloads -------------------------------------------------
+
+    /// Download one NAM/PNAM/IR capture (or, for preset export, one `.pst`).
+    ///
+    /// List payloads start at chunk 1 on firmware 2.5.3; chunk 0 is empty and
+    /// there is no `chunk:-1` terminator. NAM/PNAM payloads are gzip-compressed
+    /// and are decompressed before returning.
+    pub fn download_list_item(
+        &mut self,
+        list_path: &str,
+        index: usize,
+    ) -> Result<DownloadedListFile, ProtocolError> {
+        self.download_list_item_with_progress(list_path, index, |_| true)?
+            .ok_or_else(|| ProtocolError::InvalidRequest("download was cancelled".into()))
+    }
+
+    pub fn download_list_item_with_progress<F>(
+        &mut self,
+        list_path: &str,
+        index: usize,
+        mut on_progress: F,
+    ) -> Result<Option<DownloadedListFile>, ProtocolError>
+    where
+        F: FnMut(&DownloadProgress) -> bool,
+    {
+        let path = normalize_path(list_path);
+        let node = self
+            .nodes
+            .get(&path)
+            .ok_or_else(|| ProtocolError::Unsupported(format!("{list_path} is not available")))?;
+        let kind = list_kind(&path, node).ok_or_else(|| {
+            ProtocolError::InvalidRequest(format!(
+                "{list_path} is not a preset or NAM/PNAM/IR list"
+            ))
+        })?;
+        let names = node
+            .value()
+            .and_then(Value::as_array)
+            .ok_or_else(|| ProtocolError::InvalidRequest(format!("{list_path} is not a list")))?;
+        let name = names
+            .get(index)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| {
+                ProtocolError::InvalidRequest(format!("{} slot {} is empty", path, index + 1))
+            })?
+            .to_string();
+
+        let chunk_size = node.chunk().unwrap_or(CHUNK_SIZE as u64).max(1) as usize;
+        let node_size = node.size().map(|size| size as usize);
+        // NAM/PNAM report the compressed payload size on the first chunk. The
+        // list node's `size` is the slot capacity for those lists; only presets
+        // and IRs use it as the item size.
+        let first = self.dread_chunk(&path, index, 1)?;
+        let declared_size = match kind {
+            ListKind::Nam | ListKind::Pnam => first.1.ok_or_else(|| {
+                ProtocolError::Protocol(format!(
+                    "{path} did not report the compressed payload size on chunk 1"
+                ))
+            })?,
+            ListKind::Preset | ListKind::Ir => node_size.ok_or_else(|| {
+                ProtocolError::Protocol(format!("{path} does not declare an item size"))
+            })?,
+        };
+        let slot_limit = match kind {
+            ListKind::Preset => node_size.unwrap_or(PRESET_SLOT_SIZE),
+            _ => node_size.unwrap_or_else(|| kind.default_slot_size()),
+        };
+        if declared_size > slot_limit + 64 * 1024 {
+            return Err(ProtocolError::Protocol(format!(
+                "{path} reported a {} byte payload for a {} byte slot",
+                declared_size, slot_limit
+            )));
+        }
+        let total_chunks = declared_size.div_ceil(chunk_size);
+        let mut progress = DownloadProgress {
+            list_path: path.clone(),
+            index,
+            name: name.clone(),
+            kind: kind.label().to_string(),
+            chunk: 0,
+            total_chunks,
+            bytes: 0,
+            total_bytes: declared_size,
+        };
+        if !on_progress(&progress) {
+            return Ok(None);
+        }
+
+        let mut payload = Vec::with_capacity(declared_size.min(4 * 1024 * 1024));
+        for chunk in 1..=total_chunks {
+            let (bytes, _) = if chunk == 1 {
+                first.clone()
+            } else {
+                self.dread_chunk(&path, index, chunk)?
+            };
+            let short = bytes.len() < chunk_size;
+            payload.extend_from_slice(&bytes);
+            if payload.len() > declared_size {
+                payload.truncate(declared_size);
+            }
+            progress.chunk = chunk;
+            progress.bytes = payload.len();
+            if !on_progress(&progress) {
+                return Ok(None);
+            }
+            if payload.len() >= declared_size {
+                break;
+            }
+            // IR slots may hold a source WAV shorter than the slot capacity;
+            // the final chunk is then short instead of padded. The WAV header
+            // validation below still guards the result.
+            if kind == ListKind::Ir && short {
+                break;
+            }
+        }
+        if payload.len() < declared_size && kind != ListKind::Ir {
+            return Err(ProtocolError::Protocol(format!(
+                "download ended after {} of {} bytes",
+                payload.len(),
+                declared_size
+            )));
+        }
+
+        let (raw, compressed) = match kind {
+            ListKind::Nam | ListKind::Pnam => {
+                let kind = if kind == ListKind::Nam {
+                    UploadKind::Nam
+                } else {
+                    UploadKind::Pnam
+                };
+                (decode_downloaded_model(kind, &payload)?, true)
+            }
+            ListKind::Ir => {
+                // Firmware 2.5.3 stores 2048 little-endian f32 samples, not WAV
+                // bytes. Wrap that payload in the official WAV header. Some
+                // firmware may expose a WAV already; accept both shapes.
+                let wav = if payload.starts_with(b"RIFF") {
+                    payload
+                } else {
+                    encode_ir_wav(&payload)?
+                };
+                validate_capture(UploadKind::Ir, &wav)?;
+                (wav, false)
+            }
+            ListKind::Preset => (payload, false),
+        };
+
+        Ok(Some(DownloadedListFile {
+            list_path: path,
+            index,
+            name,
+            kind: kind.label().to_string(),
+            extension: kind.extension().to_string(),
+            compressed,
+            bytes: raw.len(),
+            raw,
+        }))
+    }
+
+    /// Read one `dread` chunk and return its bytes plus any reported size.
+    fn dread_chunk(
+        &mut self,
+        list_path: &str,
+        index: usize,
+        chunk: usize,
+    ) -> Result<(Vec<u8>, Option<usize>), ProtocolError> {
+        let command_text = command_text(command::dread(list_path, index as i64, chunk as i64)?)?;
+        let expected = normalize_path(list_path);
+        let lines = self.request(
+            &command_text,
+            |lines| {
+                lines.iter().any(|line| {
+                    line.path == expected
+                        && line.object().is_some_and(|object| {
+                            object.contains_key("value")
+                                || object.contains_key("data")
+                                || object.contains_key("size")
+                        })
+                })
+            },
+            Duration::from_millis(20_000),
+            Duration::from_millis(400),
+            false,
+        )?;
+        let line = lines
+            .iter()
+            .find(|line| {
+                line.path == expected
+                    && line.object().is_some_and(|object| {
+                        object.contains_key("value")
+                            || object.contains_key("data")
+                            || object.contains_key("size")
+                    })
+            })
+            .ok_or_else(|| ProtocolError::Protocol("dread returned no payload".into()))?;
+        let object = line
+            .object()
+            .ok_or_else(|| ProtocolError::Protocol("dread payload is not an object".into()))?;
+        let size = object
+            .get("size")
+            .and_then(Value::as_u64)
+            .map(|size| size as usize);
+        let bytes = match object.get("value").or_else(|| object.get("data")) {
+            Some(Value::String(text)) => decode_hex(text)?,
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|item| {
+                    item.as_u64()
+                        .filter(|value| *value <= 255)
+                        .map(|value| value as u8)
+                        .ok_or_else(|| {
+                            ProtocolError::Protocol("dread byte array is out of range".into())
+                        })
+                })
+                .collect::<Result<Vec<u8>, _>>()?,
+            Some(_) => {
+                return Err(ProtocolError::Protocol(
+                    "dread payload has an unsupported value type".into(),
+                ))
+            }
+            None => Vec::new(),
+        };
+        Ok((bytes, size))
+    }
+
     // ---- list deletion --------------------------------------------------
 
     /// Delete one element from a preset or capture list using the official
@@ -1018,6 +2057,114 @@ impl Device {
         Ok(())
     }
 
+    // ---- list rename ----------------------------------------------------
+
+    /// Rename one capture in a NAM/PNAM/IR list.
+    ///
+    /// Firmware 2.5.3 has not been proven to rewrite preset references after a
+    /// rename, so a capture referenced by any preset is blocked here rather
+    /// than leaving a preset pointing at a missing model. See
+    /// `docs/V0.6.0_PLAN.md` section 8.
+    pub fn rename_list_item(
+        &mut self,
+        list_path: &str,
+        index: usize,
+        new_name: &str,
+    ) -> Result<(), ProtocolError> {
+        let path = normalize_path(list_path);
+        let allowed = matches!(
+            path.as_str(),
+            NAM_PATH | NAM_DRIVE_PATH | PNAM_PATH | PNAM_DRIVE_PATH | IR_PATH
+        );
+        if !allowed {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "{list_path} is not a renameable capture list"
+            )));
+        }
+        if let Some(problem) = list_name_error(new_name.trim()) {
+            return Err(ProtocolError::InvalidRequest(problem.into()));
+        }
+        let new_name = new_name.trim();
+        let names = self
+            .nodes
+            .get(&path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+            .ok_or_else(|| ProtocolError::InvalidRequest(format!("{list_path} is not a list")))?;
+        let old_name = names
+            .get(index)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| {
+                ProtocolError::InvalidRequest("the selected capture slot is empty".into())
+            })?
+            .to_string();
+        if old_name == new_name {
+            return Ok(());
+        }
+        if names.iter().enumerate().any(|(other, existing)| {
+            other != index
+                && existing
+                    .as_str()
+                    .is_some_and(|name| name.to_lowercase() == new_name.to_lowercase())
+        }) {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "a capture named {new_name:?} already exists in this list"
+            )));
+        }
+
+        let used = presets_using(&self.nodes, &path, &old_name);
+        if !used.is_empty() {
+            let names: Vec<String> = used
+                .iter()
+                .map(|reference| {
+                    if reference.preset_name.is_empty() {
+                        format!("slot {}", reference.preset_index + 1)
+                    } else {
+                        format!(
+                            "{} (slot {})",
+                            reference.preset_name,
+                            reference.preset_index + 1
+                        )
+                    }
+                })
+                .collect();
+            return Err(ProtocolError::InvalidRequest(format!(
+                "{} is used by preset {}; renaming used captures is blocked until firmware \
+                 reference updates are verified",
+                old_name,
+                names.join(", ")
+            )));
+        }
+
+        let (ack_index, ack_chunk) =
+            self.dwrite_ack(&path, index as i64, -1, &rename_hex(new_name))?;
+        if ack_index != -1 && ack_index != index as i64 {
+            return Err(ProtocolError::UploadRejected(format!(
+                "device acknowledged the wrong slot for rename (wanted {index}, got {ack_index})"
+            )));
+        }
+        if ack_chunk != -1 {
+            return Err(ProtocolError::Protocol("rename did not finish".into()));
+        }
+        self.read_path(&path, Duration::from_millis(3_000))?;
+        let renamed = self
+            .nodes
+            .get(&path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+            .and_then(|items| items.get(index))
+            .and_then(Value::as_str);
+        if renamed != Some(new_name) {
+            return Err(ProtocolError::Protocol(format!(
+                "device did not store the new name at slot {index}"
+            )));
+        }
+        self.revision += 1;
+        Ok(())
+    }
+
     // ---- snapshot -------------------------------------------------------
 
     pub fn state(&self) -> DeviceSnapshot {
@@ -1061,6 +2208,7 @@ impl Device {
             preset: presets,
             chain,
             master: master_view(&self.nodes),
+            input: input_view(&self.nodes),
             meters: meters(&self.nodes),
             eq: eq_view(&self.nodes),
             lists: library_lists(&self.nodes),
@@ -1072,6 +2220,98 @@ impl Device {
     pub fn default_chain_names() -> impl Iterator<Item = &'static str> {
         DEFAULT_CHAIN.iter().copied()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListKind {
+    Preset,
+    Nam,
+    Pnam,
+    Ir,
+}
+
+impl ListKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Preset => "pst",
+            Self::Nam => "nam",
+            Self::Pnam => "pnam",
+            Self::Ir => "ir",
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Preset => "pst",
+            Self::Nam => "nam",
+            Self::Pnam => "pnam",
+            Self::Ir => "wav",
+        }
+    }
+
+    fn default_slot_size(self) -> usize {
+        match self {
+            Self::Preset => PRESET_SLOT_SIZE,
+            Self::Nam => stomp_protocol::NAM_SLOT_SIZE,
+            Self::Pnam => stomp_protocol::PNAM_SLOT_SIZE,
+            Self::Ir => stomp_protocol::IR_LENGTH * 4,
+        }
+    }
+}
+
+fn upload_kind_for_list(path: &str) -> Option<UploadKind> {
+    match path {
+        NAM_PATH | NAM_DRIVE_PATH => Some(UploadKind::Nam),
+        PNAM_PATH | PNAM_DRIVE_PATH => Some(UploadKind::Pnam),
+        IR_PATH => Some(UploadKind::Ir),
+        _ => None,
+    }
+}
+
+fn list_kind(path: &str, node: &stomp_protocol::node::Node) -> Option<ListKind> {
+    if path == PRESET_LIST_PATH || node.item_type().to_ascii_lowercase().starts_with("pst") {
+        return Some(ListKind::Preset);
+    }
+    match path {
+        NAM_PATH | NAM_DRIVE_PATH => return Some(ListKind::Nam),
+        PNAM_PATH | PNAM_DRIVE_PATH => return Some(ListKind::Pnam),
+        IR_PATH => return Some(ListKind::Ir),
+        _ => {}
+    }
+    let item_type = node.item_type().to_ascii_lowercase();
+    if item_type == "pnam" || item_type.starts_with("pnam_") {
+        Some(ListKind::Pnam)
+    } else if item_type == "ir"
+        || item_type == "wav"
+        || item_type.starts_with("ir_")
+        || item_type.starts_with("wav_")
+    {
+        Some(ListKind::Ir)
+    } else if item_type == "nam" || item_type.starts_with("nam_") {
+        Some(ListKind::Nam)
+    } else {
+        None
+    }
+}
+
+fn bundle_error(error: BundleError) -> ProtocolError {
+    ProtocolError::InvalidRequest(error.to_string())
+}
+
+fn decode_hex(text: &str) -> Result<Vec<u8>, ProtocolError> {
+    let text = text.trim();
+    if !text.len().is_multiple_of(2) {
+        return Err(ProtocolError::Protocol(
+            "dread payload has an odd-length hex string".into(),
+        ));
+    }
+    let mut out = Vec::with_capacity(text.len() / 2);
+    for index in (0..text.len()).step_by(2) {
+        let byte = u8::from_str_radix(&text[index..index + 2], 16)
+            .map_err(|_| ProtocolError::Protocol(format!("invalid hex byte at offset {index}")))?;
+        out.push(byte);
+    }
+    Ok(out)
 }
 
 fn command_text(bytes: Vec<u8>) -> Result<String, ProtocolError> {
@@ -1231,6 +2471,38 @@ mod tests {
         )
     }
 
+    fn gzip(data: &[u8]) -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(6));
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn dread_steps(path: &str, index: usize, payload: &[u8]) -> Vec<Step> {
+        let chunk_size = 1024usize;
+        payload
+            .chunks(chunk_size)
+            .enumerate()
+            .map(|(offset, chunk)| {
+                let number = offset + 1;
+                Step::new(
+                    command::dread(path, index as i64, number as i64).unwrap(),
+                    reply(format!(
+                        "dread {path}:{}",
+                        json!({
+                            "index": index,
+                            "chunk": number,
+                            "size": payload.len(),
+                            "value": stomp_protocol::hex_encode(chunk)
+                        })
+                    )),
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn upload_reports_every_ack_and_refreshes_the_list() {
         let prepared = prepare_upload(UploadKind::Nam, RAW, "Progress Test", Some(65536)).unwrap();
@@ -1319,6 +2591,506 @@ mod tests {
                 .and_then(Value::as_str),
             Some("")
         );
+    }
+
+    fn preset_upload_steps(path: &str, index: usize, name: &str, payload: &[u8]) -> Vec<Step> {
+        let mut payload = payload.to_vec();
+        payload.resize(32768, 0);
+        let mut steps = vec![Step::new(
+            command::dwrite(path, index as i64, 0, &rename_hex(name)).unwrap(),
+            reply(format!(r#"dwrite {path}:{{"index":{index},"chunk":1}}"#)),
+        )];
+        let chunks: Vec<&[u8]> = payload.chunks(1024).collect();
+        let last = chunks.len();
+        for (offset, chunk) in chunks.iter().enumerate() {
+            let number = offset + 1;
+            let ack = if number == last {
+                -1
+            } else {
+                (number + 1) as i64
+            };
+            steps.push(Step::new(
+                command::dwrite(
+                    path,
+                    index as i64,
+                    number as i64,
+                    &stomp_protocol::hex_encode(chunk),
+                )
+                .unwrap(),
+                reply(format!(
+                    r#"dwrite {path}:{{"index":{index},"chunk":{ack}}}"#
+                )),
+            ));
+        }
+        let mut names = vec![String::new(); index + 1];
+        names[index] = name.to_string();
+        steps.push(Step::new(
+            command::read(path),
+            reply(format!(
+                "{path}:{}",
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":names,
+                    "size":32768,
+                    "chunk":1024
+                })
+            )),
+        ));
+        steps.extend(dread_steps(path, index, &payload));
+        steps
+    }
+
+    fn simple_bundle() -> (Vec<u8>, Vec<u8>) {
+        let dependencies = Vec::new();
+        let manifest =
+            stomp_preset_bundle::BundleManifest::new("Imported Patch", "2.5.3", dependencies);
+        let mut payload = b"root\\app\\amp\\model:{\"value\":\"Amp A\"}\r\n".to_vec();
+        payload.resize(32768, 0);
+        let archive = stomp_preset_bundle::write_bundle_to_vec(&manifest, &payload, &[]).unwrap();
+        (archive, payload)
+    }
+
+    #[test]
+    fn import_preset_bundle_uploads_the_pst_and_reads_it_back() {
+        let (archive, payload) = simple_bundle();
+        let path = r"root\presets";
+        let steps = preset_upload_steps(path, 2, "Imported Patch", &payload);
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            path,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":["A","B","","C"],
+                    "size":32768,
+                    "chunk":1024
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+
+        let preflight = device.import_preflight(&archive, None).unwrap();
+        assert!(!preflight.blocked, "{preflight:?}");
+        assert_eq!(preflight.preset_name, "Imported Patch");
+        assert_eq!(preflight.target_slot, Some(2));
+        let report = device
+            .import_bundle(
+                &archive,
+                ImportOptions {
+                    target_slot: 2,
+                    overwrite_preset: false,
+                    overwrite_dependencies: false,
+                },
+            )
+            .unwrap();
+        assert_eq!(report.preset_name, "Imported Patch");
+        assert_eq!(report.target_slot, 2);
+        assert_eq!(
+            device
+                .nodes
+                .get(path)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array)
+                .and_then(|items| items.get(2))
+                .and_then(Value::as_str),
+            Some("Imported Patch")
+        );
+    }
+
+    #[test]
+    fn import_refuses_an_occupied_slot_without_explicit_overwrite() {
+        let (archive, _) = simple_bundle();
+        let path = r"root\presets";
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            path,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":["A","B"],
+                    "size":32768,
+                    "chunk":1024
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+        let error = device
+            .import_bundle(
+                &archive,
+                ImportOptions {
+                    target_slot: 0,
+                    overwrite_preset: false,
+                    overwrite_dependencies: false,
+                },
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("occupied"), "{error}");
+        // No transport steps were consumed.
+        assert_eq!(device.nodes.value_str(r"root\presets"), None);
+    }
+
+    #[test]
+    fn download_nam_decompresses_and_validates_the_payload() {
+        let raw = br#"{"version":"0.5.4","architecture":"WaveNet","config":{},"weights":[0.1,0.2],"metadata":{"name":"Downloaded"}}"#;
+        let mut padded = raw.to_vec();
+        padded.resize(65536, 0);
+        let compressed = gzip(&padded);
+        let steps = dread_steps(TARGET, 2, &compressed);
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device
+            .nodes
+            .insert(TARGET, list_node(&["First", "Second", "Downloaded"]));
+
+        let file = device.download_list_item(TARGET, 2).unwrap();
+        assert_eq!(file.name, "Downloaded");
+        assert_eq!(file.kind, "nam");
+        assert_eq!(file.extension, "nam");
+        assert!(file.compressed);
+        assert_eq!(file.raw, raw);
+    }
+
+    #[test]
+    fn input_gain_write_is_range_checked() {
+        let steps = vec![Step::new(
+            command::write_value(INPUT_GAIN_1_PATH, &json!(3.4)).unwrap(),
+            reply(format!(
+                r#"{INPUT_GAIN_1_PATH}:{{"type":"float","value":3.4,"min":-15.0,"max":15.0}}"#
+            )),
+        )];
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            INPUT_GAIN_1_PATH,
+            stomp_protocol::node::Node::new(
+                json!({"type":"float","value":0.0,"min":-15.0,"max":15.0})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
+
+        device.set_input_gain(1, 3.4).unwrap();
+        assert_eq!(device.nodes.value_f64(INPUT_GAIN_1_PATH), Some(3.4));
+        let error = device.set_input_gain(1, 22.0).unwrap_err().to_string();
+        assert!(error.contains("between -15 and 15"), "{error}");
+        assert!(device.set_input_gain(3, 0.0).is_err());
+    }
+
+    #[test]
+    fn export_preset_bundle_collects_used_dependencies_and_verifies_the_zip() {
+        let preset_path = r"root\presets";
+        let mut preset_payload =
+            b"root\\app\\amp\\model:{\"value\":\"Amp A\"}\r\nroot\\app\\output\\pst\\level:{\"value\":1.0}\r\n"
+                .to_vec();
+        preset_payload.resize(32768, 0);
+        let mut model = br#"{"version":"0.5.4","architecture":"WaveNet","config":{},"weights":[0.1],"metadata":{"name":"Amp A"}}"#.to_vec();
+        model.resize(65536, 0);
+        let compressed = gzip(&model);
+        let mut steps = dread_steps(preset_path, 0, &preset_payload);
+        steps.extend(dread_steps(TARGET, 0, &compressed));
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            preset_path,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":["Brave"],
+                    "size":32768,
+                    "chunk":1024,
+                    "used":{"root\\app\\amp\\model":["Amp A"]}
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+        device.nodes.insert(TARGET, list_node(&["Amp A"]));
+        device.nodes.insert(
+            r"root\sys\_ver",
+            stomp_protocol::node::Node::new(
+                json!({"type":"item","value":"2.5.3"})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
+
+        let export = device.export_preset_bundle(0).unwrap();
+        assert_eq!(export.preset_name, "Brave");
+        assert_eq!(export.dependencies, vec!["Amp A"]);
+        let loaded = stomp_preset_bundle::read_bundle(&export.archive).unwrap();
+        assert_eq!(loaded.manifest.preset.name, "Brave");
+        while model.last().is_some_and(|byte| *byte == 0) {
+            model.pop();
+        }
+        assert_eq!(loaded.dependencies[0].bytes, model);
+        assert_eq!(loaded.preset_bytes.len(), 32768);
+    }
+
+    #[test]
+    fn export_preset_bundle_allows_a_preset_with_no_dependencies() {
+        let path = r"root\presets";
+        let mut preset_payload = b"root\\app\\amp\\model:{\"value\":\"\"}\r\n".to_vec();
+        preset_payload.resize(32768, 0);
+        let steps = dread_steps(path, 0, &preset_payload);
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            path,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":["Empty Patch"],
+                    "size":32768,
+                    "chunk":1024,
+                    "used":{}
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+
+        let export = device.export_preset_bundle(0).unwrap();
+        assert!(export.dependencies.is_empty());
+        let loaded = stomp_preset_bundle::read_bundle(&export.archive).unwrap();
+        assert_eq!(loaded.preset_bytes, preset_payload);
+        assert!(loaded.dependencies.is_empty());
+    }
+
+    #[test]
+    fn export_preset_bundle_blocks_missing_dependencies() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            r"root\presets",
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":["Brave"],
+                    "size":32768,
+                    "chunk":1024,
+                    "used":{"root\\app\\amp\\model":["Missing Amp"]}
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+        device.nodes.insert(TARGET, list_node(&["Other Amp"]));
+        let error = device.export_preset_bundle(0).unwrap_err().to_string();
+        assert!(error.contains("is missing from"), "{error}");
+        assert!(error.contains("Missing Amp"), "{error}");
+    }
+
+    #[test]
+    fn download_ir_wraps_raw_float_samples_in_a_wav() {
+        let mut samples = vec![0u8; stomp_protocol::IR_LENGTH * 4];
+        samples[..4].copy_from_slice(&0.5f32.to_le_bytes());
+        let steps = dread_steps(IR_PATH, 0, &samples);
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            IR_PATH,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"wav_48000",
+                    "value":["Cab"],
+                    "size":8192,
+                    "chunk":1024
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+
+        let file = device.download_list_item(IR_PATH, 0).unwrap();
+        assert_eq!(file.name, "Cab");
+        assert_eq!(file.kind, "ir");
+        assert_eq!(file.extension, "wav");
+        assert_eq!(file.raw.len(), 8248);
+        assert_eq!(&file.raw[..4], b"RIFF");
+        assert_eq!(&file.raw[8..12], b"WAVE");
+        let decoded = decode_ir(&file.raw).unwrap();
+        assert!((decoded[0] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn download_preset_uses_the_list_size_and_chunk_size() {
+        let path = r"root\presets";
+        let mut payload = b"root\\app\\router:{\"value\":[]}\r\n".to_vec();
+        payload.resize(32768, 0);
+        let steps = dread_steps(path, 0, &payload);
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            path,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":["Brave"],
+                    "size":32768,
+                    "chunk":1024
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+
+        let file = device.download_list_item(path, 0).unwrap();
+        assert_eq!(file.name, "Brave");
+        assert_eq!(file.kind, "pst");
+        assert_eq!(file.raw.len(), 32768);
+        assert_eq!(&file.raw[..16], b"root\\app\\router:");
+    }
+
+    #[test]
+    fn download_can_be_cancelled_between_chunks() {
+        let compressed = gzip(&{
+            let mut padded = br#"{"architecture":"WaveNet","config":{},"weights":[0.1]}"#.to_vec();
+            padded.resize(65536, 0);
+            padded
+        });
+        let steps = dread_steps(TARGET, 0, &compressed);
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(TARGET, list_node(&["Downloaded"]));
+
+        let mut seen = 0;
+        let result = device
+            .download_list_item_with_progress(TARGET, 0, |_| {
+                seen += 1;
+                seen < 2
+            })
+            .unwrap();
+        assert!(result.is_none());
+        assert_eq!(seen, 2, "initial callback plus one chunk");
+    }
+
+    #[test]
+    fn download_rejects_empty_slots_and_non_capture_lists() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(TARGET, list_node(&["First", ""]));
+        let error = device
+            .download_list_item(TARGET, 1)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("empty"), "{error}");
+
+        device.nodes.insert(
+            r"root\other",
+            stomp_protocol::node::Node::new(
+                json!({"type":"list","item_type":"misc","value":["X"]})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
+        let error = device
+            .download_list_item(r"root\other", 0)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("not a preset or NAM/PNAM/IR list"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rename_list_item_validates_and_reads_back() {
+        let steps = vec![
+            Step::new(
+                command::dwrite(TARGET, 1, -1, &rename_hex("Renamed Cab")).unwrap(),
+                reply(format!(r#"dwrite {TARGET}:{{"index":1,"chunk":-1}}"#)),
+            ),
+            Step::new(
+                command::read(TARGET),
+                reply(format!(
+                    r#"{TARGET}:{{"type":"list","item_type":"nam","value":["First","Renamed Cab"],"size":65536}}"#
+                )),
+            ),
+        ];
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(TARGET, list_node(&["First", "Second"]));
+
+        device.rename_list_item(TARGET, 1, "Renamed Cab").unwrap();
+        assert_eq!(
+            device
+                .nodes
+                .get(TARGET)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array)
+                .and_then(|items| items.get(1))
+                .and_then(Value::as_str),
+            Some("Renamed Cab")
+        );
+    }
+
+    #[test]
+    fn rename_list_item_blocks_captures_used_by_a_preset() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(TARGET, list_node(&["First", "Second"]));
+        device.nodes.insert(
+            r"root\presets",
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"pst_pst",
+                    "value":["Patch A","", ""],
+                    "used":{"root\\app\\amp\\model":["First","",""]}
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+
+        let error = device
+            .rename_list_item(TARGET, 0, "Renamed")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("used by preset Patch A"), "{error}");
+        assert!(error.contains("reference updates are verified"), "{error}");
+    }
+
+    #[test]
+    fn rename_list_item_rejects_duplicates_and_empty_slots() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(TARGET, list_node(&["First", "Second"]));
+
+        let duplicate = device
+            .rename_list_item(TARGET, 0, "second")
+            .unwrap_err()
+            .to_string();
+        assert!(duplicate.contains("already exists"), "{duplicate}");
+        let empty = device
+            .rename_list_item(TARGET, 9, "Third")
+            .unwrap_err()
+            .to_string();
+        assert!(empty.contains("empty"), "{empty}");
     }
 
     #[test]

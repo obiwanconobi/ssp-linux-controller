@@ -7,17 +7,24 @@ import { Inspector } from '../../components/kit/Inspector';
 import { PresetRail } from '../../components/kit/PresetRail';
 import { UtilityRail } from '../../components/kit/UtilityRail';
 import { useAppStore } from '../../stores/useAppStore';
+import { useMediaQuery } from '../../lib/useMediaQuery';
+import { MobileBoard } from './MobileBoard';
 
 export const BoardView = () => {
   const blocks = useAppStore((state) => state.blocks);
   const connection = useAppStore((state) => state.connection);
   const clearChain = useAppStore((state) => state.clearChain);
+  const phone = useMediaQuery('(max-width: 620px)');
   const [confirmClear, setConfirmClear] = useState(false);
   const chainActions = useRef<HTMLButtonElement>(null);
   const returnToChainActions = () =>
     requestAnimationFrame(() => chainActions.current?.focus());
   const fixed = blocks.filter((block) => block.fixed).length;
   const movable = blocks.length - fixed;
+
+  if (phone) {
+    return <MobileBoard />;
+  }
 
   return (
     <div className="board-view">

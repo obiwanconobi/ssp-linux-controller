@@ -4,24 +4,150 @@
 //! framing as the device: `<command>\r\n\0`, `path:json` reply lines, NUL
 //! terminated, ACK-driven `dwrite`.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use serde_json::{json, Value};
 use stomp_protocol::node::{Node, NodeStore};
-use stomp_protocol::{normalize_path, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_PATH};
+use stomp_protocol::{
+    normalize_path, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH,
+};
 
 #[derive(Debug, Default)]
 struct SimState {
     nodes: NodeStore,
+    /// Stored list payloads, keyed by (list path, slot).
+    payloads: HashMap<(String, usize), Vec<u8>>,
+    /// Partially received uploads.
+    upload_buffers: HashMap<(String, usize), Vec<u8>>,
 }
 
 impl SimState {
     fn new() -> Self {
-        Self {
+        let mut state = Self {
             nodes: demo_store(),
+            payloads: HashMap::new(),
+            upload_buffers: HashMap::new(),
+        };
+        seed_payloads(&mut state);
+        state
+    }
+}
+
+fn gzip(data: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::new(6));
+    encoder.write_all(data).unwrap();
+    encoder.finish().unwrap()
+}
+
+fn model_payload(name: &str) -> Vec<u8> {
+    let raw = serde_json::to_vec(&json!({
+        "version": "0.5.4",
+        "architecture": "WaveNet",
+        "config": {"layers": [], "head": null, "head_scale": 0.02},
+        "weights": [0.0, 0.1],
+        "sample_rate": 48000,
+        "metadata": {"name": name, "gear_type": "amp"}
+    }))
+    .unwrap();
+    let mut padded = raw;
+    padded.resize(stomp_protocol::NAM_SLOT_SIZE, 0);
+    gzip(&padded)
+}
+
+fn ir_payload() -> Vec<u8> {
+    // The device stores 2048 little-endian f32 samples with no WAV header.
+    (0..stomp_protocol::IR_LENGTH)
+        .flat_map(|index| {
+            let sample = ((index as f32) / 4096.0).sin() * 0.1;
+            sample.to_le_bytes()
+        })
+        .collect()
+}
+
+fn pst_payload(name: &str) -> Vec<u8> {
+    let mut text = String::new();
+    text.push_str(r#"root\app\router:{"value":[["","s","","s","","s","","s","","s","root\\app\\drive","s","root\\app\\amp","s","root\\app\\ir","s","","s","","s","","s","","s","","s","","s",""]]}"#);
+    text.push_str("\r\n");
+    text.push_str(
+        "root\\app\\drive\\model:{\"value\":\"Klone 3\"}\r\n\
+         root\\app\\amp\\model:{\"value\":\"Match Brave Hi D 3\"}\r\n\
+         root\\app\\ir\\ir:{\"value\":\"TJ3 58BND310\"}\r\n\
+         root\\app\\drive\\on_off:{\"value\":\"ON\"}\r\n\
+         root\\app\\output\\pst\\level:{\"value\":0.000000}\r\n\
+         root\\app\\output\\pst\\tmp:{\"value\":120.000000}\r\n",
+    );
+    let _ = name;
+    let mut bytes = text.into_bytes();
+    bytes.resize(32768, 0);
+    bytes
+}
+
+fn seed_payloads(state: &mut SimState) {
+    for (path, kind) in [
+        (NAM_PATH, "nam"),
+        (NAM_DRIVE_PATH, "nam"),
+        (PNAM_PATH, "pnam"),
+        (PNAM_DRIVE_PATH, "pnam"),
+        (IR_PATH, "ir"),
+    ] {
+        let names: Vec<String> = state
+            .nodes
+            .get(path)
+            .and_then(|node| node.value())
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| item.as_str().unwrap_or_default().to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (index, name) in names.iter().enumerate() {
+            if name.is_empty() {
+                continue;
+            }
+            let payload = match kind {
+                "ir" => {
+                    let mut payload = ir_payload();
+                    payload.resize(
+                        state
+                            .nodes
+                            .get(path)
+                            .and_then(|node| node.size())
+                            .unwrap_or(8192) as usize,
+                        0,
+                    );
+                    payload
+                }
+                _ => model_payload(name),
+            };
+            state.payloads.insert((path.to_string(), index), payload);
+        }
+    }
+
+    let names: Vec<String> = state
+        .nodes
+        .get(r"root\presets")
+        .and_then(|node| node.value())
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item.as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    for (index, name) in names.iter().enumerate() {
+        if !name.is_empty() {
+            state
+                .payloads
+                .insert((r"root\presets".to_string(), index), pst_payload(name));
         }
     }
 }
@@ -255,15 +381,79 @@ pub fn demo_store() -> NodeStore {
         json!({"type":"enum","value":"OFF","options":["ON","OFF"]}),
     );
 
+    // In-chain Parametric EQ (available pool; not in the default chain).
+    add(
+        r"root\app\parametric_eq",
+        json!({"type":"item","item_type":"block","desc":"Parametric EQ"}),
+    );
+    add(
+        r"root\app\parametric_eq\on_off",
+        json!({"type":"enum","value":"ON","options":["ON","OFF"]}),
+    );
+    add(
+        r"root\app\parametric_eq\eq_par",
+        json!({"type":"item","item_type":"module","value":"eq_par","desc":"Parametric EQ"}),
+    );
+    for (index, band_type, freq, gain, q) in [
+        (0, "LPS", 90.0, 4.0, 0.70),
+        (1, "BP", 640.0, 2.5, 1.20),
+        (2, "BP", 3200.0, -2.0, 2.40),
+        (3, "HPS", 9000.0, 3.0, 0.70),
+    ] {
+        add(
+            &format!(r"root\app\parametric_eq\eq_par\band_{index}"),
+            json!({"type":"float","value":gain,"min":-15.0,"max":15.0,"desc":format!("Band {} gain", index + 1),"unit":"dB"}),
+        );
+        add(
+            &format!(r"root\app\parametric_eq\eq_par\freq_{index}"),
+            json!({"type":"float","value":freq,"min":50.0,"max":20000.0,"desc":format!("Band {} frequency", index + 1),"unit":"Hz"}),
+        );
+        add(
+            &format!(r"root\app\parametric_eq\eq_par\q_{index}"),
+            json!({"type":"float","value":q,"min":0.1,"max":10.0,"desc":format!("Band {} Q", index + 1)}),
+        );
+        add(
+            &format!(r"root\app\parametric_eq\eq_par\type_{index}"),
+            json!({"type":"enum","value":band_type,"options":["LPS","LP","BP","HP","HPS"],"desc":format!("Band {} type", index + 1)}),
+        );
+        add(
+            &format!(r"root\app\parametric_eq\eq_par\slope_{index}"),
+            json!({"type":"enum","value":"12dB/oct","style":"visible:false;","options":["6dB/oct","12dB/oct"],"desc":format!("Band {} slope", index + 1)}),
+        );
+    }
+
     // Preset rail.
     let names = preset_names();
     add(
         r"root\app\preset",
         json!({"type":"plist","value":"Match Brave Chorus","ref":"root\\presets"}),
     );
+    let mut used_amp = vec![String::new(); names.len()];
+    let mut used_drive = vec![String::new(); names.len()];
+    let mut used_ir = vec![String::new(); names.len()];
+    if let Some(slot) = used_amp.get_mut(3) {
+        *slot = "Match Brave Hi D 3".to_string();
+    }
+    if let Some(slot) = used_drive.get_mut(3) {
+        *slot = "Klone 3".to_string();
+    }
+    if let Some(slot) = used_ir.get_mut(3) {
+        *slot = "TJ3 58BND310".to_string();
+    }
     add(
         r"root\presets",
-        json!({"type":"list","item_type":"pst_pst","value":names}),
+        json!({
+            "type":"list",
+            "item_type":"pst_pst",
+            "value":names,
+            "used": {
+                r"root\app\amp\model": used_amp,
+                r"root\app\drive\model": used_drive,
+                r"root\app\ir\ir": used_ir
+            },
+            "size": 32768,
+            "chunk": 1024
+        }),
     );
 
     // Master and preset level.
@@ -281,8 +471,8 @@ pub fn demo_store() -> NodeStore {
     );
     add(r"root\app\output\pst", json!({"type":"item"}));
     add(
-        r"root\app\output\pst\lvl",
-        json!({"type":"float","value":1.5,"min":-12.0,"max":12.0,"desc":"Preset level","unit":"dB"}),
+        r"root\app\output\pst\level",
+        json!({"type":"float","value":0.0,"min":-20.0,"max":20.0,"desc":"Preset level","unit":"dB"}),
     );
 
     // Global EQ.
@@ -361,6 +551,10 @@ pub fn demo_store() -> NodeStore {
         json!({"type":"list","item_type":"pnam","value":["Dumble Pack A","","",""],"size":2097152}),
     );
     add(
+        PNAM_DRIVE_PATH,
+        json!({"type":"list","item_type":"pnam","value":["ZenDrive","","",""],"size":2097152}),
+    );
+    add(
         IR_PATH,
         json!({"type":"list","item_type":"ir","value":["TJ3 58BND310","TJ3 57","G12M Greenback","",""],"size":8192}),
     );
@@ -372,8 +566,20 @@ pub fn demo_store() -> NodeStore {
     );
     add(r"root\settings\input", json!({"type":"item"}));
     add(
-        r"root\settings\input\gain",
-        json!({"type":"float","value":0.0,"min":-12.0,"max":12.0,"desc":"Input gain","unit":"dB"}),
+        r"root\settings\input\gain1",
+        json!({"type":"float","value":0.0,"min":-15.0,"max":15.0,"desc":"In 1 digital gain","unit":"dB"}),
+    );
+    add(
+        r"root\settings\input\gain2",
+        json!({"type":"float","value":0.0,"min":-15.0,"max":15.0,"desc":"In 2 digital gain","unit":"dB"}),
+    );
+    add(
+        r"root\settings\input\_connected1",
+        json!({"type":"enum","value":"YES","options":["NO","YES"],"desc":"In 1 connection"}),
+    );
+    add(
+        r"root\settings\input\_connected2",
+        json!({"type":"enum","value":"NO","options":["NO","YES"],"desc":"In 2 connection"}),
     );
     add(
         r"root\settings\input\level",
@@ -441,9 +647,12 @@ pub fn preset_names() -> Vec<String> {
     .iter()
     .map(|name| name.to_string())
     .collect();
-    for index in names.len()..52 {
+    for index in names.len()..42 {
         names.push(format!("Patch {:02}", index + 1));
     }
+    // Leave the last ten slots empty so slot selection and import can be
+    // exercised without overwriting a saved preset.
+    names.resize(52, String::new());
     names
 }
 
@@ -538,6 +747,39 @@ fn respond(command: &str, state: &mut SimState) -> Vec<u8> {
             None => b"\0".to_vec(),
         };
     }
+    if let Some(body) = command.strip_prefix("dread ") {
+        let Some((path, payload)) = body.split_once(':') else {
+            return b"\0".to_vec();
+        };
+        let path = normalize_path(path);
+        let Ok(object) = serde_json::from_str::<Value>(payload) else {
+            return b"\0".to_vec();
+        };
+        let index = object.get("index").and_then(Value::as_i64).unwrap_or(-1);
+        let chunk = object.get("chunk").and_then(Value::as_i64).unwrap_or(0);
+        if index < 0 || chunk <= 0 {
+            return b"\0".to_vec();
+        }
+        let Some(payload) = state.payloads.get(&(path.clone(), index as usize)) else {
+            return b"\0".to_vec();
+        };
+        let size = payload.len();
+        let chunk_size = state
+            .nodes
+            .get(&path)
+            .and_then(|node| node.chunk())
+            .unwrap_or(1024) as usize;
+        let start = (chunk as usize - 1) * chunk_size;
+        if start >= size {
+            return b"\0".to_vec();
+        }
+        let end = (start + chunk_size).min(size);
+        let value = stomp_protocol::hex_encode(&payload[start..end]);
+        return frame(&[format!(
+            "dread {path}:{}",
+            json!({"index": index, "chunk": chunk, "size": size, "value": value})
+        )]);
+    }
     if let Some(body) = command.strip_prefix("write ") {
         let Some((path, payload)) = body.split_once(':') else {
             return b"\0".to_vec();
@@ -593,8 +835,57 @@ fn respond(command: &str, state: &mut SimState) -> Vec<u8> {
                 }
             }
             -1
-        } else if value.contains("gz") || (path == IR_PATH && chunk == 8) {
-            -1
+        } else if index >= 0 {
+            let key = (path.clone(), index as usize);
+            if chunk == 0 {
+                // Name chunk for a chunked upload.
+                let decoded = decode_hex_name(&value);
+                if let Some(list) = state.nodes.get_mut(&path) {
+                    if let Some(items) = list.value().and_then(Value::as_array).cloned() {
+                        let mut items = items;
+                        if (index as usize) < items.len() {
+                            items[index as usize] = Value::String(decoded);
+                            list.0.insert("value".to_string(), Value::Array(items));
+                        }
+                    }
+                }
+                state.upload_buffers.insert(key, Vec::new());
+                1
+            } else {
+                let mut data = value.as_str();
+                let mut final_chunk = false;
+                if let Some(position) = data.find("gz") {
+                    data = &data[..position];
+                    final_chunk = true;
+                }
+                let list_final = state
+                    .nodes
+                    .get(&path)
+                    .and_then(|node| {
+                        let size = node.size()?;
+                        let chunk_size = node.chunk().unwrap_or(1024);
+                        Some(chunk as u64 * chunk_size >= size)
+                    })
+                    .unwrap_or(false);
+                if list_final
+                    && path != NAM_PATH
+                    && path != NAM_DRIVE_PATH
+                    && path != PNAM_PATH
+                    && path != PNAM_DRIVE_PATH
+                {
+                    final_chunk = true;
+                }
+                let bytes = decode_hex_bytes(data);
+                let buffer = state.upload_buffers.entry(key.clone()).or_default();
+                buffer.extend_from_slice(&bytes);
+                if final_chunk {
+                    let payload = state.upload_buffers.remove(&key).unwrap_or_default();
+                    state.payloads.insert(key, payload);
+                    -1
+                } else {
+                    chunk + 1
+                }
+            }
         } else {
             chunk + 1
         };
@@ -610,6 +901,18 @@ fn frame(lines: &[String]) -> Vec<u8> {
     let mut out = lines.join("\r\n").into_bytes();
     out.push(0);
     out
+}
+
+fn decode_hex_bytes(value: &str) -> Vec<u8> {
+    value
+        .as_bytes()
+        .chunks(2)
+        .filter_map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|text| u8::from_str_radix(text, 16).ok())
+        })
+        .collect()
 }
 
 fn decode_hex_name(value: &str) -> String {

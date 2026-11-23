@@ -1,0 +1,29 @@
+{
+  "name": "stompstation-android-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Android Appium/WebdriverIO end-to-end tests for StompStation",
+  "type": "module",
+  "scripts": {
+    "test": "wdio run ./wdio.conf.mjs",
+    "test:smoke": "wdio run ./wdio.conf.mjs --spec ./specs/smoke.spec.mjs",
+    "test:lifecycle": "wdio run ./wdio.conf.mjs --spec ./specs/lifecycle.spec.mjs",
+    "test:typed": "wdio run ./wdio.conf.mjs --spec ./specs/typed-knob.spec.mjs",
+    "test:rotation": "wdio run ./wdio.conf.mjs --spec ./specs/rotation.spec.mjs",
+    "test:resume": "wdio run ./wdio.conf.mjs --spec ./specs/background-resume.spec.mjs",
+    "test:file-picker": "wdio run ./wdio.conf.mjs --spec ./specs/file-picker.spec.mjs",
+    "test:save-picker": "wdio run ./wdio.conf.mjs --spec ./specs/save-picker.spec.mjs",
+    "doctor": "appium driver doctor uiautomator2"
+  },
+  "devDependencies": {
+    "@wdio/appium-service": "^10.2.0",
+    "@wdio/cli": "^10.2.0",
+    "@wdio/globals": "^10.2.0",
+    "@wdio/local-runner": "^10.2.0",
+    "@wdio/mocha-framework": "^10.2.0",
+    "@wdio/spec-reporter": "^10.2.0",
+    "appium": "^4.0.0",
+    "appium-uiautomator2-driver": "^9.2.2",
+    "webdriverio": "^10.2.0"
+  }
+}

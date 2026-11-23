@@ -4,11 +4,17 @@
 use serde::{Deserialize, Serialize};
 use stomp_eq::{BandType, EqBand};
 use stomp_protocol::editor::block_model_type;
+use stomp_protocol::preset::preset_references;
 use stomp_protocol::router::{ChainBlock, ChainSlot};
 use stomp_protocol::NodeStore;
 use stomp_protocol::{
     path_name, GLOBAL_EQ_PATH, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH,
 };
+
+pub const INPUT_GAIN_1_PATH: &str = r"root\settings\input\gain1";
+pub const INPUT_GAIN_2_PATH: &str = r"root\settings\input\gain2";
+pub const INPUT_CONNECTED_1_PATH: &str = r"root\settings\input\_connected1";
+pub const INPUT_CONNECTED_2_PATH: &str = r"root\settings\input\_connected2";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeviceSnapshot {
@@ -21,6 +27,7 @@ pub struct DeviceSnapshot {
     pub preset: PresetView,
     pub chain: ChainView,
     pub master: MasterView,
+    pub input: InputView,
     pub meters: Meters,
     pub eq: Option<EqView>,
     pub lists: Vec<LibraryList>,
@@ -70,6 +77,20 @@ pub struct ControlValue {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct InputView {
+    pub gain1: Option<ControlValue>,
+    pub gain2: Option<ControlValue>,
+    pub connected1: Option<bool>,
+    pub connected2: Option<bool>,
+}
+
+impl InputView {
+    pub fn available(&self) -> bool {
+        self.gain1.is_some() || self.gain2.is_some() || self.connected1.is_some()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Meters {
     pub input: [f32; 2],
     pub output: [f32; 2],
@@ -112,6 +133,9 @@ pub struct LibrarySlot {
     pub name: String,
     pub used: bool,
     pub active: bool,
+    /// Preset slots whose `root\presets.used` entry points at this capture.
+    #[serde(default)]
+    pub used_by: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -153,12 +177,34 @@ pub fn master_view(store: &NodeStore) -> MasterView {
     let volume = control(store, &format!("{base}\\vol"), "Master volume", 1.0);
     let tempo = control(store, &format!("{base}\\tempo_bpm"), "Tempo", 1.0)
         .or_else(|| control(store, &format!("{base}\\pst\\tmp"), "Tempo", 1.0));
-    let preset_level = control(store, &format!("{base}\\pst\\lvl"), "Preset level", 0.1)
+    // Firmware 2.5.3 exposes the preset level at `pst\level`. Keep the older
+    // `lvl`/`vol` spellings as fallbacks for captured fixtures and older builds.
+    let preset_level = control(store, &format!("{base}\\pst\\level"), "Preset level", 0.1)
+        .or_else(|| control(store, &format!("{base}\\pst\\lvl"), "Preset level", 0.1))
         .or_else(|| control(store, &format!("{base}\\pst\\vol"), "Preset level", 0.1));
     MasterView {
         volume,
         tempo,
         preset_level,
+    }
+}
+
+pub fn input_view(store: &NodeStore) -> InputView {
+    InputView {
+        gain1: control(store, INPUT_GAIN_1_PATH, "In 1 digital gain", 0.1),
+        gain2: control(store, INPUT_GAIN_2_PATH, "In 2 digital gain", 0.1),
+        connected1: store.get(INPUT_CONNECTED_1_PATH).and_then(|node| {
+            node.value_bool().or_else(|| {
+                node.value_str()
+                    .map(|value| value.eq_ignore_ascii_case("YES"))
+            })
+        }),
+        connected2: store.get(INPUT_CONNECTED_2_PATH).and_then(|node| {
+            node.value_bool().or_else(|| {
+                node.value_str()
+                    .map(|value| value.eq_ignore_ascii_case("YES"))
+            })
+        }),
     }
 }
 
@@ -300,6 +346,7 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
         }
     }
 
+    let references = preset_references(store);
     let mut out = Vec::new();
     for path in paths {
         let Some(node) = store.get(&path) else {
@@ -336,11 +383,23 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
         let slots = names
             .into_iter()
             .enumerate()
-            .map(|(index, name)| LibrarySlot {
-                index,
-                used: !name.is_empty(),
-                active: active_slot == Some(index),
-                name,
+            .map(|(index, name)| {
+                let mut used_by: Vec<usize> = references
+                    .iter()
+                    .filter(|reference| {
+                        reference.list_path == path && reference.capture == name && !name.is_empty()
+                    })
+                    .map(|reference| reference.preset_index)
+                    .collect();
+                used_by.sort_unstable();
+                used_by.dedup();
+                LibrarySlot {
+                    index,
+                    used: !name.is_empty(),
+                    active: active_slot == Some(index),
+                    name,
+                    used_by,
+                }
             })
             .collect();
         let slot_size =
@@ -513,6 +572,86 @@ mod tests {
             .into_iter()
             .find(|list| list.path == path)
             .and_then(|list| list.active_slot)
+    }
+
+    #[test]
+    fn master_view_prefers_the_2_5_3_preset_level_path() {
+        let mut store = NodeStore::new();
+        put(
+            &mut store,
+            r"root\app\output\vol",
+            json!({"type":"float","value":72.0,"min":0.0,"max":100.0}),
+        );
+        put(
+            &mut store,
+            r"root\app\output\pst\level",
+            json!({"type":"float","value":3.4,"min":-20.0,"max":20.0,"unit":"dB"}),
+        );
+        put(
+            &mut store,
+            r"root\app\output\pst\lvl",
+            json!({"type":"float","value":-8.0,"min":-12.0,"max":12.0,"unit":"dB"}),
+        );
+
+        let master = master_view(&store);
+        let level = master.preset_level.expect("preset level");
+        assert_eq!(level.id, r"root\app\output\pst\level");
+        assert!((level.value - 3.4).abs() < f64::EPSILON);
+        assert!((level.min + 20.0).abs() < f64::EPSILON);
+        assert!((level.max - 20.0).abs() < f64::EPSILON);
+        assert!((level.step - 0.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn master_view_keeps_legacy_preset_level_fallbacks() {
+        let mut store = NodeStore::new();
+        put(
+            &mut store,
+            r"root\app\output\vol",
+            json!({"type":"float","value":72.0,"min":0.0,"max":100.0}),
+        );
+        put(
+            &mut store,
+            r"root\app\output\pst\lvl",
+            json!({"type":"float","value":-8.0,"min":-12.0,"max":12.0,"unit":"dB"}),
+        );
+        let level = master_view(&store).preset_level.expect("legacy level");
+        assert_eq!(level.id, r"root\app\output\pst\lvl");
+    }
+
+    #[test]
+    fn input_view_reads_gain_ranges_and_read_only_connections() {
+        let mut store = NodeStore::new();
+        put(
+            &mut store,
+            INPUT_GAIN_1_PATH,
+            json!({"type":"float","value":-3.5,"min":-15.0,"max":15.0,"unit":"dB"}),
+        );
+        put(
+            &mut store,
+            INPUT_GAIN_2_PATH,
+            json!({"type":"float","value":6.0,"min":-15.0,"max":15.0,"unit":"dB"}),
+        );
+        put(
+            &mut store,
+            INPUT_CONNECTED_1_PATH,
+            json!({"type":"enum","value":"YES","options":["NO","YES"]}),
+        );
+        put(
+            &mut store,
+            INPUT_CONNECTED_2_PATH,
+            json!({"type":"enum","value":"NO","options":["NO","YES"]}),
+        );
+
+        let input = input_view(&store);
+        assert!(input.available());
+        let gain1 = input.gain1.expect("gain1");
+        assert!((gain1.value + 3.5).abs() < f64::EPSILON);
+        assert!((gain1.min + 15.0).abs() < f64::EPSILON);
+        assert!((gain1.max - 15.0).abs() < f64::EPSILON);
+        assert!((gain1.step - 0.1).abs() < f64::EPSILON);
+        assert_eq!(input.connected1, Some(true));
+        assert_eq!(input.connected2, Some(false));
     }
 
     #[test]

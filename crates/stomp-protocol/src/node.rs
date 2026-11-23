@@ -49,6 +49,10 @@ impl Node {
         self.0.get("size").and_then(Value::as_u64)
     }
 
+    pub fn chunk(&self) -> Option<u64> {
+        self.0.get("chunk").and_then(Value::as_u64)
+    }
+
     pub fn value(&self) -> Option<&Value> {
         self.0.get("value")
     }

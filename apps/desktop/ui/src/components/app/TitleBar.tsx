@@ -31,6 +31,15 @@ export const TitleBar = () => {
   const deviceRedoDepth = useAppStore((state) => state.deviceRedoStack.length);
   const undoDepth = connection.mode === 'device' ? deviceUndoDepth : localUndoDepth;
   const redoDepth = connection.mode === 'device' ? deviceRedoDepth : localRedoDepth;
+  // Phones show a condensed label; the full transport string is still shown
+  // in the status bar, and the connection sheet carries the detail.
+  const shortConnectionLabel = autoSearching
+    ? 'Searching'
+    : connection.connected
+      ? connection.mode === 'demo'
+        ? 'Demo'
+        : 'Linked'
+      : 'Offline';
 
   const previousIndex = (index: number) => {
     for (let offset = 1; offset <= preset.names.length; offset += 1) {
@@ -115,10 +124,11 @@ export const TitleBar = () => {
           className="btn btn--sm title-bar__save"
           onClick={() => savePreset()}
           disabled={!save.edited || save.saving}
+          aria-label="Save ⌘S"
         >
           <Save size={12} />
-          Save
-          <span className="kbd">⌘S</span>
+          <span className="title-bar__save-label">Save</span>
+          <span className="kbd" aria-hidden="true">⌘S</span>
         </button>
         <button
           type="button"
@@ -127,7 +137,7 @@ export const TitleBar = () => {
           onClick={() => setPresetDrawerOpen(true)}
         >
           <LibraryBig size={12} />
-          Patches
+          <span className="title-bar__presets-label">Patches</span>
         </button>
         <button
           type="button"
@@ -143,8 +153,11 @@ export const TitleBar = () => {
           onClick={() => setConnectionOpen(true)}
           title="Connection settings"
         >
-          <span className={`led ${autoSearching ? 'led--amber' : 'led--on'}`} aria-hidden="true" />
-          <span>
+          <span
+            className={`led ${autoSearching ? 'led--amber' : connection.connected ? 'led--on' : 'led--off'}`}
+            aria-hidden="true"
+          />
+          <span className="connection-pill__label">
             {autoSearching
               ? 'Searching…'
               : connection.connected
@@ -153,6 +166,7 @@ export const TitleBar = () => {
                   ? 'No device'
                   : 'Offline'}
           </span>
+          <span className="connection-pill__label-short">{shortConnectionLabel}</span>
           <span className="connection-pill__detail">
             {autoSearching
               ? 'Wi-Fi → USB'
@@ -165,7 +179,7 @@ export const TitleBar = () => {
         </button>
         <button
           type="button"
-          className="icon-btn"
+          className="icon-btn title-bar__activity"
           aria-label="Activity log"
           title="Activity log"
           onClick={() => setActivityOpen(true)}
@@ -174,7 +188,7 @@ export const TitleBar = () => {
         </button>
         <button
           type="button"
-          className="icon-btn"
+          className="icon-btn title-bar__help-btn"
           aria-label="Keyboard shortcuts and details"
           title="Keyboard shortcuts (?)"
           onClick={() => setShortcutsOpen(true)}

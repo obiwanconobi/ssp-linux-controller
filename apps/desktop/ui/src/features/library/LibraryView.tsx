@@ -3,10 +3,12 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  Download,
   FileAudio,
   FileMusic,
   FolderOpen,
   HardDrive,
+  Pencil,
   RefreshCw,
   Search,
   Trash2,
@@ -15,11 +17,25 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { formatBytes } from '../../data/demoDevice';
-import { ipcErrorMessage, isTauriRuntime, tauriClient } from '../../ipc/client';
+import {
+  commitAndroidSaveTarget,
+  prepareAndroidSaveTarget,
+  resolvePickedFile,
+} from '../../lib/androidFiles';
+import { choosePresetExportPath, choosePresetImportPath } from '../../lib/bundleFiles';
+import {
+  ipcErrorMessage,
+  isMobileRuntime,
+  isTauriRuntime,
+  tauriClient,
+} from '../../ipc/client';
+import type { RustDownloadProgress, RustImportPreflight } from '../../ipc/client';
+import { listNameError } from '../../lib/presetNames';
 import {
   loadDirectoryPreference,
   rememberDirectoryForPath,
 } from '../../lib/recentPaths';
+import { uploadTargetPath } from '../../lib/uploads';
 import { VirtualRows } from '../../components/kit/VirtualRows';
 import { useAppStore } from '../../stores/useAppStore';
 import type { LibraryList, LibrarySlot, UploadTask } from '../../types';
@@ -121,6 +137,34 @@ type DeleteTarget =
       active: boolean;
     };
 
+interface RenameTarget {
+  listId: string;
+  listLabel: string;
+  index: number;
+  name: string;
+  usedBy: number[];
+}
+
+interface DownloadState {
+  id: string;
+  listId: string;
+  index: number;
+  name: string;
+  progress: number;
+  chunk: number;
+  totalChunks: number;
+  bytes: number;
+  totalBytes: number;
+}
+
+interface ImportDialogState {
+  path: string;
+  preflight: RustImportPreflight;
+  targetSlot: number;
+  overwritePreset: boolean;
+  overwriteDependencies: boolean;
+}
+
 const kindFor = (name: string): CaptureKind | null => {
   const lower = name.toLowerCase();
   if (lower.endsWith('.pnam')) return 'pnam';
@@ -194,13 +238,20 @@ const LibraryTable = ({
   list,
   query,
   recentUpload,
+  presetNames,
   onDelete,
+  onRename,
+  onDownload,
 }: {
   list?: LibraryList;
   query: string;
   recentUpload: { target: string; slot: number; name: string } | null;
+  presetNames: string[];
   onDelete: (slot: LibrarySlot) => void;
+  onRename: (slot: LibrarySlot) => void;
+  onDownload: (slot: LibrarySlot) => void;
 }) => {
+  const notify = useAppStore((state) => state.notify);
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   if (!list) {
     return (
@@ -233,7 +284,17 @@ const LibraryTable = ({
             rows={rows}
             scrollElement={scrollElement}
             columnCount={6}
-            renderRow={(slot) => (
+            renderRow={(slot) => {
+              const users = (slot.usedBy ?? [])
+                .map(
+                  (index) => presetNames[index] || `preset slot ${index + 1}`,
+                )
+                .join(', ');
+              const renameBlocked = Boolean(users);
+              const renameTitle = renameBlocked
+                ? `Cannot rename — this capture is in use by ${users}`
+                : 'Rename capture';
+              return (
               <tr
                 key={`${list.id}-${slot.index}`}
                 className={[
@@ -270,19 +331,51 @@ const LibraryTable = ({
                 </td>
                 <td className="library-table__actions">
                   {slot.used && (
-                    <button
-                      type="button"
-                      className="icon-btn icon-btn--danger"
-                      aria-label={`Delete ${slot.name}`}
-                      title="Delete capture"
-                      onClick={() => onDelete(slot)}
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        aria-label={`Download ${slot.name}`}
+                        title="Download capture"
+                        onClick={() => onDownload(slot)}
+                      >
+                        <Download size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`icon-btn${renameBlocked ? ' icon-btn--blocked' : ''}`}
+                        aria-label={
+                          renameBlocked
+                            ? `Rename ${slot.name} (blocked: this capture is in use)`
+                            : `Rename ${slot.name}`
+                        }
+                        aria-disabled={renameBlocked || undefined}
+                        title={renameTitle}
+                        onClick={() => {
+                          if (renameBlocked) {
+                            notify(renameTitle, 'warn');
+                            return;
+                          }
+                          onRename(slot);
+                        }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--danger"
+                        aria-label={`Delete ${slot.name}`}
+                        title="Delete capture"
+                        onClick={() => onDelete(slot)}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
-            )}
+              );
+            }}
           />
         </tbody>
       </table>
@@ -305,8 +398,13 @@ export const LibraryView = () => {
   const addUpload = useAppStore((state) => state.addUpload);
   const deletePreset = useAppStore((state) => state.deletePreset);
   const deleteCapture = useAppStore((state) => state.deleteCapture);
+  const renameCapture = useAppStore((state) => state.renameCapture);
+  const exportPreset = useAppStore((state) => state.exportPreset);
+  const importPreset = useAppStore((state) => state.importPreset);
   const notify = useAppStore((state) => state.notify);
+  const addActivity = useAppStore((state) => state.addActivity);
   const deviceMode = useAppStore((state) => state.connection.mode === 'device');
+  const mobile = isMobileRuntime();
   const [tab, setTab] = useState<Tab>('library');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<CategoryId>('amps');
@@ -319,6 +417,12 @@ export const LibraryView = () => {
   const [localError, setLocalError] = useState<string | null>(null);
   const [localQuery, setLocalQuery] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [renameName, setRenameName] = useState('');
+  const [downloading, setDownloading] = useState<DownloadState | null>(null);
+  const [exportingPreset, setExportingPreset] = useState<number | null>(null);
+  const [importState, setImportState] = useState<ImportDialogState | null>(null);
+  const [importing, setImporting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
   const [localScrollElement, setLocalScrollElement] = useState<HTMLDivElement | null>(null);
@@ -379,6 +483,38 @@ export const LibraryView = () => {
       ? `${entry.name} ${entry.relative}`.toLowerCase().includes(localQuery.toLowerCase())
       : true,
   );
+  const renameList = renameTarget
+    ? lists.find((list) => list.id === renameTarget.listId)
+    : undefined;
+  const renameProblem = renameTarget
+    ? listNameError(renameName.trim()) ??
+      (renameList?.slots.some(
+        (slot) =>
+          slot.index !== renameTarget.index &&
+          slot.name &&
+          slot.name.toLowerCase() === renameName.trim().toLowerCase(),
+      )
+        ? 'A capture with this name already exists in this list'
+        : null)
+    : null;
+  const renameBlocked = Boolean(renameTarget?.usedBy.length);
+  const affectedPresetNames =
+    renameTarget?.usedBy.map(
+      (index) => preset.names[index] || `Preset slot ${index + 1}`,
+    ) ?? [];
+  const importTargetName = importState
+    ? preset.names[importState.targetSlot]?.trim() ?? ''
+    : '';
+  const importTargetOccupied = Boolean(importTargetName);
+  const importExistingDependencies = importState
+    ? importState.preflight.dependencies.filter(
+        (dependency) => dependency.existing_index != null,
+      ).length
+    : 0;
+  const importBlocked = importState
+    ? importState.preflight.blocked ||
+      (importTargetOccupied && !importState.overwritePreset)
+    : false;
 
   const preparePending = (
     name: string,
@@ -505,7 +641,18 @@ export const LibraryView = () => {
     preparePending(file.name, file.size, kind, activeSub.target, { file });
   };
 
-  const inspectPath = (path: string) => {
+  const inspectPath = (sourcePath: string) => {
+    let path = sourcePath;
+    try {
+      path = resolvePickedFile(sourcePath);
+    } catch (error) {
+      setSectionError(
+        { name: sourcePath, size: 0, path: sourcePath },
+        activeKind,
+        ipcErrorMessage(error),
+      );
+      return;
+    }
     const name = path.split(/[\\/]/).pop() || path;
     const kind = kindFor(name);
     if (!kind) {
@@ -561,6 +708,160 @@ export const LibraryView = () => {
       unlisten?.();
     };
   }, [tauri]);
+
+  useEffect(() => {
+    if (!tauri) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        const stop = await listen<RustDownloadProgress>('device://download', (event) => {
+          if (disposed) return;
+          const payload = event.payload;
+          setDownloading((current) =>
+            current && current.id === payload.id
+              ? {
+                  ...current,
+                  progress: payload.progress,
+                  chunk: payload.chunk,
+                  totalChunks: payload.total_chunks,
+                  bytes: payload.bytes,
+                  totalBytes: payload.total_bytes,
+                }
+              : current,
+          );
+        });
+        if (disposed) stop();
+        else unlisten = stop;
+      } catch (error) {
+        console.error('Could not subscribe to download progress', error);
+      }
+    })();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [tauri]);
+
+  const downloadCapture = async (slot: LibrarySlot) => {
+    if (!activeList) return;
+    if (!tauri) {
+      notify('Connect to a pedal to download a capture', 'warn');
+      return;
+    }
+    if (downloading) {
+      notify('Wait for the current download to finish or cancel it', 'warn');
+      return;
+    }
+    const extension = activeList.kind === 'ir' ? 'wav' : activeList.kind;
+    const safeName =
+      slot.name.replace(/[\\/:*?"<>|]/g, '_').trim() || `capture-${slot.index + 1}`;
+    const fileName = `${safeName}.${extension}`;
+    const remembered = loadDirectoryPreference('download.capture');
+    try {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const selected = await save({
+        title: `Save ${slot.name}`,
+        defaultPath: remembered ? `${remembered}/${fileName}` : fileName,
+        filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+      });
+      if (typeof selected !== 'string') return;
+      rememberDirectoryForPath('download.capture', selected);
+      const saveTarget = prepareAndroidSaveTarget(selected, fileName);
+      const id = `download-${Date.now()}`;
+      setDownloading({
+        id,
+        listId: activeList.id,
+        index: slot.index,
+        name: slot.name,
+        progress: 0,
+        chunk: 0,
+        totalChunks: 0,
+        bytes: 0,
+        totalBytes: 0,
+      });
+      const completion = await tauriClient.downloadListItem(
+        id,
+        uploadTargetPath(activeList.id),
+        slot.index,
+        saveTarget.rustPath,
+        true,
+      );
+      if (completion.cancelled || !completion.file) {
+        notify(`${slot.name} download cancelled`, 'warn');
+        return;
+      }
+      commitAndroidSaveTarget(saveTarget);
+      addActivity(
+        'Capture downloaded',
+        `${slot.name} · ${formatBytes(completion.file.bytes)} · ${completion.file.path}`,
+        'good',
+      );
+      notify(`${slot.name} downloaded`, 'good');
+    } catch (error) {
+      notify(ipcErrorMessage(error), 'bad');
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const startImport = async () => {
+    if (!tauri) {
+      notify('Connect to a pedal to import a preset bundle', 'warn');
+      return;
+    }
+    try {
+      const selected = await choosePresetImportPath();
+      if (!selected) return;
+      const path = resolvePickedFile(selected);
+      const preflight = await tauriClient.preflightPresetImport(path);
+      const targetSlot =
+        preflight.target_slot ?? preflight.empty_slots[0] ?? preset.index ?? 0;
+      setImportState({
+        path,
+        preflight,
+        targetSlot,
+        overwritePreset: false,
+        overwriteDependencies: false,
+      });
+    } catch (error) {
+      notify(ipcErrorMessage(error), 'bad');
+    }
+  };
+
+  const runImport = async () => {
+    if (!importState || importing) return;
+    setImporting(true);
+    try {
+      const report = await importPreset(
+        importState.path,
+        importState.targetSlot,
+        importState.overwritePreset,
+        importState.overwriteDependencies,
+      );
+      if (report) setImportState(null);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const exportPresetRow = async (index: number, name: string) => {
+    if (exportingPreset != null) return;
+    if (!tauri) {
+      notify('Connect to a pedal to export a preset bundle', 'warn');
+      return;
+    }
+    setExportingPreset(index);
+    try {
+      const destination = await choosePresetExportPath(name);
+      if (destination) await exportPreset(index, destination);
+    } catch (error) {
+      notify(ipcErrorMessage(error), 'bad');
+    } finally {
+      setExportingPreset(null);
+    }
+  };
 
   const chooseFile = async () => {
     if (!activeList) return;
@@ -744,7 +1045,9 @@ export const LibraryView = () => {
               [
                 ['library', 'Models & IRs'],
                 ['presets', 'Presets'],
-                ['local', 'Local files'],
+                ...(mobile
+                  ? []
+                  : [['local', 'Local files'] as const]),
                 ['uploads', `Uploads${uploads.filter((uploadItem) => uploadItem.state === 'uploading').length ? ` · ${uploads.filter((uploadItem) => uploadItem.state === 'uploading').length}` : ''}`],
                 ['activity', 'Activity'],
               ] as const
@@ -829,6 +1132,7 @@ export const LibraryView = () => {
               list={activeList}
               query={query}
               recentUpload={recentUpload}
+              presetNames={preset.names}
               onDelete={(slot) => {
                 if (!activeList) return;
                 setDeleteTarget({
@@ -840,6 +1144,18 @@ export const LibraryView = () => {
                   active: slot.active,
                 });
               }}
+              onRename={(slot) => {
+                if (!activeList) return;
+                setRenameTarget({
+                  listId: activeList.id,
+                  listLabel: activeList.label,
+                  index: slot.index,
+                  name: slot.name,
+                  usedBy: slot.usedBy ?? [],
+                });
+                setRenameName(slot.name);
+              }}
+              onDownload={(slot) => void downloadCapture(slot)}
             />
           </section>
 
@@ -1051,6 +1367,50 @@ export const LibraryView = () => {
               )}
               <p className="hint">Lists refresh after the final ACK; the new capture is highlighted.</p>
             </section>
+
+            {downloading && (
+              <section className="preflight panel" aria-live="polite">
+                <header className="utility-card__head">
+                  <span className="section-title">Downloading</span>
+                  <span className="chip chip--warn">{Math.round(downloading.progress)}%</span>
+                </header>
+                <p className="mono">{downloading.name}</p>
+                <div
+                  className="progress-bar progress-bar--lg"
+                  role="progressbar"
+                  aria-label={`Download ${Math.round(downloading.progress)} percent`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(downloading.progress)}
+                >
+                  <span style={{ width: `${downloading.progress}%` }} />
+                </div>
+                <div className="upload-card__foot">
+                  <span className="mono">
+                    chunk {downloading.chunk} / {downloading.totalChunks || '—'}
+                  </span>
+                  <span className="hint">
+                    {downloading.totalBytes > 0
+                      ? `${formatBytes(downloading.bytes)} / ${formatBytes(downloading.totalBytes)}`
+                      : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() => {
+                      void tauriClient
+                        .cancelDownload()
+                        .then((accepted) => {
+                          if (!accepted) notify('The download already finished', 'warn');
+                        })
+                        .catch((error) => notify(ipcErrorMessage(error), 'bad'));
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </section>
+            )}
           </aside>
         </div>
       )}
@@ -1175,7 +1535,19 @@ export const LibraryView = () => {
               <h2>Preset slots</h2>
               <p className="hint">Names are stored in 128-byte chunks; rename preserves contents.</p>
             </div>
-            <span className="chip chip--good">{preset.names.filter(Boolean).length} patches</span>
+            <div className="local-library__actions">
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => void startImport()}
+                disabled={importing}
+              >
+                <UploadCloud size={12} /> Import bundle…
+              </button>
+              <span className="chip chip--good">
+                {preset.names.filter(Boolean).length} patches
+              </span>
+            </div>
           </header>
           <ul className="preset-slot-list">
             {preset.names.map((name, index) => (
@@ -1183,6 +1555,18 @@ export const LibraryView = () => {
                 <span className="mono">{String(index + 1).padStart(2, '0')}</span>
                 <span>{name || 'Empty slot'}</span>
                 {name === preset.current && <span className="chip chip--good">Current</span>}
+                {name && (
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label={`Export ${name}`}
+                    title="Export preset bundle"
+                    disabled={exportingPreset != null}
+                    onClick={() => void exportPresetRow(index, name)}
+                  >
+                    <Download size={13} />
+                  </button>
+                )}
                 {name && (
                   <button
                     type="button"
@@ -1311,6 +1695,289 @@ export const LibraryView = () => {
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root
+        open={Boolean(renameTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameTarget(null);
+            setRenameName('');
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content" aria-describedby={undefined}>
+            <div className="dialog-head">
+              <div>
+                <Dialog.Title className="dialog-title">Rename capture</Dialog.Title>
+                <p className="hint">
+                  {renameTarget
+                    ? `${renameTarget.listLabel} · slot ${renameTarget.index + 1}`
+                    : ''}
+                </p>
+              </div>
+              <Dialog.Close asChild>
+                <button type="button" className="icon-btn" aria-label="Close rename dialog">
+                  <X size={16} />
+                </button>
+              </Dialog.Close>
+            </div>
+            <div className="dialog-body">
+              {renameBlocked && (
+                <p className="preflight__warning preflight__warning--error">
+                  <AlertTriangle size={12} aria-hidden="true" />
+                  {` This capture is used by ${affectedPresetNames.join(', ')}. Renaming used captures is blocked until firmware reference updates are verified.`}
+                </p>
+              )}
+              <label className="field-label" htmlFor="capture-name">
+                Capture name
+              </label>
+              <input
+                id="capture-name"
+                className="input"
+                autoFocus
+                value={renameName}
+                disabled={renameBlocked}
+                onChange={(event) => setRenameName(event.target.value)}
+              />
+              {renameProblem && !renameBlocked && (
+                <p className="preflight__warning preflight__warning--error">
+                  <AlertTriangle size={12} aria-hidden="true" /> {renameProblem}
+                </p>
+              )}
+              <p className="hint">
+                The slot index is preserved. Names are limited to 63 bytes and must be unique in
+                the list.
+              </p>
+            </div>
+            <div className="dialog-foot">
+              <Dialog.Close asChild>
+                <button type="button" className="btn">
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={Boolean(renameProblem) || renameBlocked}
+                onClick={() => {
+                  if (!renameTarget) return;
+                  renameCapture(renameTarget.listId, renameTarget.index, renameName);
+                  setRenameTarget(null);
+                  setRenameName('');
+                }}
+              >
+                Rename
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root
+        open={Boolean(importState)}
+        onOpenChange={(open) => {
+          if (!open && !importing) setImportState(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content
+            className="dialog-content dialog-content--wide"
+            aria-describedby={undefined}
+          >
+            <div className="dialog-head">
+              <div>
+                <Dialog.Title className="dialog-title">Import preset bundle</Dialog.Title>
+                <p className="hint">
+                  {importState
+                    ? `${importState.preflight.preset_name} · ${formatBytes(
+                        importState.preflight.preset_bytes,
+                      )} · ${importState.preflight.preset_entries} preset values`
+                    : ''}
+                </p>
+              </div>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Close import dialog"
+                  disabled={importing}
+                >
+                  <X size={16} />
+                </button>
+              </Dialog.Close>
+            </div>
+            {importState && (
+              <div className="dialog-body">
+                <div className="settings-row settings-row--stack">
+                  <div>
+                    <strong>Target preset slot</strong>
+                    <span className="hint">
+                      Empty slots are preferred. Overwriting requires an explicit confirmation.
+                    </span>
+                  </div>
+                  <select
+                    className="select"
+                    aria-label="Import target preset slot"
+                    value={importState.targetSlot}
+                    disabled={importing}
+                    onChange={(event) =>
+                      setImportState((current) =>
+                        current
+                          ? {
+                              ...current,
+                              targetSlot: Number(event.target.value),
+                              overwritePreset: false,
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    {preset.names.map((name, index) => (
+                      <option key={`import-slot-${index}`} value={index}>
+                        {String(index + 1).padStart(2, '0')} —{' '}
+                        {name.trim() ? name : 'Empty'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {importTargetOccupied && (
+                  <label className="preflight__warning preflight__warning--error">
+                    <input
+                      type="checkbox"
+                      checked={importState.overwritePreset}
+                      disabled={importing}
+                      onChange={(event) =>
+                        setImportState((current) =>
+                          current
+                            ? { ...current, overwritePreset: event.target.checked }
+                            : current,
+                        )
+                      }
+                    />{' '}
+                    Overwrite “{importTargetName}” in slot {importState.targetSlot + 1}
+                  </label>
+                )}
+
+                {importState.preflight.chain_changes.length > 0 && (
+                  <div>
+                    <span className="field-label">Signal chain differences</span>
+                    <div className="preflight__chips">
+                      {importState.preflight.chain_changes.map((change) => (
+                        <span key={change} className="chip mono">
+                          {change}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <span className="field-label">
+                    Dependencies ({importState.preflight.dependencies.length})
+                  </span>
+                  {importState.preflight.dependencies.length === 0 ? (
+                    <p className="hint">
+                      No capture dependencies. Only <span className="mono">bdinfo.json</span> and
+                      the <span className="mono">.pst</span> will be written.
+                    </p>
+                  ) : (
+                    <div className="library-table-wrap">
+                      <table className="library-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Name</th>
+                            <th scope="col">List</th>
+                            <th scope="col">Size</th>
+                            <th scope="col">Plan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importState.preflight.dependencies.map((dependency) => (
+                            <tr key={`${dependency.node_path}-${dependency.name}`}>
+                              <td>{dependency.name}</td>
+                              <td className="mono">{dependency.node_path}</td>
+                              <td className="mono">{formatBytes(dependency.bytes)}</td>
+                              <td>
+                                {dependency.action === 'blocked' ? (
+                                  <span className="chip chip--bad">Blocked</span>
+                                ) : dependency.action === 'compare' ? (
+                                  <span className="chip chip--warn">
+                                    Compare · slot {(dependency.existing_index ?? 0) + 1}
+                                  </span>
+                                ) : (
+                                  <span className="chip">
+                                    Upload · slot {(dependency.target_index ?? 0) + 1}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {importExistingDependencies > 0 && (
+                  <label className="preflight__warning">
+                    <input
+                      type="checkbox"
+                      checked={importState.overwriteDependencies}
+                      disabled={importing}
+                      onChange={(event) =>
+                        setImportState((current) =>
+                          current
+                            ? {
+                                ...current,
+                                overwriteDependencies: event.target.checked,
+                              }
+                            : current,
+                        )
+                      }
+                    />{' '}
+                    Replace existing captures when their content differs (identical files are
+                    reused automatically)
+                  </label>
+                )}
+
+                {importState.preflight.errors.map((error) => (
+                  <p key={error} className="preflight__warning preflight__warning--error">
+                    <AlertTriangle size={12} /> {error}
+                  </p>
+                ))}
+                {importState.preflight.warnings.map((warning) => (
+                  <p key={warning} className="preflight__warning">
+                    <AlertTriangle size={12} /> {warning}
+                  </p>
+                ))}
+                <p className="hint">
+                  Dependencies are written first. If a later step fails, the error names what was
+                  already written so a retry can be targeted.
+                </p>
+              </div>
+            )}
+            <div className="dialog-foot">
+              <Dialog.Close asChild>
+                <button type="button" className="btn" disabled={importing}>
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={importBlocked || importing}
+                onClick={() => void runImport()}
+              >
+                {importing ? 'Importing…' : 'Import bundle'}
               </button>
             </div>
           </Dialog.Content>

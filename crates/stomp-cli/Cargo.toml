@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 stomp-protocol = { path = "../stomp-protocol" }
 stomp-device = { path = "../stomp-device" }
+stomp-preset-bundle = { path = "../stomp-preset-bundle" }
 stomp-transport = { path = "../stomp-transport" }
 stomp-eq = { path = "../stomp-eq" }
 stomp-upload = { path = "../stomp-upload" }

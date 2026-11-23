@@ -1,10 +1,15 @@
 //! Preset discovery, naming rules, and rename payloads.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::command::hex_encode;
 use crate::node::NodeStore;
-use crate::{normalize_path, path_name, MAX_PRESET_NAME_BYTES, PRESET_LIST_PATH, PRESET_PATH};
+use crate::{
+    normalize_path, path_name, IR_PATH, MAX_PRESET_NAME_BYTES, NAM_DRIVE_PATH, NAM_PATH,
+    PNAM_DRIVE_PATH, PNAM_PATH, PRESET_LIST_PATH, PRESET_PATH,
+};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct PresetState {
@@ -89,6 +94,93 @@ pub fn preset_state(store: &NodeStore) -> PresetState {
     }
 }
 
+/// One non-empty dependency recorded in `root\presets.used` for a preset slot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresetReference {
+    pub preset_index: usize,
+    pub preset_name: String,
+    pub node_path: String,
+    pub capture: String,
+    pub list_path: String,
+    pub extension: String,
+}
+
+/// Map the preset-relevant selector paths to the capture list they load.
+///
+/// Only confirmed 2.5.3 paths are listed. An unknown path in `used` is returned
+/// separately by [`preset_references`] so export can refuse rather than guess.
+pub fn capture_target(node_path: &str) -> Option<(&'static str, &'static str)> {
+    match normalize_path(node_path).as_str() {
+        r"root\app\amp\model" => Some((NAM_PATH, "nam")),
+        r"root\app\amp\pmodel" => Some((PNAM_PATH, "pnam")),
+        r"root\app\amp\nam2\model" => Some((NAM_PATH, "nam")),
+        r"root\app\amp\nam2\pmodel" => Some((PNAM_PATH, "pnam")),
+        r"root\app\drive\model" => Some((NAM_DRIVE_PATH, "nam")),
+        r"root\app\drive\pmodel" => Some((PNAM_DRIVE_PATH, "pnam")),
+        r"root\app\ir\ir" => Some((IR_PATH, "wav")),
+        r"root\app\ir\ir2\ir" => Some((IR_PATH, "wav")),
+        _ => None,
+    }
+}
+
+/// Read `root\presets.used` into one entry per (preset, capture) pair.
+///
+/// The firmware stores an object keyed by selector path whose values are arrays
+/// with one capture name per preset slot. Unknown selector paths are preserved
+/// with empty `list_path`/`extension` so callers can reject them explicitly.
+pub fn preset_references(store: &NodeStore) -> Vec<PresetReference> {
+    let state = preset_state(store);
+    let Some(list_path) = state.list_path.as_deref() else {
+        return Vec::new();
+    };
+    let Some(list) = store.get(list_path) else {
+        return Vec::new();
+    };
+    let Some(used) = list.raw().get("used").and_then(|value| value.as_object()) else {
+        return Vec::new();
+    };
+
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for (node_path, values) in used {
+        let node_path = normalize_path(node_path);
+        let (target_list, extension) = capture_target(&node_path).unwrap_or(("", ""));
+        let Some(values) = values.as_array() else {
+            continue;
+        };
+        for (index, value) in values.iter().enumerate() {
+            let Some(capture) = value
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            else {
+                continue;
+            };
+            if !seen.insert((index, target_list.to_string(), capture.to_string())) {
+                continue;
+            }
+            out.push(PresetReference {
+                preset_index: index,
+                preset_name: state.names.get(index).cloned().unwrap_or_default(),
+                node_path: node_path.clone(),
+                capture: capture.to_string(),
+                list_path: target_list.to_string(),
+                extension: extension.to_string(),
+            });
+        }
+    }
+    out
+}
+
+/// Preset slots that reference the given capture in the given list.
+pub fn presets_using(store: &NodeStore, list_path: &str, capture: &str) -> Vec<PresetReference> {
+    let list_path = normalize_path(list_path);
+    preset_references(store)
+        .into_iter()
+        .filter(|reference| reference.list_path == list_path && reference.capture == capture)
+        .collect()
+}
+
 pub fn preset_name_error(name: &str) -> Option<&'static str> {
     if name.is_empty() {
         return Some("patch name cannot be empty");
@@ -101,6 +193,23 @@ pub fn preset_name_error(name: &str) -> Option<&'static str> {
     }
     if name.len() > MAX_PRESET_NAME_BYTES {
         return Some("patch name must be at most 63 bytes");
+    }
+    None
+}
+
+/// Same wire rules as preset names, with capture-specific wording.
+pub fn list_name_error(name: &str) -> Option<&'static str> {
+    if name.is_empty() {
+        return Some("capture name cannot be empty");
+    }
+    if name
+        .chars()
+        .any(|character| character == '\0' || (character as u32) < 32)
+    {
+        return Some("capture name cannot contain control characters");
+    }
+    if name.len() > MAX_PRESET_NAME_BYTES {
+        return Some("capture name must be at most 63 bytes");
     }
     None
 }
@@ -188,6 +297,49 @@ mod tests {
         assert!(rename_error(&names, "Patch B", "patch a").is_some());
         assert!(rename_error(&names, "Patch B", &"x".repeat(64)).is_some());
         assert!(rename_error(&names, "Patch B", "Renamed B").is_none());
+    }
+
+    #[test]
+    fn reads_preset_references_from_the_used_map() {
+        let mut store = store();
+        let list = store.get_mut(r"root\presets").unwrap();
+        list.0.insert(
+            "used".to_string(),
+            json!({
+                r"root\app\amp\model": ["", "Amp B", "Amp B"],
+                r"root\app\drive\model": ["", "Drive A", ""],
+                r"root\app\ir\ir": ["", "", "Cab X"]
+            }),
+        );
+
+        let references = preset_references(&store);
+        assert_eq!(references.len(), 4, "{references:?}");
+        let amp = references
+            .iter()
+            .find(|reference| {
+                reference.node_path == r"root\app\amp\model" && reference.preset_index == 1
+            })
+            .expect("amp reference");
+        assert_eq!(amp.list_path, NAM_PATH);
+        assert_eq!(amp.extension, "nam");
+        assert_eq!(amp.capture, "Amp B");
+        assert_eq!(amp.preset_name, "Patch B");
+
+        let used = presets_using(&store, NAM_PATH, "Amp B");
+        assert_eq!(used.len(), 2, "both patch slots reference Amp B");
+    }
+
+    #[test]
+    fn preserves_unknown_preset_reference_paths_for_export_rejection() {
+        let mut store = store();
+        store.get_mut(r"root\presets").unwrap().0.insert(
+            "used".to_string(),
+            json!({ r"root\app\mystery\model": ["Unknown"] }),
+        );
+        let references = preset_references(&store);
+        assert_eq!(references.len(), 1);
+        assert!(references[0].list_path.is_empty());
+        assert!(references[0].extension.is_empty());
     }
 
     #[test]

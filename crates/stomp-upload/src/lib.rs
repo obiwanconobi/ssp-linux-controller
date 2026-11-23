@@ -3,9 +3,10 @@
 //! This is pure code: it never touches a transport. The device actor feeds
 //! ACKs into [`UploadState`] and sends the values produced here.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
+use flate2::read::GzDecoder;
 use flate2::{Compression, GzBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -162,6 +163,44 @@ impl UploadState {
 /// accepted by an early build, uploaded to a live 2.5.3 pedal, and left the
 /// device in Update Mode. Never bypass it for hardware uploads. See
 /// `docs/DEVICE_SAFETY.md`.
+/// Public structural validation for a downloaded model or WAV.
+pub fn validate_capture(kind: UploadKind, raw: &[u8]) -> Result<(), ProtocolError> {
+    if kind == UploadKind::Ir {
+        decode_ir(raw)?;
+    } else {
+        validate_model(kind, raw)?;
+    }
+    Ok(())
+}
+
+/// Decompress a downloaded NAM/PNAM payload and remove the zero padding the
+/// upload path adds. Firmware stores gzip bytes produced from a slot-sized,
+/// NUL-padded file, so the original capture is the decompressed bytes with
+/// trailing NULs removed.
+pub fn decode_downloaded_model(
+    kind: UploadKind,
+    compressed: &[u8],
+) -> Result<Vec<u8>, ProtocolError> {
+    if kind == UploadKind::Ir {
+        return Err(ProtocolError::InvalidRequest(
+            "IR downloads are not gzip-compressed".into(),
+        ));
+    }
+    let mut decoder = GzDecoder::new(compressed);
+    let mut raw = Vec::new();
+    decoder.read_to_end(&mut raw).map_err(|error| {
+        ProtocolError::InvalidRequest(format!(
+            "{} download is not valid gzip: {error}",
+            kind.label()
+        ))
+    })?;
+    while raw.last().is_some_and(|byte| *byte == 0) {
+        raw.pop();
+    }
+    validate_model(kind, &raw)?;
+    Ok(raw)
+}
+
 fn validate_model(kind: UploadKind, raw: &[u8]) -> Result<(), ProtocolError> {
     let value: Value = serde_json::from_slice(raw).map_err(|error| {
         ProtocolError::InvalidRequest(format!("{} file is not valid JSON: {error}", kind.label()))
@@ -581,6 +620,38 @@ pub fn decode_ir(wav: &[u8]) -> Result<Vec<f32>, ProtocolError> {
     Ok(samples)
 }
 
+/// Wrap the device's raw IR payload (2048 little-endian `f32` samples) in the
+/// same 48 kHz mono float WAV the official app exports. The device stores only
+/// the sample payload; the list `dread` path returns 8192 bytes with no header.
+pub fn encode_ir_wav(samples: &[u8]) -> Result<Vec<u8>, ProtocolError> {
+    let expected = IR_LENGTH * std::mem::size_of::<f32>();
+    if samples.len() != expected {
+        return Err(ProtocolError::InvalidRequest(format!(
+            "IR payload is {} bytes; expected {expected} bytes (2048 f32 samples)",
+            samples.len()
+        )));
+    }
+    let mut wav = Vec::with_capacity(56 + samples.len());
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&((samples.len() + 48) as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
+    wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+    wav.extend_from_slice(&48_000u32.to_le_bytes());
+    wav.extend_from_slice(&192_000u32.to_le_bytes()); // 48000 * 1 * 4
+    wav.extend_from_slice(&4u16.to_le_bytes()); // block align
+    wav.extend_from_slice(&32u16.to_le_bytes()); // bits per sample
+    wav.extend_from_slice(b"fact");
+    wav.extend_from_slice(&4u32.to_le_bytes());
+    wav.extend_from_slice(&(IR_LENGTH as u32).to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+    wav.extend_from_slice(samples);
+    Ok(wav)
+}
+
 /// Read an IR WAV from disk.
 pub fn read_ir_file(path: &Path) -> Result<Vec<f32>, ProtocolError> {
     let bytes = std::fs::read(path).map_err(|error| {
@@ -871,6 +942,34 @@ mod tests {
             display_name(b"", "TJ3 58BND310.wav", UploadKind::Ir),
             "TJ3 58BND310"
         );
+    }
+
+    #[test]
+    fn raw_ir_payload_is_wrapped_in_the_official_wav_shape() {
+        let samples: Vec<u8> = (0..stomp_protocol::IR_LENGTH)
+            .flat_map(|index| ((index as f32) / 4096.0).to_le_bytes())
+            .collect();
+        let wav = encode_ir_wav(&samples).unwrap();
+        assert_eq!(wav.len(), 8248);
+        assert_eq!(&wav[..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert_eq!(&wav[12..16], b"fmt ");
+        assert_eq!(u16::from_le_bytes([wav[20], wav[21]]), 3);
+        assert_eq!(u16::from_le_bytes([wav[22], wav[23]]), 1);
+        assert_eq!(
+            u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]),
+            48_000
+        );
+        assert_eq!(&wav[36..40], b"fact");
+        assert_eq!(&wav[48..52], b"data");
+        assert_eq!(
+            u32::from_le_bytes([wav[52], wav[53], wav[54], wav[55]]),
+            8192
+        );
+        assert_eq!(&wav[56..], &samples[..]);
+        let decoded = decode_ir(&wav).unwrap();
+        assert!((decoded[1] - (1.0 / 4096.0)).abs() < 1e-7);
+        assert!(encode_ir_wav(&samples[..8191]).is_err());
     }
 
     #[test]

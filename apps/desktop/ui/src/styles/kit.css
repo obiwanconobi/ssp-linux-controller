@@ -1142,6 +1142,64 @@
   font-size: 11px;
 }
 
+.parametric-eq {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--canvas) 24%, var(--surface));
+}
+
+.parametric-eq .eq-view__graph-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.parametric-eq .eq-view__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.eq-graph--parametric {
+  min-height: 190px;
+}
+
+.eq-graph--parametric .eq-graph__svg {
+  height: clamp(170px, 24vh, 230px);
+}
+
+.parametric-eq__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.eq-band-card--compact {
+  gap: 6px;
+  padding: 8px;
+}
+
+.eq-band-card--compact .eq-band-card__title {
+  font-size: 11px;
+}
+
+.eq-band-card--compact .eq-band-card__fields {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.eq-band-card--compact .eq-band-card__field .input,
+.eq-band-card--compact .eq-band-card__field .select {
+  min-height: 26px;
+  padding: 3px 5px;
+  font-size: 10px;
+}
+
 /* ---------------------------------------------------------------------------
    Radio / segmented
    ------------------------------------------------------------------------- */

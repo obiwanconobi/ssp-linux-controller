@@ -25,3 +25,8 @@ dev/
 # Local firmware update images and reverse-engineering captures
 *.upd
 Legacy/firmware/
+# Official-app reference export; contains third-party captures
+docs/Brave.zip
+
+# Incident evidence is part of the tracked fixture even though logs are ignored
+!fixtures/incidents/**/*.log

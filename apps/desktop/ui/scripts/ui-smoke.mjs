@@ -80,6 +80,20 @@ try {
   );
   await presetList.evaluate((element) => element.scrollTo({ top: 0 }));
 
+  const presetLevel = page.locator('.master-strip .stepper__value');
+  assert(
+    (await presetLevel.getAttribute('role')) === 'slider',
+    'Preset level stepper is not keyboard-operable',
+  );
+  const levelBefore = await presetLevel.getAttribute('aria-valuenow');
+  await presetLevel.focus();
+  await page.keyboard.press('ArrowUp');
+  await page.waitForTimeout(100);
+  assert(
+    Number(await presetLevel.getAttribute('aria-valuenow')) > Number(levelBefore),
+    'Preset level keyboard step did not change the value',
+  );
+
   const before = await page.locator('.knob__dial[aria-label^="Gain"]').first().getAttribute('aria-valuenow');
   const dial = page.locator('.knob__dial[aria-label^="Gain"]').first();
   const box = await dial.boundingBox();
@@ -242,6 +256,17 @@ try {
   assert(
     (await page.locator('.library-table tbody tr').count()) === 8,
     'Amps > NAM should show its own slot list',
+  );
+  const blockedRename = page
+    .locator('.library-table button[aria-label^="Rename"][aria-disabled="true"]')
+    .first();
+  assert(
+    (await blockedRename.count()) === 1,
+    'used captures should expose a blocked rename action',
+  );
+  assert(
+    (await blockedRename.getAttribute('title'))?.includes('in use') === true,
+    'blocked rename tooltip should explain that the capture is in use',
   );
 
   const libraryUpload = page.locator('.drop-zone input[type=file]');
@@ -512,6 +537,87 @@ try {
   assert(
     (await page.locator('.preset-nav__name').textContent()) === drawerPreset,
     'selecting a preset in the drawer did not change the current preset',
+  );
+
+  // Input settings are store-backed and connection state is read-only.
+  await page.locator('.nav-tab', { hasText: 'Settings' }).click();
+  await page.locator('.settings-nav__item', { hasText: 'Audio & pedal' }).click();
+  await page.waitForSelector('.settings-knobs');
+  const audioSettings = await page.locator('.settings-card').first().innerText();
+  assert(audioSettings.includes('In 1 connection'), 'input connection row is missing');
+  assert(
+    audioSettings.toLowerCase().includes('connected'),
+    'input 1 connection state was not shown',
+  );
+  assert(
+    (await page.locator('.settings-knobs .knob__dial').count()) >= 2,
+    'input gain knobs are missing',
+  );
+
+  // Parametric EQ uses the shared graph and writes the same block controls.
+  await page.locator('.nav-tab', { hasText: 'Board' }).click();
+  await page.waitForSelector('.pedal');
+  await page.locator('.chain-add').click();
+  await page.locator('.menu--blocks .menu__item', { hasText: 'Parametric EQ' }).click();
+  await page.waitForSelector('.parametric-eq');
+  assert(
+    (await page.locator('.parametric-eq .eq-band-card').count()) === 4,
+    'Parametric EQ did not render four band cards',
+  );
+  const eqHandle = page.locator('.parametric-eq .eq-graph__handle').first();
+  assert(
+    (await eqHandle.getAttribute('role')) === 'slider',
+    'Parametric EQ handle is not exposed as a slider',
+  );
+  const beforeEqGain = Number(await eqHandle.getAttribute('aria-valuenow'));
+  await eqHandle.focus();
+  await page.keyboard.press('ArrowUp');
+  await page.waitForTimeout(120);
+  const afterEqGain = Number(
+    await page.locator('.parametric-eq .eq-graph__handle').first().getAttribute('aria-valuenow'),
+  );
+  assert(afterEqGain > beforeEqGain, 'Parametric EQ keyboard adjustment did not change gain');
+  await page.locator('.parametric-eq .btn', { hasText: 'Flat' }).click();
+  await page.waitForTimeout(120);
+  assert(
+    (await page.locator('.parametric-eq .eq-band-card__gain').first().textContent())?.includes(
+      '0.0',
+    ),
+    'Parametric EQ Flat did not reset the band gains',
+  );
+
+  // Short screens: the Add-block menu must stay inside the viewport and scroll
+  // to its last item instead of pushing it off-screen.
+  await page.setViewportSize({ width: 800, height: 600 });
+  await page.waitForTimeout(200);
+  const pedalsBeforeAdd = await page.locator('.signal-chain .pedal').count();
+  await page.locator('.chain-add').click();
+  await page.waitForSelector('.menu--blocks');
+  const addMenu = page.locator('.menu--blocks');
+  const menuMetrics = await addMenu.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    viewport: window.innerHeight,
+  }));
+  assert(
+    menuMetrics.clientHeight <= menuMetrics.viewport * 0.6 + 2,
+    `Add-block menu exceeded 60vh (${menuMetrics.clientHeight}px of ${menuMetrics.viewport}px)`,
+  );
+  assert(
+    menuMetrics.scrollHeight > menuMetrics.clientHeight,
+    'Add-block menu should scroll when the list is taller than the viewport',
+  );
+  await addMenu.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  const lastBlockItem = addMenu.locator('.menu__item').last();
+  const lastBlockName = (await lastBlockItem.locator('strong').innerText()).trim();
+  // Short landscape windows can put the portal's last row outside the visual
+  // viewport even after the menu itself scrolls. Invoke the React handler via a
+  // DOM click; this test is about scrolling/selection, not hit-testing.
+  await lastBlockItem.evaluate((element) => element.click());
+  await page.waitForTimeout(200);
+  assert(
+    (await page.locator('.signal-chain .pedal').count()) === pedalsBeforeAdd + 1,
+    `selecting the last Add-block item (${lastBlockName}) did not add a block`,
   );
 
   assert(errors.length === 0, `UI console errors:\n${errors.join('\n')}`);

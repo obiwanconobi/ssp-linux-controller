@@ -51,6 +51,13 @@ export interface RustMaster {
   preset_level: RustControlValue | null;
 }
 
+export interface RustInput {
+  gain1: RustControlValue | null;
+  gain2: RustControlValue | null;
+  connected1: boolean | null;
+  connected2: boolean | null;
+}
+
 export interface RustEqBand {
   index: number;
   device_index: number;
@@ -73,6 +80,7 @@ export interface RustLibrarySlot {
   name: string;
   used: boolean;
   active: boolean;
+  used_by?: number[];
 }
 
 export interface RustLibraryList {
@@ -99,6 +107,7 @@ export interface RustSnapshot {
     available_blocks: RustAvailableBlock[];
   };
   master: RustMaster;
+  input: RustInput;
   meters: { input: [number, number]; output: [number, number] };
   eq: RustEq | null;
   lists: RustLibraryList[];
@@ -230,6 +239,80 @@ export interface RustUploadProgress {
 export interface RustUploadCompletion {
   cancelled: boolean;
   result: RustUploadResult | null;
+  snapshot: RustSnapshot;
+}
+
+export interface RustDownloadProgress {
+  id: string;
+  list_path: string;
+  index: number;
+  name: string;
+  kind: string;
+  chunk: number;
+  total_chunks: number;
+  progress: number;
+  bytes: number;
+  total_bytes: number;
+}
+
+export interface RustDownloadFile {
+  path: string;
+  list_path: string;
+  index: number;
+  name: string;
+  kind: string;
+  extension: string;
+  bytes: number;
+}
+
+export interface RustDownloadCompletion {
+  cancelled: boolean;
+  file: RustDownloadFile | null;
+}
+
+export interface RustExportCompletion {
+  path: string;
+  preset_name: string;
+  dependencies: string[];
+  bytes: number;
+}
+
+export interface RustImportDependencyPlan {
+  name: string;
+  extension: string;
+  node_path: string;
+  archive_path: string;
+  bytes: number;
+  existing_index: number | null;
+  target_index: number | null;
+  action: 'compare' | 'upload' | 'reuse' | 'overwrite' | 'blocked' | string;
+}
+
+export interface RustImportPreflight {
+  preset_name: string;
+  preset_bytes: number;
+  preset_entries: number;
+  chain_blocks: string[];
+  chain_changes: string[];
+  target_slot: number | null;
+  target_occupied_by: string | null;
+  empty_slots: number[];
+  dependencies: RustImportDependencyPlan[];
+  blocked: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface RustImportReport {
+  preset_name: string;
+  target_slot: number;
+  dependencies_written: string[];
+  dependencies_reused: string[];
+  preset_bytes: number;
+}
+
+export interface RustImportCompletion {
+  report: RustImportReport;
   snapshot: RustSnapshot;
 }
 
@@ -370,6 +453,8 @@ export const tauriClient = {
   editChain: (edit: Record<string, unknown>) => invoke<RustSnapshot>('edit_chain', { edit }),
   setMaster: (control: string, value: number) =>
     invoke<RustSnapshot>('set_master', { control, value }),
+  setInputGain: (channel: 1 | 2, value: number) =>
+    invoke<RustSnapshot>('set_input_gain', { channel, value }),
   setEqBand: (index: number, field: string, value: number) =>
     invoke<RustSnapshot>('set_eq_band', { index, field, value }),
   setEqType: (index: number, value: string) =>
@@ -409,6 +494,42 @@ export const tauriClient = {
       slot: slot ?? null,
     }),
   cancelUpload: () => invoke<boolean>('cancel_upload'),
+  downloadListItem: (
+    id: string,
+    listPath: string,
+    index: number,
+    destination: string,
+    overwrite = true,
+  ) =>
+    invoke<RustDownloadCompletion>('download_list_item', {
+      id,
+      listPath,
+      index,
+      destination,
+      overwrite,
+    }),
+  cancelDownload: () => invoke<boolean>('cancel_download'),
+  exportPreset: (index: number, destination: string, overwrite = true) =>
+    invoke<RustExportCompletion>('export_preset', { index, destination, overwrite }),
+  preflightPresetImport: (bundlePath: string, targetSlot?: number) =>
+    invoke<RustImportPreflight>('preflight_preset_import', {
+      bundlePath,
+      targetSlot: targetSlot ?? null,
+    }),
+  importPresetBundle: (
+    bundlePath: string,
+    targetSlot: number,
+    overwritePreset: boolean,
+    overwriteDependencies: boolean,
+  ) =>
+    invoke<RustImportCompletion>('import_preset_bundle', {
+      bundlePath,
+      targetSlot,
+      overwritePreset,
+      overwriteDependencies,
+    }),
+  renameListItem: (listPath: string, index: number, newName: string) =>
+    invoke<RustSnapshot>('rename_list_item', { listPath, index, newName }),
   deleteListItem: (listPath: string, index: number) =>
     invoke<RustSnapshot>('delete_list_item', { listPath, index }),
 };

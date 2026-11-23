@@ -125,12 +125,22 @@ export const combinedResponseDb = (bands: EqBand[], frequency: number): number =
     .filter((band) => band.enabled)
     .reduce((sum, band) => sum + bandResponseDb(band, frequency), 0);
 
-export const logFrequency = (frequency: number): number =>
-  (Math.log10(frequency) - Math.log10(MIN_FREQ)) /
-  (Math.log10(MAX_FREQ) - Math.log10(MIN_FREQ));
+export const logFrequency = (
+  frequency: number,
+  minFrequency = MIN_FREQ,
+  maxFrequency = MAX_FREQ,
+): number =>
+  (Math.log10(frequency) - Math.log10(minFrequency)) /
+  (Math.log10(maxFrequency) - Math.log10(minFrequency));
 
-export const frequencyFromLog = (position: number): number =>
-  10 ** (Math.log10(MIN_FREQ) + position * (Math.log10(MAX_FREQ) - Math.log10(MIN_FREQ)));
+export const frequencyFromLog = (
+  position: number,
+  minFrequency = MIN_FREQ,
+  maxFrequency = MAX_FREQ,
+): number =>
+  10 **
+  (Math.log10(minFrequency) +
+    position * (Math.log10(maxFrequency) - Math.log10(minFrequency)));
 
 export const responseCurve = (
   bands: EqBand[],

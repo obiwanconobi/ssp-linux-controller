@@ -37,6 +37,29 @@ fn run() -> Result<(), Box<dyn Error>> {
                 );
             }
         }
+        "inspect-bundle" => {
+            let path = args.next().unwrap_or_else(usage_exit);
+            let bytes = std::fs::read(&path)?;
+            let bundle = stomp_preset_bundle::read_bundle(&bytes)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "path": path,
+                    "archive_bytes": bytes.len(),
+                    "preset_name": bundle.manifest.preset.name,
+                    "version": bundle.manifest.version,
+                    "preset_bytes": bundle.preset_bytes.len(),
+                    "summary": bundle.summary,
+                    "dependencies": bundle.dependencies.iter().map(|dependency| {
+                        serde_json::json!({
+                            "name": dependency.manifest.name,
+                            "node_path": dependency.manifest.node_path,
+                            "bytes": dependency.bytes.len(),
+                        })
+                    }).collect::<Vec<_>>(),
+                }))?
+            );
+        }
         "dump" => {
             let address = args.next().unwrap_or_else(usage_exit);
             let mut device = open(&address)?;
@@ -120,6 +143,75 @@ fn run() -> Result<(), Box<dyn Error>> {
             device.connect()?;
             device.edit_chain(ChainEdit::Clear)?;
             println!("{}", serde_json::to_string_pretty(&device.state())?);
+        }
+        "download-list-item" => {
+            let values: Vec<String> = args.collect();
+            if values.len() != 4 {
+                usage_exit();
+            }
+            let mut device = open(&values[0])?;
+            device.connect()?;
+            let file = device.download_list_item(&values[1], values[2].parse()?)?;
+            std::fs::write(&values[3], &file.raw)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "list_path": file.list_path,
+                    "index": file.index,
+                    "name": file.name,
+                    "kind": file.kind,
+                    "extension": file.extension,
+                    "bytes": file.bytes,
+                    "path": values[3],
+                }))?
+            );
+        }
+        "export-preset" => {
+            let values: Vec<String> = args.collect();
+            if values.len() != 3 {
+                usage_exit();
+            }
+            let mut device = open(&values[0])?;
+            device.connect()?;
+            let export = device.export_preset_bundle(values[1].parse()?)?;
+            std::fs::write(&values[2], &export.archive)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "preset_name": export.preset_name,
+                    "preset_index": export.preset_index,
+                    "dependencies": export.dependencies,
+                    "archive_bytes": export.archive_bytes,
+                    "path": values[2],
+                }))?
+            );
+        }
+        "import-preset" => {
+            let values: Vec<String> = args.collect();
+            if values.len() < 3 {
+                usage_exit();
+            }
+            let slot: usize = values[2].parse()?;
+            let overwrite = values.iter().any(|value| value == "--overwrite");
+            let bytes = std::fs::read(&values[1])?;
+            let mut device = open(&values[0])?;
+            device.connect()?;
+            let preflight = device.import_preflight(&bytes, Some(slot))?;
+            eprintln!("{}", serde_json::to_string_pretty(&preflight)?);
+            if preflight.blocked {
+                return Err(Box::new(ProtocolError::InvalidRequest(
+                    "import preflight blocked the bundle".into(),
+                )));
+            }
+            let report = device.import_bundle(
+                &bytes,
+                stomp_device::ImportOptions {
+                    target_slot: slot,
+                    overwrite_preset: overwrite,
+                    overwrite_dependencies: overwrite,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
         "delete-list-item" => {
             let values: Vec<String> = args.collect();
@@ -284,6 +376,7 @@ fn usage() {
         "stomp <command>
 
   ports
+  inspect-bundle <bundle.zip>              validate an exported preset bundle
   dump <addr>                              snapshot JSON
   set-block <addr> <block-path> on|off
   move-block <addr> <from-row> <from-col> <to-row> <to-col>
@@ -291,6 +384,9 @@ fn usage() {
   remove-block <addr> <row> <col>
   replace-block <addr> <row> <col> <block-path>
   clear-chain <addr>
+  download-list-item <addr> <list-path> <index> <output>
+  export-preset <addr> <index> <output.zip>
+  import-preset <addr> <bundle.zip> <slot> [--overwrite]
   delete-list-item <addr> <list-path> <index>
   set-control <addr> <node-path> <json-value>
   save-preset <addr> [name]

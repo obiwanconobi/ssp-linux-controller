@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { THEMES } from '../../theme/themes';
+import { isMobileRuntime } from '../../ipc/client';
 import { useAppStore } from '../../stores/useAppStore';
 import type { ViewId } from '../../types';
 
@@ -55,6 +56,7 @@ export const CommandPalette = () => {
   const addActivity = useAppStore((state) => state.addActivity);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
+  const mobile = isMobileRuntime();
 
   useEffect(() => {
     if (open) {
@@ -69,7 +71,9 @@ export const CommandPalette = () => {
     const nextTheme = THEMES[(THEMES.findIndex((item) => item.id === theme) + 1) % THEMES.length];
     return [
       { id: 'board', title: 'Go to Board', group: 'View', icon: LibraryBig, shortcut: '1', run: () => navigate('board') },
-      { id: 'amp', title: 'Go to Amp room', group: 'View', icon: Speaker, shortcut: '2', run: () => navigate('amp') },
+      ...(mobile
+        ? []
+        : [{ id: 'amp', title: 'Go to Amp room', group: 'View', icon: Speaker, shortcut: '2', run: () => navigate('amp') }]),
       { id: 'eq', title: 'Go to Global EQ', group: 'View', icon: AudioLines, shortcut: '3', run: () => navigate('eq') },
       { id: 'library', title: 'Go to Library', group: 'View', icon: LibraryBig, shortcut: '4', run: () => navigate('library') },
       { id: 'settings', title: 'Go to Settings', group: 'View', icon: Settings2, shortcut: '5', run: () => navigate('settings') },
@@ -101,6 +105,7 @@ export const CommandPalette = () => {
     setTheme,
     setTunerOpen,
     setView,
+    mobile,
     theme,
     tunerOpen,
     undo,

@@ -1,7 +1,7 @@
 {
   "name": "stompstation-ui",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port 1420 --strictPort",
@@ -10,6 +10,7 @@
     "test": "vitest run",
     "lint": "tsc -b --pretty false",
     "test:ui": "node scripts/ui-smoke.mjs",
+    "test:mobile": "node scripts/mobile-smoke.mjs",
     "test:startup": "node scripts/startup-smoke.mjs",
     "test:a11y": "node scripts/a11y-smoke.mjs",
     "test:keyboard": "node scripts/keyboard-smoke.mjs",

@@ -3,6 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   AlertTriangle,
   CopyPlus,
+  Download,
   MoreHorizontal,
   PenLine,
   Plus,
@@ -12,6 +13,8 @@ import {
   X,
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import { choosePresetExportPath } from '../../lib/bundleFiles';
+import { ipcErrorMessage, isTauriRuntime } from '../../ipc/client';
 import { useAppStore } from '../../stores/useAppStore';
 import { PresetNameDialog } from './PresetNameDialog';
 
@@ -35,14 +38,35 @@ export const PresetRail = ({ onSelect, onClose }: PresetRailProps = {}) => {
   const savePresetAs = useAppStore((state) => state.savePresetAs);
   const save = useAppStore((state) => state.save);
   const deletePreset = useAppStore((state) => state.deletePreset);
+  const exportPreset = useAppStore((state) => state.exportPreset);
   const addPreset = useAppStore((state) => state.addPreset);
+  const notify = useAppStore((state) => state.notify);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [rename, setRename] = useState<string | null>(null);
   const [saveAs, setSaveAs] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
+  const [exporting, setExporting] = useState(false);
   const patchActions = useRef<HTMLButtonElement>(null);
   const returnToActions = () => requestAnimationFrame(() => patchActions.current?.focus());
+
+  const exportCurrent = async () => {
+    if (!preset.current || exporting) return;
+    if (!isTauriRuntime()) {
+      notify('The browser preview cannot write preset bundles', 'warn');
+      return;
+    }
+    setExporting(true);
+    try {
+      const destination = await choosePresetExportPath(preset.current);
+      if (!destination) return;
+      await exportPreset(preset.index, destination);
+    } catch (error) {
+      notify(ipcErrorMessage(error), 'bad');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const rows = useMemo<Row[]>(() => {
     const named = preset.names
@@ -118,6 +142,17 @@ export const PresetRail = ({ onSelect, onClose }: PresetRailProps = {}) => {
                     <small>Write the edit buffer under another name</small>
                   </span>
                   <CopyPlus size={12} />
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="menu__item"
+                  disabled={!preset.current || exporting}
+                  onSelect={() => void exportCurrent()}
+                >
+                  <span>
+                    <strong>{exporting ? 'Exporting…' : 'Export preset…'}</strong>
+                    <small>Manifest, .pst, and referenced captures</small>
+                  </span>
+                  <Download size={12} />
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>

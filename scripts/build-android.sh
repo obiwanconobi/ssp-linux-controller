@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Build a sideloadable StompStation Android APK.
 #
-#   ./scripts/build-android.sh                 # arm64 release, debug-key signed
-#   ./scripts/build-android.sh x86_64          # emulator release
+#   ./scripts/build-android.sh                 # arm64 release APK, debug-key signed
+#   ./scripts/build-android.sh x86_64          # emulator release APK
 #   ./scripts/build-android.sh aarch64 debug   # debug APK (not minified)
+#   ./scripts/build-android.sh aarch64 release aab  # Play Store AAB
 #
 # Requires JDK 17+, Android SDK + NDK, rustup Android targets, cargo-tauri and
 # pnpm. Set JAVA_HOME/ANDROID_HOME/NDK_HOME if they are not auto-detected.
@@ -18,9 +19,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP="$ROOT/apps/desktop"
 TARGET="${1:-aarch64}"
 MODE="${2:-release}"
+FORMAT="${3:-apk}"
 
 if [[ "$MODE" != "debug" && "$MODE" != "release" ]]; then
   echo "Mode must be 'debug' or 'release' (got '$MODE')." >&2
+  exit 2
+fi
+if [[ "$FORMAT" != "apk" && "$FORMAT" != "aab" ]]; then
+  echo "Format must be 'apk' or 'aab' (got '$FORMAT')." >&2
+  exit 2
+fi
+if [[ "$FORMAT" == "aab" && "$MODE" == "debug" ]]; then
+  echo "Use 'release' for an AAB; debug AABs are not publishable." >&2
   exit 2
 fi
 
@@ -62,34 +72,59 @@ if [[ ! -d "$DESKTOP/src-tauri/gen/android" ]]; then
   (cd "$DESKTOP" && cargo tauri android init --ci)
 fi
 
-echo "== building $TARGET $MODE APK =="
-BUILD_ARGS=(--target "$TARGET" --apk)
+echo "== building $TARGET $MODE ${FORMAT^^} =="
+BUILD_ARGS=(--target "$TARGET")
+if [[ "$FORMAT" == "apk" ]]; then
+  BUILD_ARGS+=(--apk)
+else
+  BUILD_ARGS+=(--aab)
+fi
 if [[ "$MODE" == "debug" ]]; then
   BUILD_ARGS+=(--debug)
 fi
 (cd "$DESKTOP" && cargo tauri android build "${BUILD_ARGS[@]}")
 
-APK_DIR="$DESKTOP/src-tauri/gen/android/app/build/outputs/apk/universal/$MODE"
 OUT_DIR="$ROOT/dist/android"
 mkdir -p "$OUT_DIR"
+KEYSTORE="${STOMPSTATION_KEYSTORE:-$HOME/.android/debug.keystore}"
+KEY_ALIAS="${STOMPSTATION_KEY_ALIAS:-androiddebugkey}"
+STORE_PASS="${STOMPSTATION_KEYSTORE_PASSWORD:-android}"
+KEY_PASS="${STOMPSTATION_KEY_PASSWORD:-android}"
+if [[ ! -f "$KEYSTORE" ]]; then
+  echo "== creating the local debug keystore =="
+  mkdir -p "$(dirname "$KEYSTORE")"
+  keytool -genkeypair -v \
+    -keystore "$KEYSTORE" -storepass "$STORE_PASS" -keypass "$KEY_PASS" \
+    -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+    -dname "CN=Android Debug,O=Android,C=US" >/dev/null
+fi
+
+if [[ "$FORMAT" == "aab" ]]; then
+  OUT="$OUT_DIR/stompstation-$TARGET-release.aab"
+  BUNDLE="$(find "$DESKTOP/src-tauri/gen/android/app/build/outputs/bundle" -name '*.aab' -type f 2>/dev/null | sort -V | tail -1)"
+  if [[ -z "$BUNDLE" ]]; then
+    echo "AAB output was not found under app/build/outputs/bundle." >&2
+    exit 1
+  fi
+  jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
+    -keystore "$KEYSTORE" -storepass "$STORE_PASS" -keypass "$KEY_PASS" \
+    -signedjar "$OUT" "$BUNDLE" "$KEY_ALIAS" >/dev/null
+  jarsigner -verify "$OUT" >/dev/null
+  echo
+  echo "AAB: $OUT"
+  if [[ -z "${STOMPSTATION_KEYSTORE:-}" ]]; then
+    echo "Signed with the local Android debug key — sideload/testing only, not a Play upload key."
+  fi
+  exit 0
+fi
+
+APK_DIR="$DESKTOP/src-tauri/gen/android/app/build/outputs/apk/universal/$MODE"
 OUT="$OUT_DIR/stompstation-$TARGET-$MODE.apk"
 
 if [[ "$MODE" == "debug" ]]; then
   install -m 644 "$APK_DIR/app-universal-debug.apk" "$OUT"
 else
   BUILD_TOOLS="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-  KEYSTORE="${STOMPSTATION_KEYSTORE:-$HOME/.android/debug.keystore}"
-  KEY_ALIAS="${STOMPSTATION_KEY_ALIAS:-androiddebugkey}"
-  STORE_PASS="${STOMPSTATION_KEYSTORE_PASSWORD:-android}"
-  KEY_PASS="${STOMPSTATION_KEY_PASSWORD:-android}"
-  if [[ ! -f "$KEYSTORE" ]]; then
-    echo "== creating the local debug keystore =="
-    mkdir -p "$(dirname "$KEYSTORE")"
-    keytool -genkeypair -v \
-      -keystore "$KEYSTORE" -storepass "$STORE_PASS" -keypass "$KEY_PASS" \
-      -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
-      -dname "CN=Android Debug,O=Android,C=US" >/dev/null
-  fi
   ALIGNED="$(mktemp "${TMPDIR:-/tmp}/stompstation-aligned.XXXXXX.apk")"
   trap 'rm -f "$ALIGNED"' EXIT
   "$BUILD_TOOLS/zipalign" -f -p 4 "$APK_DIR/app-universal-release-unsigned.apk" "$ALIGNED"

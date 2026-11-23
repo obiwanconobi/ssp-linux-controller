@@ -37,15 +37,25 @@ The project is deliberately split into two worlds:
 | List deletion | Per-row delete in the patch rail and Library lists uses the official zero-fill `dwrite` with confirmation and read-back verification; simulator-tested, hardware delete semantics pending |
 | Chain editing | Remove, replace, and clear use one router write per action; add/remove/replace/move/link/clear are covered by the simulator smoke. Clear chain preserves fixed blocks and connectors behind a destructive confirmation. The chain write payload is wrapped as `{"value": ...}` so the firmware accepts it |
 | Preset save | Saves the live chain and parameter edits; JSON field order matches the device (`value` before `save`), coalesced writes flush first, and router edits keep the preset dirty until saved |
-| Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, and the PNAM drive editor have been exercised on firmware 2.4.4. Firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, simultaneous Wi-Fi clients, and basic NAM A2/PNAM/IR uploads. Chain move/link, EQ writes, upload cancel/overwrite paths, and long idle polling remain open |
-| Android | Wi-Fi/TCP-only Tauri app; arm64/x86_64 release APKs build, and the x86_64 release runs in an API 37 emulator. USB serial and Play Store signing are not implemented; see [`docs/ANDROID.md`](docs/ANDROID.md) |
+| Global input settings | Settings → Audio & pedal reads/writes `gain1`/`gain2` (−15…+15 dB, 0.1 steps) and displays the read-only `_connected1`/`_connected2` jack state. Gain writes are global and do not mark the preset dirty |
+| Preset Level | Uses firmware 2.5.3's `root\app\output\pst\level` (−20…+20 dB); the lower-bar stepper tracks the snapshot's range, supports 0.5 dB buttons and 0.1 dB arrow-key steps, and stays on the existing dirty/save path |
+| Parametric EQ graph | The in-chain `root\app\parametric_eq` block gets the shared Global EQ graph with four draggable/keyboard bands, Q wheel, selected-band highlighting, Flat reset, and numeric cards. The 8-band Graphic EQ and Global EQ paths are not reused |
+| Preset bundles | Export writes the device's stored `.pst` plus every `root\presets.used` dependency to the official `bdinfo.json`/`preset/`/`dependencies/` zip shape. The live `Brave` export now matches the official `Brave.zip` byte-for-byte for the `.pst` and all four dependencies. Import validates paths, manifest, `.pst` scope, NAM/PNAM/IR structure, and duplicate/missing dependencies before writing; identical captures are reused and partial writes are reported |
+| Library downloads | NAM/PNAM downloads consume `dread` chunks from 1, decompress gzip, trim slot padding, and validate the model; IR slots return 2048 raw little-endian `f32` samples, which the app wraps in the same 48 kHz mono float WAV header the official app exports. Progress is cancellable at chunk boundaries and writes use a temp file |
+| Library rename | Renames use the 128-byte `dwrite` name chunk with readback and duplicate validation. Captures referenced by `root\presets.used` are blocked with the affected preset names until the firmware reference-update behavior is verified on hardware |
+| Add-block menu | Capped at `min(60vh, 440px)` with internal scrolling, collision padding, Radix type-ahead/keyboard navigation, and an 800×600 Playwright check |
+| Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, and the PNAM drive editor have been exercised on firmware 2.4.4. Firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, simultaneous Wi-Fi clients, and basic NAM A2/PNAM/IR uploads. On 2026-11-23, live 2.5.3 reads confirmed IR slots are raw `f32` payloads, and a live `Brave` export matched the official `Brave.zip` `.pst` and dependency hashes. Chain move/link, EQ writes, upload cancel/overwrite paths, and long idle polling remain open |
+| Android | Wi-Fi/TCP-only Tauri app; targetSdk 37 with the runtime local-network permission, content-URI file-picker bridge, background/resume reconnect, and compact landscape layout. APK and AAB builds/signing paths exist, and a CI Appium emulator suite covers smoke, typed-knob, rotation, resume, and native file-picker upload. USB-OTG and physical-phone validation remain; see [`docs/ANDROID.md`](docs/ANDROID.md) |
 | Local install | `scripts/install-local.sh` installs the release binary, desktop entry, and icons; rerun to update |
 | Phase 4–5 — hardening/release | P4 in progress: performance budgets, stale-write chaos tests, and diagnostic export review are in place; distro/clean-machine checks, signing, updater, and crash telemetry remain |
 
-The next release plan is in [`docs/V0.6.0_PLAN.md`](docs/V0.6.0_PLAN.md):
+The 0.6.0 work in [`docs/V0.6.0_PLAN.md`](docs/V0.6.0_PLAN.md) is implemented:
 input gain/connection settings, Preset Level, the scrolling Add-block menu, the
 Parametric EQ graph, preset export/import, Library file downloads, and Library
-file renaming.
+file renaming. The simulator, Rust/unit tests, UI smoke, accessibility, keyboard,
+and visual baselines cover the new paths; hardware validation is the remaining
+gate, especially preset-bundle writes, download bytes, used-capture rename
+policy, and input-gain readback.
 
 The browser build runs against a deterministic demo device so every surface is
 inspectable without hardware. The Tauri shell starts disconnected: it scans
@@ -141,7 +151,8 @@ screenshots labelled “hardware” use the real 2.4.4 fixture.
 │  ├─ src-tauri/              # Tauri 2 app, typed commands, state
 │  │  └─ gen/android/         # Tauri Android project (source; build outputs ignored)
 │  └─ ui/                     # React 19 + TypeScript + Vite, design system
-├─ docs/                      # device safety, remaining work, hardware validation, Android, screenshots
+│     └─ e2e/android/         # Appium/UiAutomator2 + WebdriverIO Android suite
+├─ docs/                      # device safety, remaining work, hardware validation, Android + UI testing, screenshots
 ├─ fixtures/
 │  └─ snapshots/              # generated snapshot + block editors
 ├─ Legacy/                    # original Python GTK client and protocol notes
@@ -149,6 +160,7 @@ screenshots labelled “hardware” use the real 2.4.4 fixture.
 └─ scripts/
    ├─ smoke.sh                # simulator -> core -> assertions
    ├─ build-android.sh        # APK build + zipalign + sign
+   ├─ android-e2e.sh          # Android UI tests (CDP + Appium)
    ├─ install-local.sh        # desktop release install/update
    └─ dev.sh                  # Vite + Tauri dev shell
 ```
@@ -163,6 +175,7 @@ pnpm build        # production bundle (required before the Playwright smokes)
 pnpm lint         # TypeScript project check
 pnpm test         # unit + mapping tests (Vitest)
 pnpm test:ui       # Playwright interaction smoke against the built bundle
+pnpm test:mobile   # phone geometry: centered connection sheet, chain editor, no Amp tab
 pnpm test:startup  # Playwright startup smoke: Wi-Fi/USB failure, --demo, USB success
 pnpm test:a11y     # axe WCAG AA scan: three themes, every view and overlay
 pnpm test:keyboard # keyboard-only pass: skip link, tabs, dialogs, knobs, shortcuts
@@ -170,6 +183,12 @@ pnpm test:states   # focused, pending, conflict, and error state checks
 pnpm test:visual   # compare 21 screenshots against committed baselines
 pnpm test:visual:update # regenerate the visual baselines
 pnpm test:perf     # startup, paint, DOM-node, and idle-heap budgets
+```
+
+Android UI tests run from the repository root against an emulator/device:
+
+```bash
+./scripts/android-e2e.sh both   # Playwright/CDP + Appium/WebdriverIO
 ```
 
 The Playwright smokes start their own Vite preview server. Override the default
@@ -187,14 +206,15 @@ Run the fast, hardware-free suite from the repository root:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace          # 43 Rust tests
+cargo test --workspace          # 96 Rust tests
 ./scripts/smoke.sh              # simulator -> core -> chain/save/preset/upload assertions
 
 cd apps/desktop/ui
 pnpm lint
-pnpm test                       # 61 Vitest tests
+pnpm test                       # 72 Vitest tests
 pnpm build
 pnpm test:ui                    # interaction smoke
+pnpm test:mobile                # phone layout/geometry smoke
 pnpm test:startup               # no-device / --demo / Wi-Fi-or-USB startup smoke
 pnpm test:a11y                  # WCAG AA scans in all themes and overlays
 pnpm test:keyboard              # keyboard-only pass
@@ -285,9 +305,13 @@ and related variables for a real upload key. The generated project lives in
 `MulticastLock` for mDNS.
 
 Tested with a Pixel 10 Pro API 37 x86_64 emulator over `adb reverse` to the
-simulator. A physical phone has not been tested yet. Full prerequisites,
-signing, install, and troubleshooting notes are in
-[`docs/ANDROID.md`](docs/ANDROID.md).
+simulator. A physical phone has not been tested yet. The Android UI harness
+(`apps/desktop/ui/e2e/android/`) runs the real WebView through Appium and a
+fast Playwright/CDP smoke; start it with `./scripts/android-e2e.sh both`. Full
+prerequisites, signing, install, and troubleshooting notes are in
+[`docs/ANDROID.md`](docs/ANDROID.md); harness architecture, extension recipes,
+and remaining Android UI work are in
+[`docs/ANDROID_UI_TESTING.md`](docs/ANDROID_UI_TESTING.md).
 
 ## Run the desktop shell in development
 

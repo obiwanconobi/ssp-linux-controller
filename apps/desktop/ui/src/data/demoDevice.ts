@@ -457,8 +457,17 @@ export const AVAILABLE_BLOCKS = [
   { id: 'chorus', label: 'Chorus', desc: 'Classic analog chorus' },
   { id: 'flanger', label: 'Flanger', desc: 'Through-zero flanger' },
   { id: 'rotary', label: 'Rotary', desc: 'Leslie cabinet' },
+  { id: 'pitch_time', label: 'Pitch (Time)', desc: 'Time-stretched pitch shifter' },
+  { id: 'dyna_comp', label: 'Dyna Comp', desc: 'Dynamics compressor' },
   { id: 'eq', label: 'EQ', desc: '4-band parametric' },
+  { id: 'eq2', label: 'EQ 2', desc: 'Second graphic EQ' },
   { id: 'parametric_eq', label: 'Parametric EQ', desc: 'High-resolution EQ' },
+  { id: 'crossover', label: 'Crossover', desc: 'Two-way split' },
+  { id: 'delay2', label: 'Delay 2', desc: 'Second delay line' },
+  { id: 'reverb2', label: 'Reverb 2', desc: 'Second reverb' },
+  { id: 'pickup', label: 'Pickup', desc: 'Pickup simulator' },
+  { id: 'dtchr', label: 'D-Techer', desc: 'Drive character' },
+  { id: 'pcm42', label: 'PCM 42', desc: 'Lo-fi delay' },
 ];
 
 export const INITIAL_MASTER: MasterState = {
@@ -495,8 +504,8 @@ export const INITIAL_LISTS: LibraryList[] = [
     slotSize: 1024 * 1024,
     activeSlot: 0,
     slots: [
-      { index: 0, name: 'Match Brave Hi D 3', used: true, active: true },
-      { index: 1, name: '64 Vibroverb D 2', used: true, active: true },
+      { index: 0, name: 'Match Brave Hi D 3', used: true, active: true, usedBy: [3] },
+      { index: 1, name: '64 Vibroverb D 2', used: true, active: true, usedBy: [3] },
       { index: 2, name: 'Twin Clean', used: true, active: false },
       { index: 3, name: 'Dumble Ford', used: true, active: false },
       { index: 4, name: 'Plexi Lead', used: true, active: false },
@@ -512,7 +521,7 @@ export const INITIAL_LISTS: LibraryList[] = [
     slotSize: 1024 * 1024,
     activeSlot: 0,
     slots: [
-      { index: 0, name: 'Klone 3', used: true, active: true },
+      { index: 0, name: 'Klone 3', used: true, active: true, usedBy: [3] },
       { index: 1, name: 'Tone-King OD', used: true, active: false },
       { index: 2, name: '', used: false, active: false },
       { index: 3, name: '', used: false, active: false },
@@ -551,8 +560,8 @@ export const INITIAL_LISTS: LibraryList[] = [
     slotSize: 8192,
     activeSlot: 0,
     slots: [
-      { index: 0, name: 'TJ3 58BND310', used: true, active: true },
-      { index: 1, name: 'TJ3 57', used: true, active: true },
+      { index: 0, name: 'TJ3 58BND310', used: true, active: true, usedBy: [3] },
+      { index: 1, name: 'TJ3 57', used: true, active: true, usedBy: [3] },
       { index: 2, name: 'G12M Greenback', used: true, active: false },
       { index: 3, name: '', used: false, active: false },
     ],

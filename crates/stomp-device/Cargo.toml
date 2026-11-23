@@ -9,10 +9,14 @@ license.workspace = true
 default = ["serial"]
 serial = ["stomp-transport/serial"]
 
+[dev-dependencies]
+flate2 = { workspace = true }
+
 [dependencies]
 stomp-protocol = { path = "../stomp-protocol" }
 stomp-transport = { path = "../stomp-transport", default-features = false }
 stomp-upload = { path = "../stomp-upload" }
+stomp-preset-bundle = { path = "../stomp-preset-bundle" }
 stomp-eq = { path = "../stomp-eq" }
 serde = { workspace = true }
 serde_json = { workspace = true }
