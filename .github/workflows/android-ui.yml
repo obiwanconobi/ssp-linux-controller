@@ -69,6 +69,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # `tools` was removed from the current SDK repository and the
+          # action's default package list still asks for it. The runner
+          # already ships platform-tools; the next step installs the NDK,
+          # platform, and build-tools explicitly.
+          packages: platform-tools
 
       - name: Install Android NDK
         shell: bash
