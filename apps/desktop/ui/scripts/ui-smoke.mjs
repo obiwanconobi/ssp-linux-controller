@@ -25,6 +25,7 @@ const localCaptures = mkdtempSync(join(tmpdir(), 'stomp-captures-'));
 mkdirSync(join(localCaptures, 'sub'), { recursive: true });
 writeFileSync(join(localCaptures, 'Amp.nam'), '{}');
 writeFileSync(join(localCaptures, 'Drive.pnam'), '{}');
+writeFileSync(join(localCaptures, 'Legacy.vxamp'), 'raw');
 writeFileSync(join(localCaptures, 'sub', 'Cab.wav'), 'RIFF');
 
 const largeCaptures = mkdtempSync(join(tmpdir(), 'stomp-large-captures-'));
@@ -291,8 +292,8 @@ try {
     'library should show Amps, Drives, and IRs',
   );
   assert(
-    (await page.locator('.library-scope__sub').count()) === 2,
-    'Amps should show NAM and Parametric NAM subsections',
+    (await page.locator('.library-scope__sub').count()) === 3,
+    'Amps should show NAM, Parametric NAM, and VXAMP subsections',
   );
   assert(
     (await page.locator('.library-table tbody tr').count()) === 8,
@@ -311,6 +312,19 @@ try {
   );
 
   const libraryUpload = page.locator('.drop-zone input[type=file]');
+  await page.locator('.library-scope__sub', { hasText: 'VXAMP' }).click();
+  await libraryUpload.setInputFiles(join(localCaptures, 'Legacy.vxamp'));
+  await page.waitForTimeout(150);
+  assert(
+    (await page.locator('.preflight').innerText()).includes('VXAMP · raw'),
+    'VXAMP preflight did not show the raw upload format',
+  );
+  assert(
+    (await page.locator('.preflight').innerText()).includes('Amps — VXAMP'),
+    'VXAMP upload did not target the VXAMP list',
+  );
+  await page.locator('.preflight__actions .btn', { hasText: 'Cancel' }).click();
+
   await page.locator('.library-scope__category', { hasText: 'IRs' }).click();
   await libraryUpload.setInputFiles(join(localCaptures, 'Amp.nam'));
   await page.waitForTimeout(150);
@@ -357,7 +371,7 @@ try {
   await page.locator('.segmented button', { hasText: 'Local files' }).click();
   await page.locator('input[webkitdirectory]').setInputFiles(localCaptures);
   await page.waitForTimeout(250);
-  assert((await page.locator('.local-library tbody tr').count()) === 3, 'local folder scan did not list captures');
+  assert((await page.locator('.local-library tbody tr').count()) === 4, 'local folder scan did not list captures');
   await page.locator('.local-library tbody tr').first().locator('button', { hasText: 'Preflight' }).click();
   assert(await page.locator('.preflight').isVisible(), 'local preflight did not open');
 

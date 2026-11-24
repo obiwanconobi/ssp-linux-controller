@@ -21,6 +21,8 @@ pub use node::{Node, NodeStore};
 pub const NAM_SLOT_SIZE: usize = 1024 * 1024;
 /// Parametric NAM slots are 2 MiB.
 pub const PNAM_SLOT_SIZE: usize = 2 * 1024 * 1024;
+/// Legacy VXAMP/amp-model slots are 12 KiB and are not gzip-compressed.
+pub const VXAMP_SLOT_SIZE: usize = 12 * 1024;
 pub const CHUNK_SIZE: usize = 1024;
 pub const NAME_SIZE: usize = 128;
 pub const MAX_PRESET_NAME_BYTES: usize = 63;
@@ -38,6 +40,7 @@ pub const NAM_DRIVE_PATH: &str = r"root\nam_drive";
 pub const PNAM_PATH: &str = r"root\pnam_list";
 pub const PNAM_DRIVE_PATH: &str = r"root\pnam_drive";
 pub const IR_PATH: &str = r"root\ir_list";
+pub const VXAMP_PATH: &str = r"root\vxamp_list";
 pub const MASTER_PATH: &str = r"root\app\output";
 pub const GLOBAL_EQ_PATH: &str = r"root\app\output\global_eq";
 pub const SETTINGS_PATH: &str = r"root\settings";

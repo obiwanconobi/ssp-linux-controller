@@ -141,6 +141,41 @@ describe('demo chain editing', () => {
     expect(after.toast?.message).toContain('has no model');
   });
 
+  it('adds a VXAMP block with the VXAMP family heading', () => {
+    const before = useAppStore.getState();
+    const available = before.availableBlocks.find((block) => block.id === 'vxamp');
+    expect(available).toBeTruthy();
+
+    before.addBlock('vxamp');
+
+    const added = useAppStore
+      .getState()
+      .blocks.find((block) => block.id.startsWith('vxamp-'));
+    expect(added).toBeTruthy();
+    expect(added?.family).toBe('vxamp');
+    expect(added?.shortName).toBe('VXAMP');
+    expect(added?.label).toBe('VXAMP');
+  });
+
+  it('queues a VXAMP upload to the VXAMP list', () => {
+    const before = useAppStore.getState();
+    expect(before.lists.some((list) => list.id === 'vxamp_list')).toBe(true);
+
+    const started = before.addUpload({
+      name: 'Legacy.vxamp',
+      size: 1024,
+      kind: 'vxamp',
+      target: 'vxamp_list',
+      slot: 0,
+    });
+
+    expect(started).toBe(true);
+    const upload = useAppStore.getState().uploads[0];
+    expect(upload.kind).toBe('vxamp');
+    expect(upload.target).toBe('VXAMP models');
+    expect(upload.slot).toBe(0);
+  });
+
   it('flags a preset saved with a different block type', () => {
     const before = useAppStore.getState();
     const drive = before.blocks.find((block) => block.id === 'drive')!;

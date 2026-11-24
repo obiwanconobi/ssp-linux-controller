@@ -5,6 +5,7 @@ export const UPLOAD_TARGET_PATHS: Record<string, string> = {
   pnam_list: 'root\\pnam_list',
   pnam_drive: 'root\\pnam_drive',
   ir_list: 'root\\ir_list',
+  vxamp_list: 'root\\vxamp_list',
 };
 
 export const uploadTargetPath = (target: string): string =>

@@ -23,6 +23,7 @@ use stomp_protocol::router::{available_blocks, chain_blocks, load_chain, ChainSl
 use stomp_protocol::{
     normalize_path, path_name, path_parent, ProtocolError, CHUNK_SIZE, DEFAULT_CHAIN, IR_PATH,
     NAME_SIZE, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH, PRESET_LIST_PATH, PRESET_PATH,
+    VXAMP_PATH, VXAMP_SLOT_SIZE,
 };
 use stomp_transport::{ScriptedTransport, SerialTransport, TcpTransport, Transport};
 use stomp_upload::{
@@ -887,16 +888,17 @@ impl Device {
             UploadKind::Nam => "nam",
             UploadKind::Pnam => "pnam",
             UploadKind::Ir => "ir",
+            UploadKind::Vxamp => "vxamp",
         };
         let item_type = list.item_type().to_ascii_lowercase();
         let known_capture_path = matches!(
             normalize_path(target).as_str(),
-            NAM_PATH | NAM_DRIVE_PATH | PNAM_PATH | PNAM_DRIVE_PATH | IR_PATH
+            NAM_PATH | NAM_DRIVE_PATH | PNAM_PATH | PNAM_DRIVE_PATH | IR_PATH | VXAMP_PATH
         );
         if !known_capture_path {
             return Err(ProtocolError::InvalidRequest(format!(
                 "{target} is not a supported capture list; uploads are limited to \
-                 the five NAM/PNAM/IR lists"
+                 the NAM/PNAM/IR/VXAMP lists"
             )));
         }
         // Firmware tags list types in several forms: "ir", "wav", and rate
@@ -1872,7 +1874,7 @@ impl Device {
             .ok_or_else(|| ProtocolError::Unsupported(format!("{list_path} is not available")))?;
         let kind = list_kind(&path, node).ok_or_else(|| {
             ProtocolError::InvalidRequest(format!(
-                "{list_path} is not a preset or NAM/PNAM/IR list"
+                "{list_path} is not a preset or NAM/PNAM/IR/VXAMP list"
             ))
         })?;
         let names = node
@@ -1901,7 +1903,7 @@ impl Device {
                     "{path} did not report the compressed payload size on chunk 1"
                 ))
             })?,
-            ListKind::Preset | ListKind::Ir => node_size.ok_or_else(|| {
+            ListKind::Preset | ListKind::Ir | ListKind::Vxamp => node_size.ok_or_else(|| {
                 ProtocolError::Protocol(format!("{path} does not declare an item size"))
             })?,
         };
@@ -1951,13 +1953,13 @@ impl Device {
                 break;
             }
             // IR slots may hold a source WAV shorter than the slot capacity;
-            // the final chunk is then short instead of padded. The WAV header
-            // validation below still guards the result.
-            if kind == ListKind::Ir && short {
+            // VXAMP payloads may also be shorter than the fixed slot. The final
+            // chunk is then short instead of padded.
+            if matches!(kind, ListKind::Ir | ListKind::Vxamp) && short {
                 break;
             }
         }
-        if payload.len() < declared_size && kind != ListKind::Ir {
+        if payload.len() < declared_size && !matches!(kind, ListKind::Ir | ListKind::Vxamp) {
             return Err(ProtocolError::Protocol(format!(
                 "download ended after {} of {} bytes",
                 payload.len(),
@@ -1985,6 +1987,10 @@ impl Device {
                 };
                 validate_capture(UploadKind::Ir, &wav)?;
                 (wav, false)
+            }
+            ListKind::Vxamp => {
+                validate_capture(UploadKind::Vxamp, &payload)?;
+                (payload, false)
             }
             ListKind::Preset => (payload, false),
         };
@@ -2081,7 +2087,13 @@ impl Device {
         let preset_list = preset_state(&self.nodes).list_path;
         let allowed = matches!(
             path.as_str(),
-            NAM_PATH | NAM_DRIVE_PATH | PNAM_PATH | PNAM_DRIVE_PATH | IR_PATH | PRESET_LIST_PATH
+            NAM_PATH
+                | NAM_DRIVE_PATH
+                | PNAM_PATH
+                | PNAM_DRIVE_PATH
+                | IR_PATH
+                | VXAMP_PATH
+                | PRESET_LIST_PATH
         ) || preset_list.as_deref() == Some(path.as_str());
         if !allowed {
             return Err(ProtocolError::InvalidRequest(format!(
@@ -2162,7 +2174,7 @@ impl Device {
         let path = normalize_path(list_path);
         let allowed = matches!(
             path.as_str(),
-            NAM_PATH | NAM_DRIVE_PATH | PNAM_PATH | PNAM_DRIVE_PATH | IR_PATH
+            NAM_PATH | NAM_DRIVE_PATH | PNAM_PATH | PNAM_DRIVE_PATH | IR_PATH | VXAMP_PATH
         );
         if !allowed {
             return Err(ProtocolError::InvalidRequest(format!(
@@ -2316,6 +2328,7 @@ enum ListKind {
     Nam,
     Pnam,
     Ir,
+    Vxamp,
 }
 
 impl ListKind {
@@ -2325,6 +2338,7 @@ impl ListKind {
             Self::Nam => "nam",
             Self::Pnam => "pnam",
             Self::Ir => "ir",
+            Self::Vxamp => "vxamp",
         }
     }
 
@@ -2334,6 +2348,7 @@ impl ListKind {
             Self::Nam => "nam",
             Self::Pnam => "pnam",
             Self::Ir => "wav",
+            Self::Vxamp => "vxamp",
         }
     }
 
@@ -2343,6 +2358,7 @@ impl ListKind {
             Self::Nam => stomp_protocol::NAM_SLOT_SIZE,
             Self::Pnam => stomp_protocol::PNAM_SLOT_SIZE,
             Self::Ir => stomp_protocol::IR_LENGTH * 4,
+            Self::Vxamp => VXAMP_SLOT_SIZE,
         }
     }
 }
@@ -2352,6 +2368,7 @@ fn upload_kind_for_list(path: &str) -> Option<UploadKind> {
         NAM_PATH | NAM_DRIVE_PATH => Some(UploadKind::Nam),
         PNAM_PATH | PNAM_DRIVE_PATH => Some(UploadKind::Pnam),
         IR_PATH => Some(UploadKind::Ir),
+        VXAMP_PATH => Some(UploadKind::Vxamp),
         _ => None,
     }
 }
@@ -2364,6 +2381,7 @@ fn list_kind(path: &str, node: &stomp_protocol::node::Node) -> Option<ListKind> 
         NAM_PATH | NAM_DRIVE_PATH => return Some(ListKind::Nam),
         PNAM_PATH | PNAM_DRIVE_PATH => return Some(ListKind::Pnam),
         IR_PATH => return Some(ListKind::Ir),
+        VXAMP_PATH => return Some(ListKind::Vxamp),
         _ => {}
     }
     let item_type = node.item_type().to_ascii_lowercase();
@@ -2375,6 +2393,8 @@ fn list_kind(path: &str, node: &stomp_protocol::node::Node) -> Option<ListKind> 
         || item_type.starts_with("wav_")
     {
         Some(ListKind::Ir)
+    } else if item_type == "vxamp" || item_type.starts_with("vxamp_") {
+        Some(ListKind::Vxamp)
     } else if item_type == "nam" || item_type.starts_with("nam_") {
         Some(ListKind::Nam)
     } else {
@@ -2558,6 +2578,10 @@ mod tests {
     }
 
     fn dwrite_steps(prepared: &PreparedUpload) -> Vec<Step> {
+        dwrite_steps_for(TARGET, prepared)
+    }
+
+    fn dwrite_steps_for(target: &str, prepared: &PreparedUpload) -> Vec<Step> {
         let last = prepared.chunks.len().saturating_sub(1);
         prepared
             .chunks
@@ -2566,9 +2590,9 @@ mod tests {
             .map(|(index, chunk)| {
                 let reply_chunk = if index == last { -1 } else { chunk.number + 1 };
                 Step::new(
-                    command::dwrite(TARGET, 0, chunk.number, &chunk.value).unwrap(),
+                    command::dwrite(target, 0, chunk.number, &chunk.value).unwrap(),
                     reply(format!(
-                        r#"dwrite {TARGET}:{{"index":0,"chunk":{reply_chunk}}}"#
+                        r#"dwrite {target}:{{"index":0,"chunk":{reply_chunk}}}"#
                     )),
                 )
             })
@@ -3313,7 +3337,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("not a preset or NAM/PNAM/IR list"),
+            error.contains("not a preset or NAM/PNAM/IR/VXAMP list"),
             "{error}"
         );
     }
@@ -3393,6 +3417,118 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(empty.contains("empty"), "{empty}");
+    }
+
+    #[test]
+    fn preflight_accepts_raw_vxamp_lists() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            VXAMP_PATH,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"vxamp",
+                    "value":["",""],
+                    "size":VXAMP_SLOT_SIZE
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+
+        let checked = device
+            .preflight_upload(
+                UploadKind::Vxamp,
+                b"opaque legacy payload",
+                "Legacy Amp.vxamp",
+                VXAMP_PATH,
+                None,
+            )
+            .unwrap();
+        assert_eq!(checked.name, "Legacy Amp");
+        assert_eq!(checked.slot, 0);
+        assert_eq!(checked.slot_size, VXAMP_SLOT_SIZE);
+        assert!(checked.ready);
+
+        device.nodes.insert(
+            r"root\custom_vxamp",
+            stomp_protocol::node::Node::new(
+                json!({"type":"list","item_type":"vxamp","value":[""],"size":VXAMP_SLOT_SIZE})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        );
+        let error = device
+            .preflight_upload(
+                UploadKind::Vxamp,
+                b"raw",
+                "x.vxamp",
+                r"root\custom_vxamp",
+                None,
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not a supported capture list"), "{error}");
+    }
+
+    #[test]
+    fn uploads_vxamp_as_raw_slot_data() {
+        let raw = b"legacy vxamp payload";
+        let prepared =
+            prepare_upload(UploadKind::Vxamp, raw, "Legacy", Some(VXAMP_SLOT_SIZE)).unwrap();
+        let mut steps = dwrite_steps_for(VXAMP_PATH, &prepared);
+        steps.push(Step::new(
+            command::read(VXAMP_PATH),
+            reply(format!(
+                r#"{VXAMP_PATH}:{{"type":"list","item_type":"vxamp","value":["Legacy"],"size":{VXAMP_SLOT_SIZE}}}"#
+            )),
+        ));
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(
+            VXAMP_PATH,
+            stomp_protocol::node::Node::new(
+                json!({
+                    "type":"list",
+                    "item_type":"vxamp",
+                    "value":[""],
+                    "size":VXAMP_SLOT_SIZE
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        );
+
+        let result = device
+            .upload_with_progress(
+                UploadKind::Vxamp,
+                raw,
+                "Legacy.vxamp",
+                VXAMP_PATH,
+                Some(0),
+                |_| true,
+            )
+            .unwrap()
+            .expect("VXAMP upload should complete");
+
+        assert_eq!(result.name, "Legacy");
+        assert_eq!(result.slot, 0);
+        assert_eq!(result.payload_bytes, VXAMP_SLOT_SIZE);
+        assert_eq!(result.chunks, prepared.chunks.len());
+        assert_eq!(
+            device
+                .nodes
+                .get(VXAMP_PATH)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(Value::as_str),
+            Some("Legacy")
+        );
     }
 
     #[test]

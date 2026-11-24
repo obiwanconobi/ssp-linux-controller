@@ -906,6 +906,7 @@
 .inspector__badge--delay { background: linear-gradient(180deg, #4c5c86, var(--delay)); color: #e4eafc; }
 .inspector__badge--reverb { background: linear-gradient(180deg, #735d85, var(--reverb)); color: #f0e5f8; }
 .inspector__badge--cab { background: linear-gradient(180deg, #efe5cf, var(--cab)); color: var(--panel-ink); }
+.inspector__badge--vxamp { background: linear-gradient(180deg, #8b6b3f, #5e482b); color: #f8eed9; }
 .inspector__badge--comp,
 .inspector__badge--gate,
 .inspector__badge--pitch { background: linear-gradient(180deg, #4a453e, var(--utility)); color: #f0e7d8; }
@@ -2612,6 +2613,7 @@
 .library-type-dot--nam { background: var(--info); }
 .library-type-dot--pnam { background: var(--amber); }
 .library-type-dot--ir { background: var(--band-2); }
+.library-type-dot--vxamp { background: var(--amber); }
 
 .library-sub {
   display: block;
@@ -2637,6 +2639,7 @@
 .type-badge--nam { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, var(--hairline)); }
 .type-badge--pnam { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, var(--hairline)); }
 .type-badge--ir { color: var(--band-2); border-color: color-mix(in srgb, var(--band-2) 35%, var(--hairline)); }
+.type-badge--vxamp { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, var(--hairline)); }
 
 .library-empty {
   display: flex;
@@ -2832,6 +2835,7 @@
 
 .upload-card__icon--ir { color: var(--band-2); }
 .upload-card__icon--pnam { color: var(--amber); }
+.upload-card__icon--vxamp { color: var(--amber); }
 
 .upload-card__meta {
   display: flex;

@@ -30,6 +30,7 @@ const FAMILY_NAMES: Record<string, BlockFamily> = {
   mod: 'mod',
   delay: 'delay',
   reverb: 'reverb',
+  vxamp: 'vxamp',
   utility: 'utility',
 };
 
@@ -53,6 +54,7 @@ const FAMILY_BY_NAME: Record<string, BlockFamily> = {
   delay2: 'delay',
   reverb: 'reverb',
   reverb2: 'reverb',
+  vxamp: 'vxamp',
 };
 
 const SHORT_NAMES: Record<BlockFamily, string> = {
@@ -65,6 +67,7 @@ const SHORT_NAMES: Record<BlockFamily, string> = {
   mod: 'MOD',
   delay: 'DELAY',
   reverb: 'REVERB',
+  vxamp: 'VXAMP',
   utility: 'UTILITY',
 };
 

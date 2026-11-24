@@ -9,6 +9,7 @@ use stomp_protocol::router::{ChainBlock, ChainSlot};
 use stomp_protocol::NodeStore;
 use stomp_protocol::{
     path_name, GLOBAL_EQ_PATH, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH,
+    VXAMP_PATH, VXAMP_SLOT_SIZE,
 };
 
 pub const INPUT_GAIN_1_PATH: &str = r"root\settings\input\gain1";
@@ -329,6 +330,7 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
         NAM_DRIVE_PATH,
         PNAM_DRIVE_PATH,
         IR_PATH,
+        VXAMP_PATH,
     ] {
         if store.contains(path) {
             paths.push(path.to_string());
@@ -336,11 +338,12 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
     }
     for (path, node) in store.iter() {
         let item_type = node.item_type().to_ascii_lowercase();
-        let supported = matches!(item_type.as_str(), "nam" | "pnam" | "ir" | "wav")
+        let supported = matches!(item_type.as_str(), "nam" | "pnam" | "ir" | "wav" | "vxamp")
             || item_type.starts_with("nam_")
             || item_type.starts_with("pnam_")
             || item_type.starts_with("ir_")
-            || item_type.starts_with("wav_");
+            || item_type.starts_with("wav_")
+            || item_type.starts_with("vxamp_");
         if node.node_type() == "list" && supported && !paths.contains(path) {
             paths.push(path.clone());
         }
@@ -358,13 +361,17 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
             "pnam"
         } else if path == IR_PATH {
             "ir"
+        } else if path == VXAMP_PATH {
+            "vxamp"
         } else {
             let item_type = node.item_type().to_ascii_lowercase();
             match item_type.as_str() {
                 "pnam" => "pnam",
                 "ir" => "ir",
+                "vxamp" => "vxamp",
                 value if value.starts_with("pnam") => "pnam",
                 value if value.starts_with("ir") || value.starts_with("wav") => "ir",
+                value if value.starts_with("vxamp") => "vxamp",
                 _ => "nam",
             }
         }
@@ -408,6 +415,7 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
                 .unwrap_or_else(|| match kind.as_str() {
                     "pnam" => stomp_protocol::PNAM_SLOT_SIZE,
                     "ir" => stomp_protocol::IR_LENGTH * 4,
+                    "vxamp" => VXAMP_SLOT_SIZE,
                     _ => stomp_protocol::NAM_SLOT_SIZE,
                 });
         out.push(LibraryList {
@@ -477,6 +485,7 @@ fn list_label(path: &str, desc: &str) -> String {
         PNAM_PATH => "Parametric amp models".to_string(),
         PNAM_DRIVE_PATH => "Parametric drive models".to_string(),
         IR_PATH => "Cabinet IRs".to_string(),
+        VXAMP_PATH => "VXAMP models".to_string(),
         _ => path_name(path).replace('_', " ").to_title_case(),
     }
 }
@@ -668,5 +677,41 @@ mod tests {
         store.set_value(r"root\app\amp\pmodel", json!("PNAM A"));
         assert_eq!(active_slot(&store, NAM_PATH), None);
         assert_eq!(active_slot(&store, PNAM_PATH), Some(1));
+    }
+
+    #[test]
+    fn library_lists_maps_vxamp_entries_and_active_selector() {
+        let mut store = NodeStore::new();
+        put(
+            &mut store,
+            VXAMP_PATH,
+            json!({
+                "type":"list",
+                "item_type":"vxamp",
+                "value":["Legacy A",""],
+                "size":VXAMP_SLOT_SIZE
+            }),
+        );
+        put(
+            &mut store,
+            r"root\app\vxamp",
+            json!({"type":"item","item_type":"block","desc":"VxAmp"}),
+        );
+        put(
+            &mut store,
+            r"root\app\vxamp\model",
+            json!({"type":"plist","value":"Legacy A","ref":"root\\vxamp_list","desc":"Model"}),
+        );
+
+        let lists = library_lists(&store);
+        let vxamp = lists
+            .iter()
+            .find(|list| list.path == VXAMP_PATH)
+            .expect("VXAMP list");
+        assert_eq!(vxamp.kind, "vxamp");
+        assert_eq!(vxamp.slot_size, VXAMP_SLOT_SIZE);
+        assert_eq!(vxamp.active_slot, Some(0));
+        assert_eq!(vxamp.slots[0].name, "Legacy A");
+        assert!(vxamp.slots[0].used);
     }
 }

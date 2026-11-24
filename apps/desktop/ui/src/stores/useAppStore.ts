@@ -211,7 +211,7 @@ interface AppStore {
   addUpload: (file: {
     name: string;
     size: number;
-    kind: 'nam' | 'pnam' | 'ir';
+    kind: 'nam' | 'pnam' | 'ir' | 'vxamp';
     target?: string;
     slot?: number;
     path?: string;
@@ -486,9 +486,11 @@ const buildDemoBlock = (
     };
   }
 
-  const family = (['chorus', 'flanger', 'rotary'].includes(available.id)
-    ? 'mod'
-    : 'utility') as Block['family'];
+  const family = (available.id === 'vxamp'
+    ? 'vxamp'
+    : ['chorus', 'flanger', 'rotary'].includes(available.id)
+      ? 'mod'
+      : 'utility') as Block['family'];
   return {
     id: `${available.id}-${Date.now()}`,
     label: available.label,
@@ -3398,7 +3400,14 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     const state = get();
     const kind = file.kind;
     const target =
-      file.target ?? (kind === 'ir' ? 'ir_list' : kind === 'pnam' ? 'pnam_list' : 'nam_amp');
+      file.target ??
+      (kind === 'ir'
+        ? 'ir_list'
+        : kind === 'pnam'
+          ? 'pnam_list'
+          : kind === 'vxamp'
+            ? 'vxamp_list'
+            : 'nam_amp');
     const list = state.lists.find((item) => item.id === target);
     const targetLabel = list?.label ?? target;
     const slot = file.slot ?? list?.slots.find((item) => !item.used)?.index ?? 0;
@@ -3406,7 +3415,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     // file. Do not bypass preflight or add other upload targets; see
     // docs/DEVICE_SAFETY.md.
     if (!(target in UPLOAD_TARGET_PATHS)) {
-      get().notify('Only NAM, Parametric NAM, and IR captures can be uploaded', 'bad');
+      get().notify('Only NAM, Parametric NAM, VXAMP, and IR captures can be uploaded', 'bad');
       return false;
     }
 

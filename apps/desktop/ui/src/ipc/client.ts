@@ -89,7 +89,7 @@ export interface RustLibrarySlot {
 export interface RustLibraryList {
   path: string;
   label: string;
-  kind: 'nam' | 'pnam' | 'ir';
+  kind: 'nam' | 'pnam' | 'ir' | 'vxamp';
   slot_size: number;
   active_slot: number | null;
   slots: RustLibrarySlot[];
@@ -197,7 +197,7 @@ export interface RustLocalCapture {
   path: string;
   name: string;
   relative: string;
-  kind: 'nam' | 'pnam' | 'ir';
+  kind: 'nam' | 'pnam' | 'ir' | 'vxamp';
   size: number;
 }
 
@@ -208,7 +208,7 @@ export interface RustLocalScan {
 }
 
 export interface RustUploadPreflight {
-  kind: 'nam' | 'pnam' | 'ir';
+  kind: 'nam' | 'pnam' | 'ir' | 'vxamp';
   name: string;
   file_size: number;
   slot_size: number;
@@ -228,7 +228,7 @@ export interface RustUploadResult {
 
 export interface RustUploadProgress {
   id: string;
-  kind: 'nam' | 'pnam' | 'ir';
+  kind: 'nam' | 'pnam' | 'ir' | 'vxamp';
   target: string;
   slot: number;
   name: string;
@@ -480,7 +480,7 @@ export const tauriClient = {
   scanCaptures: (directory: string) =>
     invoke<RustLocalScan>('scan_captures', { directory }),
   preflightUpload: (
-    kind: 'nam' | 'pnam' | 'ir',
+    kind: 'nam' | 'pnam' | 'ir' | 'vxamp',
     filePath: string,
     target: string,
     slot?: number,
@@ -493,7 +493,7 @@ export const tauriClient = {
     }),
   beginUpload: (
     id: string,
-    kind: 'nam' | 'pnam' | 'ir',
+    kind: 'nam' | 'pnam' | 'ir' | 'vxamp',
     filePath: string,
     target: string,
     slot?: number,

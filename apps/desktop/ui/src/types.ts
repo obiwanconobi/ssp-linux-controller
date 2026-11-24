@@ -13,6 +13,7 @@ export type BlockFamily =
   | 'mod'
   | 'delay'
   | 'reverb'
+  | 'vxamp'
   | 'utility';
 
 export type ControlKind = 'float' | 'pfloat' | 'choice' | 'enum' | 'bool' | 'text' | 'number';
@@ -150,7 +151,7 @@ export interface LibrarySlot {
 export interface LibraryList {
   id: string;
   label: string;
-  kind: 'nam' | 'pnam' | 'ir';
+  kind: 'nam' | 'pnam' | 'ir' | 'vxamp';
   slotSize: number;
   activeSlot?: number;
   slots: LibrarySlot[];
@@ -159,7 +160,7 @@ export interface LibraryList {
 export interface UploadTask {
   id: string;
   file: string;
-  kind: 'nam' | 'pnam' | 'ir';
+  kind: 'nam' | 'pnam' | 'ir' | 'vxamp';
   target: string;
   slot: number;
   progress: number;

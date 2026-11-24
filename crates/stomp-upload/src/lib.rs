@@ -1,4 +1,4 @@
-//! NAM, parametric NAM, and IR codecs plus the ACK state machine.
+//! NAM, parametric NAM, IR, and VXAMP codecs plus the ACK state machine.
 //!
 //! This is pure code: it never touches a transport. The device actor feeds
 //! ACKs into [`UploadState`] and sends the values produced here.
@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use stomp_protocol::{
     hex_encode, name_chunk_hex, ProtocolError, CHUNK_SIZE, IR_GAIN, IR_LENGTH, NAME_SIZE,
-    NAM_SLOT_SIZE, PNAM_SLOT_SIZE,
+    NAM_SLOT_SIZE, PNAM_SLOT_SIZE, VXAMP_SLOT_SIZE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +22,7 @@ pub enum UploadKind {
     Nam,
     Pnam,
     Ir,
+    Vxamp,
 }
 
 impl UploadKind {
@@ -30,6 +31,7 @@ impl UploadKind {
             Self::Nam => "NAM",
             Self::Pnam => "PNAM",
             Self::Ir => "IR",
+            Self::Vxamp => "VXAMP",
         }
     }
 
@@ -38,6 +40,7 @@ impl UploadKind {
             Self::Nam => NAM_SLOT_SIZE,
             Self::Pnam => PNAM_SLOT_SIZE,
             Self::Ir => IR_LENGTH * std::mem::size_of::<f32>(),
+            Self::Vxamp => VXAMP_SLOT_SIZE,
         }
     }
 
@@ -46,6 +49,7 @@ impl UploadKind {
             Self::Nam => "nam",
             Self::Pnam => "pnam",
             Self::Ir => "wav",
+            Self::Vxamp => "vxamp",
         }
     }
 }
@@ -165,10 +169,16 @@ impl UploadState {
 /// `docs/DEVICE_SAFETY.md`.
 /// Public structural validation for a downloaded model or WAV.
 pub fn validate_capture(kind: UploadKind, raw: &[u8]) -> Result<(), ProtocolError> {
-    if kind == UploadKind::Ir {
-        decode_ir(raw)?;
-    } else {
-        validate_model(kind, raw)?;
+    match kind {
+        UploadKind::Ir => {
+            decode_ir(raw)?;
+        }
+        UploadKind::Vxamp => {
+            if raw.is_empty() {
+                return Err(ProtocolError::InvalidRequest("VXAMP file is empty".into()));
+            }
+        }
+        UploadKind::Nam | UploadKind::Pnam => validate_model(kind, raw)?,
     }
     Ok(())
 }
@@ -181,10 +191,11 @@ pub fn decode_downloaded_model(
     kind: UploadKind,
     compressed: &[u8],
 ) -> Result<Vec<u8>, ProtocolError> {
-    if kind == UploadKind::Ir {
-        return Err(ProtocolError::InvalidRequest(
-            "IR downloads are not gzip-compressed".into(),
-        ));
+    if !matches!(kind, UploadKind::Nam | UploadKind::Pnam) {
+        return Err(ProtocolError::InvalidRequest(format!(
+            "{} downloads are not gzip-compressed",
+            kind.label()
+        )));
     }
     let mut decoder = GzDecoder::new(compressed);
     let mut raw = Vec::new();
@@ -345,6 +356,10 @@ pub fn preflight(
                 IR_LENGTH * std::mem::size_of::<f32>()
             )));
         }
+    } else if kind == UploadKind::Vxamp {
+        if raw.is_empty() {
+            return Err(ProtocolError::InvalidRequest("VXAMP file is empty".into()));
+        }
     } else {
         validate_model(kind, raw)?;
     }
@@ -438,10 +453,11 @@ pub fn prepare_model_upload(
     name: &str,
     target_slot_size: Option<usize>,
 ) -> Result<PreparedUpload, ProtocolError> {
-    if kind == UploadKind::Ir {
-        return Err(ProtocolError::InvalidRequest(
-            "use prepare_ir_upload for IR files".into(),
-        ));
+    if matches!(kind, UploadKind::Ir | UploadKind::Vxamp) {
+        return Err(ProtocolError::InvalidRequest(format!(
+            "{} has its own upload encoder",
+            kind.label()
+        )));
     }
     validate_model(kind, raw)?;
     prepare_model_upload_unchecked(kind, raw, name, target_slot_size)
@@ -544,6 +560,50 @@ pub fn prepare_ir_upload(wav: &[u8], name: &str) -> Result<PreparedUpload, Proto
     })
 }
 
+pub fn prepare_vxamp_upload(
+    raw: &[u8],
+    name: &str,
+    target_slot_size: Option<usize>,
+) -> Result<PreparedUpload, ProtocolError> {
+    if raw.is_empty() {
+        return Err(ProtocolError::InvalidRequest("VXAMP file is empty".into()));
+    }
+    let slot_size = target_slot_size.unwrap_or(VXAMP_SLOT_SIZE);
+    if raw.len() > slot_size {
+        return Err(ProtocolError::InvalidRequest(format!(
+            "VXAMP file is larger than the {slot_size} byte slot"
+        )));
+    }
+
+    // VXAMP is raw content, unlike NAM/PNAM (gzip) and IR (float samples).
+    // Zero-pad to the fixed slot size so the device sees a complete element.
+    let mut payload = raw.to_vec();
+    payload.resize(slot_size, 0);
+
+    let mut chunks = vec![UploadChunk {
+        number: 0,
+        value: name_chunk_hex(name),
+        bytes: NAME_SIZE,
+        final_chunk: false,
+    }];
+    for (index, chunk) in payload.chunks(CHUNK_SIZE).enumerate() {
+        chunks.push(UploadChunk {
+            number: index as i64 + 1,
+            value: hex_encode(chunk),
+            bytes: chunk.len(),
+            final_chunk: false,
+        });
+    }
+    Ok(PreparedUpload {
+        kind: UploadKind::Vxamp,
+        name: name.to_string(),
+        raw_bytes: raw.len(),
+        payload_bytes: payload.len(),
+        chunks,
+        marker_chunk: false,
+    })
+}
+
 pub fn prepare_upload(
     kind: UploadKind,
     raw: &[u8],
@@ -552,7 +612,10 @@ pub fn prepare_upload(
 ) -> Result<PreparedUpload, ProtocolError> {
     match kind {
         UploadKind::Ir => prepare_ir_upload(raw, name),
-        _ => prepare_model_upload(kind, raw, name, target_slot_size),
+        UploadKind::Vxamp => prepare_vxamp_upload(raw, name, target_slot_size),
+        UploadKind::Nam | UploadKind::Pnam => {
+            prepare_model_upload(kind, raw, name, target_slot_size)
+        }
     }
 }
 
@@ -942,6 +1005,70 @@ mod tests {
             display_name(b"", "TJ3 58BND310.wav", UploadKind::Ir),
             "TJ3 58BND310"
         );
+        assert_eq!(
+            display_name(b"opaque", "Legacy Amp.vxamp", UploadKind::Vxamp),
+            "Legacy Amp"
+        );
+    }
+
+    #[test]
+    fn vxamp_upload_is_raw_and_padded_to_the_slot() {
+        let raw = vec![0xA5; 1300];
+        let prepared =
+            prepare_upload(UploadKind::Vxamp, &raw, "Legacy Amp", Some(VXAMP_SLOT_SIZE)).unwrap();
+        assert_eq!(prepared.kind, UploadKind::Vxamp);
+        assert_eq!(prepared.raw_bytes, 1300);
+        assert_eq!(prepared.payload_bytes, VXAMP_SLOT_SIZE);
+        assert!(!prepared.marker_chunk);
+        assert_eq!(prepared.chunks[0].number, 0);
+        assert_eq!(prepared.chunks[0].value.len(), NAME_SIZE * 2);
+        assert_eq!(
+            prepared
+                .chunks
+                .iter()
+                .map(|chunk| chunk.bytes)
+                .sum::<usize>(),
+            NAME_SIZE + VXAMP_SLOT_SIZE
+        );
+        assert_eq!(prepared.chunks.last().unwrap().bytes, CHUNK_SIZE);
+        assert_eq!(UploadKind::Vxamp.default_slot_size(), VXAMP_SLOT_SIZE);
+        assert_eq!(UploadKind::Vxamp.extension(), "vxamp");
+    }
+
+    #[test]
+    fn vxamp_preflight_accepts_raw_content_and_rejects_empty_or_oversized_files() {
+        let names = vec![String::new(), "Used".to_string()];
+        let checked = preflight(
+            UploadKind::Vxamp,
+            b"opaque legacy payload",
+            "Legacy Amp.vxamp",
+            &names,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(checked.name, "Legacy Amp");
+        assert_eq!(checked.slot, 0);
+        assert_eq!(checked.slot_size, VXAMP_SLOT_SIZE);
+        assert!(checked.ready);
+
+        let error = preflight(UploadKind::Vxamp, b"", "Empty.vxamp", &names, None, None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("empty"), "{error}");
+
+        let oversized = vec![0u8; VXAMP_SLOT_SIZE + 1];
+        let error = preflight(
+            UploadKind::Vxamp,
+            &oversized,
+            "Too Big.vxamp",
+            &names,
+            Some(1),
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("larger than"), "{error}");
     }
 
     #[test]

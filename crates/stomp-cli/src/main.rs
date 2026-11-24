@@ -263,6 +263,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 "nam" => UploadKind::Nam,
                 "pnam" => UploadKind::Pnam,
                 "ir" => UploadKind::Ir,
+                "vxamp" => UploadKind::Vxamp,
                 other => {
                     return Err(Box::new(ProtocolError::InvalidRequest(format!(
                         "unknown upload kind: {other}"
@@ -391,7 +392,7 @@ fn usage() {
   set-control <addr> <node-path> <json-value>
   save-preset <addr> [name]
   preset <addr> <name>
-  upload <addr> nam|pnam|ir <file> <slot|-> <target-path>
+  upload <addr> nam|pnam|ir|vxamp <file> <slot|-> <target-path>
   editor <addr> <block-path>               editor JSON for one block
   fixture <addr> <output.json>             snapshot + every block editor
   replay <fixture.json>

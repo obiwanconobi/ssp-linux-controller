@@ -18,7 +18,7 @@ use std::io::{Cursor, Read, Seek, Write};
 use serde::{Deserialize, Serialize};
 use stomp_protocol::preset::list_name_error;
 use stomp_protocol::{
-    normalize_path, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH,
+    normalize_path, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH, VXAMP_PATH,
 };
 use stomp_upload::{validate_capture, UploadKind};
 use zip::write::SimpleFileOptions;
@@ -445,6 +445,11 @@ fn dependency_kind(node_path: &str) -> Option<DependencyKind> {
             list_path: IR_PATH,
             extension: "wav",
             upload_kind: UploadKind::Ir,
+        }),
+        VXAMP_PATH => Some(DependencyKind {
+            list_path: VXAMP_PATH,
+            extension: "vxamp",
+            upload_kind: UploadKind::Vxamp,
         }),
         _ => None,
     }

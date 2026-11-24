@@ -36,12 +36,13 @@ empty models are simulator fixtures only, never hardware uploads.
 
 ## Non-negotiable rules
 
-1. **Capture uploads may target only these five lists:**
+1. **Capture uploads may target only these six lists:**
    - `root\nam_amp`
    - `root\nam_drive`
    - `root\pnam_list`
    - `root\pnam_drive`
    - `root\ir_list`
+   - `root\vxamp_list`
 
    Never write capture-like data to `root\settings`, `root\sys\_upd`,
    `/home/app_run`, or an arbitrary node. `root\presets` is written only by the
@@ -159,7 +160,7 @@ implementation follows it:
 dwrite <listPath>:{"index":N,"chunk":-1,"value":"00" * 128}
 ```
 
-- Only presets and the five capture lists are allowed.
+- Only presets and the six capture lists are allowed.
 - One command per index; indices are not shifted.
 - Empty and out-of-range slots are rejected.
 - The list is read back and the slot name must be empty; otherwise the delete
@@ -176,7 +177,7 @@ import path is deliberately narrower than a generic list uploader:
 
 - `bdinfo.json` must name `StompStation`/`StompStation PRO`, a `2.x` version,
   `root\presets`, a `.pst` entry under `preset/`, and dependencies that resolve
-  to one of the five capture lists.
+  to one of the six capture lists.
 - Archive entries are regular relative paths only. Absolute paths, `..`,
   backslashes, duplicate entries, undeclared entries, and any path outside
   `bdinfo.json`, `preset/`, or `dependencies/` are rejected before a device
@@ -186,7 +187,8 @@ import path is deliberately narrower than a generic list uploader:
   32 KiB.
 - Dependencies are structurally validated before transfer: NAM/PNAM model
   structure and IR WAV headers. Missing or duplicate dependencies block the
-  import.
+  import. VXAMP dependencies are opaque raw payloads and only receive the
+  non-empty/size checks.
 - Existing captures with the same name are downloaded and compared. Identical
   files are reused; different content requires an explicit overwrite
   confirmation.
@@ -291,8 +293,9 @@ Before the first hardware upload after a code change:
 - [ ] UI tests / `ui-smoke` pass if the picker or store changed.
 - [ ] The test file is known-good, not synthetic.
 - [ ] If the upload format changed, both a flat-weight A1 NAM and an
-      A2/PNAM container shape are covered.
-- [ ] The target is a free/scratch slot in one of the five capture lists.
+      A2/PNAM container shape are covered, and any VXAMP change is checked
+      against a scratch slot because the raw payload format is opaque.
+- [ ] The target is a free/scratch slot in one of the six capture lists.
 - [ ] The wire slot vs UI slot is recorded.
 - [ ] A backup or known-good recovery path exists.
 - [ ] Polling is paused during the upload and the list is read back after the

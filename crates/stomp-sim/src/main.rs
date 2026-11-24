@@ -15,7 +15,7 @@ use flate2::Compression;
 use serde_json::{json, Value};
 use stomp_protocol::node::{Node, NodeStore};
 use stomp_protocol::{
-    normalize_path, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH,
+    normalize_path, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH, VXAMP_PATH,
 };
 
 #[derive(Debug, Default)]
@@ -95,6 +95,7 @@ fn seed_payloads(state: &mut SimState) {
         (PNAM_PATH, "pnam"),
         (PNAM_DRIVE_PATH, "pnam"),
         (IR_PATH, "ir"),
+        (VXAMP_PATH, "vxamp"),
     ] {
         let names: Vec<String> = state
             .nodes
@@ -363,6 +364,20 @@ pub fn demo_store() -> NodeStore {
         json!({"type":"float","value":-20.0,"min":-100.0,"max":100.0,"desc":"Pan IR 1"}),
     );
 
+    // Legacy VXAMP block / raw amp model list.
+    add(
+        r"root\app\vxamp",
+        json!({"type":"item","item_type":"block","desc":"VxAmp"}),
+    );
+    add(
+        r"root\app\vxamp\on_off",
+        json!({"type":"enum","value":"OFF","options":["ON","OFF"]}),
+    );
+    add(
+        r"root\app\vxamp\model",
+        json!({"type":"plist","value":"","ref":"root\\vxamp_list","desc":"Model"}),
+    );
+
     // Available pool.
     add(
         r"root\app\chorus",
@@ -557,6 +572,10 @@ pub fn demo_store() -> NodeStore {
     add(
         IR_PATH,
         json!({"type":"list","item_type":"ir","value":["TJ3 58BND310","TJ3 57","G12M Greenback","",""],"size":8192}),
+    );
+    add(
+        VXAMP_PATH,
+        json!({"type":"list","item_type":"vxamp","value":["","","","","","","","","","","","","","","",""],"size":12288}),
     );
 
     // Settings.
@@ -966,6 +985,7 @@ mod tests {
         assert_eq!(store.value_str(r"root\sys\_ver"), Some("2.4.4"));
         assert!(store.contains(r"root\app\output\global_eq\band_2"));
         assert!(store.contains(r"root\app\amp\nam2\model"));
+        assert!(store.contains(r"root\vxamp_list"));
         assert_eq!(
             store
                 .get(r"root\presets")

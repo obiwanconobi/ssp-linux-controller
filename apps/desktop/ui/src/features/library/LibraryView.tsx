@@ -41,9 +41,9 @@ import { useAppStore } from '../../stores/useAppStore';
 import type { LibraryList, LibrarySlot, UploadTask } from '../../types';
 
 type Tab = 'library' | 'presets' | 'local' | 'uploads' | 'activity';
-type CaptureKind = 'nam' | 'pnam' | 'ir';
+type CaptureKind = 'nam' | 'pnam' | 'ir' | 'vxamp';
 type CategoryId = 'amps' | 'drives' | 'irs';
-type SubId = 'nam' | 'pnam' | 'ir';
+type SubId = 'nam' | 'pnam' | 'ir' | 'vxamp';
 
 interface TargetDef {
   id: string;
@@ -60,11 +60,19 @@ interface CategoryDef {
   subs: Array<{ id: SubId; label: string; target: string; kind: CaptureKind }>;
 }
 
-const KIND_LABEL: Record<string, string> = { nam: 'NAM', pnam: 'PNAM', ir: 'IR' };
+const KIND_LABEL: Record<string, string> = {
+  nam: 'NAM',
+  pnam: 'PNAM',
+  ir: 'IR',
+  vxamp: 'VXAMP',
+};
+
+const VXAMP_SLOT_SIZE = 12 * 1024;
 
 const TARGETS: TargetDef[] = [
   { id: 'nam_amp', path: 'root\\nam_amp', label: 'Amps — NAM', kind: 'nam', category: 'amps', sub: 'nam' },
   { id: 'pnam_list', path: 'root\\pnam_list', label: 'Amps — Parametric NAM', kind: 'pnam', category: 'amps', sub: 'pnam' },
+  { id: 'vxamp_list', path: 'root\\vxamp_list', label: 'Amps — VXAMP', kind: 'vxamp', category: 'amps', sub: 'vxamp' },
   { id: 'nam_drive', path: 'root\\nam_drive', label: 'Drives — NAM', kind: 'nam', category: 'drives', sub: 'nam' },
   { id: 'pnam_drive', path: 'root\\pnam_drive', label: 'Drives — Parametric NAM', kind: 'pnam', category: 'drives', sub: 'pnam' },
   { id: 'ir_list', path: 'root\\ir_list', label: 'IRs', kind: 'ir', category: 'irs', sub: 'ir' },
@@ -77,6 +85,7 @@ const CATEGORIES: CategoryDef[] = [
     subs: [
       { id: 'nam', label: 'NAM', target: 'nam_amp', kind: 'nam' },
       { id: 'pnam', label: 'Parametric NAM', target: 'pnam_list', kind: 'pnam' },
+      { id: 'vxamp', label: 'VXAMP', target: 'vxamp_list', kind: 'vxamp' },
     ],
   },
   {
@@ -98,6 +107,7 @@ const KIND_HINT: Record<CaptureKind, string> = {
   nam: 'Amps → NAM or Drives → NAM',
   pnam: 'Amps → Parametric NAM or Drives → Parametric NAM',
   ir: 'IRs',
+  vxamp: 'Amps → VXAMP',
 };
 
 const targetDef = (id: string): TargetDef | undefined =>
@@ -167,11 +177,24 @@ interface ImportDialogState {
 
 const kindFor = (name: string): CaptureKind | null => {
   const lower = name.toLowerCase();
+  if (lower.endsWith('.vxamp') || lower.endsWith('.vxam')) return 'vxamp';
   if (lower.endsWith('.pnam')) return 'pnam';
   if (lower.endsWith('.nam')) return 'nam';
   if (lower.endsWith('.wav')) return 'ir';
   return null;
 };
+
+const acceptFor = (kind: CaptureKind): string => {
+  if (kind === 'ir') return '.wav';
+  if (kind === 'vxamp') return '.vxamp,.vxam,.nam';
+  return `.${kind}`;
+};
+
+const uploadKindForActive = (
+  kind: CaptureKind,
+  activeKind: CaptureKind,
+): CaptureKind =>
+  activeKind === 'vxamp' && kind === 'nam' ? 'vxamp' : kind;
 
 const UploadCard = ({ upload }: { upload: UploadTask }) => {
   const cancelUpload = useAppStore((state) => state.cancelUpload);
@@ -312,7 +335,11 @@ const LibraryTable = ({
                     {slot.name || <span className="muted">Empty slot</span>}
                   </span>
                   <span className="library-sub mono">
-                    {slot.name ? `${formatBytes(list.slotSize)} slot · gzip` : 'No capture loaded'}
+                    {slot.name
+                      ? `${formatBytes(list.slotSize)} slot · ${
+                          list.kind === 'nam' || list.kind === 'pnam' ? 'gzip' : 'raw'
+                        }`
+                      : 'No capture loaded'}
                   </span>
                 </td>
                 <td>
@@ -435,7 +462,8 @@ export const LibraryView = () => {
   const activeTarget = targetDef(activeSub.target);
   const activeList = lists.find((list) => list.id === activeSub.target);
   const activeKind = activeSub.kind;
-  const activeAccept = activeKind === 'ir' ? '.wav' : `.${activeKind}`;
+  const activeAccept = acceptFor(activeKind);
+  const activeDropLabel = activeKind === 'vxamp' ? '.vxamp' : activeAccept;
 
   const listStats = (target: string) => {
     const list = lists.find((item) => item.id === target);
@@ -536,9 +564,17 @@ export const LibraryView = () => {
     }
     if (kind === 'nam' && size > 1024 * 1024) error = 'NAM files must be ≤ 1 MiB.';
     if (kind === 'pnam' && size > 2 * 1024 * 1024) error = 'PNAM files must be ≤ 2 MiB.';
+    if (kind === 'vxamp' && size > (list?.slotSize ?? VXAMP_SLOT_SIZE)) {
+      error = `VXAMP files must be ≤ ${formatBytes(list?.slotSize ?? VXAMP_SLOT_SIZE)}.`;
+    }
     if (kind === 'ir') {
       staticWarnings.push('IR will be reduced to the first 2048 samples.');
       staticWarnings.push('Sample rate is read from the WAV; 48 kHz is expected.');
+    }
+    if (kind === 'vxamp') {
+      staticWarnings.push(
+        'VXAMP content is uploaded raw and zero-padded to the slot; the file format is not validated.',
+      );
     }
     const warnings = [...staticWarnings];
     if (list?.slots[slot]?.used) {
@@ -621,15 +657,16 @@ export const LibraryView = () => {
   };
 
   const inspectFile = (file: File) => {
-    const kind = kindFor(file.name);
-    if (!kind) {
+    const detected = kindFor(file.name);
+    if (!detected) {
       setSectionError(
         { name: file.name, size: file.size, file },
         activeKind,
-        'Unsupported file. Choose a .nam, .pnam, or .wav capture.',
+        'Unsupported file. Choose a .nam, .pnam, .wav, or .vxamp capture.',
       );
       return;
     }
+    const kind = uploadKindForActive(detected, activeKind);
     if (kind !== activeKind) {
       setSectionError(
         { name: file.name, size: file.size, file },
@@ -654,15 +691,16 @@ export const LibraryView = () => {
       return;
     }
     const name = path.split(/[\\/]/).pop() || path;
-    const kind = kindFor(name);
-    if (!kind) {
+    const detected = kindFor(name);
+    if (!detected) {
       setSectionError(
         { name, size: 0, path },
         activeKind,
-        'Unsupported file. Choose a .nam, .pnam, or .wav capture.',
+        'Unsupported file. Choose a .nam, .pnam, .wav, or .vxamp capture.',
       );
       return;
     }
+    const kind = uploadKindForActive(detected, activeKind);
     if (kind !== activeKind) {
       setSectionError(
         { name, size: 0, path },
@@ -874,6 +912,12 @@ export const LibraryView = () => {
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
       const scope = `upload.${activeKind}`;
+      const extensions =
+        activeKind === 'ir'
+          ? ['wav', 'WAV']
+          : activeKind === 'vxamp'
+            ? ['vxamp', 'vxam', 'nam', 'VXAMP', 'VXAM', 'NAM']
+            : [activeKind, activeKind.toUpperCase()];
       const selected = await open({
         directory: false,
         multiple: false,
@@ -882,10 +926,7 @@ export const LibraryView = () => {
         filters: [
           {
             name: KIND_LABEL[activeKind],
-            extensions:
-              activeKind === 'ir'
-                ? ['wav', 'WAV']
-                : [activeKind, activeKind.toUpperCase()],
+            extensions,
           },
         ],
       });
@@ -907,7 +948,13 @@ export const LibraryView = () => {
       available[0];
     const target =
       preferred?.id ??
-      (entry.kind === 'ir' ? 'ir_list' : entry.kind === 'pnam' ? 'pnam_list' : 'nam_amp');
+      (entry.kind === 'ir'
+        ? 'ir_list'
+        : entry.kind === 'pnam'
+          ? 'pnam_list'
+          : entry.kind === 'vxamp'
+            ? 'vxamp_list'
+            : 'nam_amp');
     if (tauri && entry.path) {
       rememberDirectoryForPath(`upload.${entry.kind}`, entry.path);
     }
@@ -938,7 +985,7 @@ export const LibraryView = () => {
         notify('Showing the first 5000 captures in this folder', 'warn');
       }
       if (scan.files.length === 0) {
-        setLocalError('No .nam, .pnam, or .wav captures were found in that directory.');
+        setLocalError('No .nam, .pnam, .wav, or .vxamp captures were found in that directory.');
       }
     } catch (error) {
       setLocalError(ipcErrorMessage(error));
@@ -993,7 +1040,7 @@ export const LibraryView = () => {
     setLocalEntries(entries);
     setLocalError(
       entries.length === 0
-        ? 'No .nam, .pnam, or .wav captures were found in that directory.'
+        ? 'No .nam, .pnam, .wav, or .vxamp captures were found in that directory.'
         : null,
     );
   };
@@ -1180,12 +1227,14 @@ export const LibraryView = () => {
               }}
             >
               <UploadCloud size={25} aria-hidden="true" />
-              <strong>Drop a {activeAccept}</strong>
+              <strong>Drop a {activeDropLabel}</strong>
               <p>
                 Uploads to {activeTargetLabel} ·{' '}
                 {activeKind === 'ir'
                   ? 'WAV is reduced to the first 2048 samples'
-                  : `${KIND_LABEL[activeKind]} slot limits apply`}
+                  : activeKind === 'vxamp'
+                    ? 'VXAMP is uploaded raw and zero-padded to 12 KiB'
+                    : `${KIND_LABEL[activeKind]} slot limits apply`}
               </p>
               {!activeList && (
                 <p className="preflight__warning preflight__warning--error">
@@ -1232,7 +1281,11 @@ export const LibraryView = () => {
                   </div>
                   <div>
                     <dt>Format</dt>
-                    <dd>{pending.kind === 'ir' ? 'WAV · 2048 samples' : `${KIND_LABEL[pending.kind]} · gzip`}</dd>
+                    <dd>{pending.kind === 'ir'
+                      ? 'WAV · 2048 samples'
+                      : pending.kind === 'vxamp'
+                        ? 'VXAMP · raw'
+                        : `${KIND_LABEL[pending.kind]} · gzip`}</dd>
                   </div>
                   <div>
                     <dt>Size</dt>
@@ -1423,7 +1476,7 @@ export const LibraryView = () => {
             <div>
               <h2>Local captures</h2>
               <p className="hint">
-                Recursively find .nam, .pnam, and .wav files in a folder. The scan is read-only;
+                Recursively find .nam, .pnam, .wav, and .vxamp files in a folder. The scan is read-only;
                 nothing is uploaded until you preflight a file.
               </p>
             </div>
@@ -1471,6 +1524,7 @@ export const LibraryView = () => {
                 <span className="chip">{localEntries.filter((entry) => entry.kind === 'nam').length} NAM</span>
                 <span className="chip">{localEntries.filter((entry) => entry.kind === 'pnam').length} PNAM</span>
                 <span className="chip">{localEntries.filter((entry) => entry.kind === 'ir').length} IR</span>
+                <span className="chip">{localEntries.filter((entry) => entry.kind === 'vxamp').length} VXAMP</span>
               </div>
               <div className="library-table-wrap" ref={setLocalScrollElement}>
                 <table className="library-table">
@@ -1519,7 +1573,7 @@ export const LibraryView = () => {
           {localEntries.length === 0 && !localError && (
             <div className="library-empty local-library__empty">
               <FolderOpen size={22} />
-              <p>Choose a folder to index its NAM, PNAM, and IR captures.</p>
+              <p>Choose a folder to index its NAM, PNAM, IR, and VXAMP captures.</p>
               <span className="hint">
                 {tauri
                   ? 'The Rust scanner walks subdirectories and ignores hidden folders, node_modules, target, and vendor.'

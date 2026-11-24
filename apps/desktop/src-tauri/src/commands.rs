@@ -559,6 +559,7 @@ fn parse_upload_kind(kind: &str) -> IpcResult<UploadKind> {
         "nam" => Ok(UploadKind::Nam),
         "pnam" => Ok(UploadKind::Pnam),
         "ir" => Ok(UploadKind::Ir),
+        "vxamp" => Ok(UploadKind::Vxamp),
         other => Err(IpcError::from(ProtocolError::InvalidRequest(format!(
             "unknown upload kind: {other}"
         )))),
@@ -771,6 +772,7 @@ fn scan_captures_impl(directory: String) -> IpcResult<LocalScan> {
             Some("nam") => Some("nam"),
             Some("pnam") => Some("pnam"),
             Some("wav") => Some("ir"),
+            Some("vxamp") | Some("vxam") => Some("vxamp"),
             _ => None,
         }
     }
@@ -1184,17 +1186,19 @@ mod tests {
         std::fs::write(root.join("Amp.nam"), b"{}").unwrap();
         std::fs::write(root.join("Drive.PNAM"), b"{}").unwrap();
         std::fs::write(nested.join("Cab.wav"), b"RIFF").unwrap();
+        std::fs::write(root.join("Legacy.vxamp"), b"raw").unwrap();
         std::fs::write(root.join("notes.txt"), b"ignore").unwrap();
         std::fs::create_dir_all(root.join(".hidden")).unwrap();
         std::fs::write(root.join(".hidden").join("Hidden.nam"), b"{}").unwrap();
 
         let scan = scan_captures_impl(root.to_string_lossy().to_string()).unwrap();
-        assert_eq!(scan.files.len(), 3);
+        assert_eq!(scan.files.len(), 4);
         assert!(scan
             .files
             .iter()
             .any(|file| file.kind == "nam" && file.name == "Amp.nam"));
         assert!(scan.files.iter().any(|file| file.kind == "pnam"));
+        assert!(scan.files.iter().any(|file| file.kind == "vxamp"));
         assert!(scan
             .files
             .iter()

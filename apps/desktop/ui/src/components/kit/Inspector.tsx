@@ -26,6 +26,7 @@ const familyLabel: Record<Block['family'], string> = {
   mod: 'Mod',
   delay: 'Delay',
   reverb: 'Verb',
+  vxamp: 'VXAMP',
   utility: 'Utility',
 };
 

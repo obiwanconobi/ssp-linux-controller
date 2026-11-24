@@ -468,6 +468,7 @@ export const AVAILABLE_BLOCKS = [
   { id: 'pickup', label: 'Pickup', desc: 'Pickup simulator' },
   { id: 'dtchr', label: 'D-Techer', desc: 'Drive character' },
   { id: 'pcm42', label: 'PCM 42', desc: 'Lo-fi delay' },
+  { id: 'vxamp', label: 'VXAMP', desc: 'Legacy VxAmp model' },
 ];
 
 export const INITIAL_MASTER: MasterState = {
@@ -565,6 +566,18 @@ export const INITIAL_LISTS: LibraryList[] = [
       { index: 2, name: 'G12M Greenback', used: true, active: false },
       { index: 3, name: '', used: false, active: false },
     ],
+  },
+  {
+    id: 'vxamp_list',
+    label: 'VXAMP models',
+    kind: 'vxamp',
+    slotSize: 12288,
+    slots: Array.from({ length: 16 }, (_, index) => ({
+      index,
+      name: '',
+      used: false,
+      active: false,
+    })),
   },
 ];
 
