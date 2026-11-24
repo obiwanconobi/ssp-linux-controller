@@ -1,6 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, State};
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 use stomp_device::{
     validate_alias, ChainEdit, ConnectionInfo, Device, DeviceSnapshot, UploadResult,
@@ -716,6 +718,23 @@ pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Ipc
     Ok(lines.join("\n"))
 }
 
+/// Open a StompStation release page in the user's default browser. Restricting
+/// the URL to this project's releases keeps the command from becoming a
+/// general-purpose launcher for arbitrary web content.
+#[tauri::command]
+pub fn open_release_page(app: AppHandle, url: String) -> IpcResult<()> {
+    const RELEASES_BASE: &str = "https://github.com/obiwanconobi/ssp-linux-controller/releases";
+    let allowed = url == RELEASES_BASE || url.starts_with(&format!("{RELEASES_BASE}/"));
+    if !allowed {
+        return Err(IpcError::from(ProtocolError::InvalidRequest(
+            "only StompStation release pages can be opened".into(),
+        )));
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| IpcError::internal(format!("could not open the release page: {error}")))
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LocalCapture {
     pub path: String,
@@ -835,12 +854,286 @@ fn scan_captures_impl(directory: String) -> IpcResult<LocalScan> {
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockPreset {
+    #[serde(default = "block_preset_version")]
+    pub version: u32,
+    pub name: String,
+    pub block_key: String,
+    pub block_path: String,
+    pub block_label: String,
+    pub family: String,
+    pub saved_at: String,
+    #[serde(default)]
+    pub values: serde_json::Map<String, Value>,
+}
+
+fn block_preset_version() -> u32 {
+    1
+}
+
+fn block_presets_root(app: &AppHandle) -> IpcResult<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .map(|path| path.join("block-presets"))
+        .map_err(|error| {
+            IpcError::internal(format!("could not resolve the app data directory: {error}"))
+        })
+}
+
+fn validate_block_key(block_key: &str) -> IpcResult<()> {
+    let valid = !block_key.is_empty()
+        && block_key.len() <= 64
+        && block_key.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        });
+    if !valid {
+        return Err(IpcError::from(ProtocolError::InvalidRequest(
+            "invalid block preset folder name".into(),
+        )));
+    }
+    Ok(())
+}
+
+fn validate_preset_name(name: &str) -> IpcResult<()> {
+    if name.is_empty() {
+        return Err(IpcError::from(ProtocolError::InvalidRequest(
+            "preset name cannot be empty".into(),
+        )));
+    }
+    if name.as_bytes().len() > 63 {
+        return Err(IpcError::from(ProtocolError::InvalidRequest(
+            "preset name must be at most 63 bytes".into(),
+        )));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(IpcError::from(ProtocolError::InvalidRequest(
+            "preset name cannot contain control characters".into(),
+        )));
+    }
+    Ok(())
+}
+
+fn sanitize_file_stem(name: &str) -> String {
+    let mut stem: String = name
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            character if character.is_control() => '_',
+            character => character,
+        })
+        .collect();
+    while stem.ends_with('.') || stem.ends_with(' ') {
+        stem.pop();
+    }
+    let stem = stem.trim();
+    if stem.is_empty() {
+        return "preset".to_string();
+    }
+    let stem: String = stem.chars().take(80).collect();
+    const RESERVED: [&str; 22] = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED
+        .iter()
+        .any(|reserved| stem.eq_ignore_ascii_case(reserved))
+    {
+        format!("_{stem}")
+    } else {
+        stem
+    }
+}
+
+fn read_presets_from(directory: &Path) -> IpcResult<Vec<BlockPreset>> {
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(IpcError::internal(format!(
+                "could not read block presets: {error}"
+            )))
+        }
+    };
+
+    let mut presets = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| !extension.eq_ignore_ascii_case("json"))
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(preset) = serde_json::from_str::<BlockPreset>(&contents) else {
+            continue;
+        };
+        presets.push(preset);
+    }
+    presets.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    Ok(presets)
+}
+
+fn find_preset_path(directory: &Path, name: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(directory).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| !extension.eq_ignore_ascii_case("json"))
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(preset) = serde_json::from_str::<BlockPreset>(&contents) else {
+            continue;
+        };
+        if preset.name.to_lowercase() == name.to_lowercase() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn unique_preset_path(directory: &Path, stem: &str) -> PathBuf {
+    let mut candidate = directory.join(format!("{stem}.json"));
+    let mut suffix = 2;
+    while candidate.exists() {
+        candidate = directory.join(format!("{stem} ({suffix}).json"));
+        suffix += 1;
+    }
+    candidate
+}
+
+fn write_preset_file(path: &Path, preset: &BlockPreset) -> IpcResult<()> {
+    let json = serde_json::to_string_pretty(preset)
+        .map_err(|error| IpcError::internal(format!("could not encode block preset: {error}")))?;
+    let temporary = path.with_extension("json.tmp");
+    std::fs::write(&temporary, format!("{json}\n"))
+        .map_err(|error| IpcError::internal(format!("could not write block preset: {error}")))?;
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|error| {
+            IpcError::internal(format!("could not replace block preset: {error}"))
+        })?;
+    }
+    std::fs::rename(&temporary, path).map_err(|error| {
+        let _ = std::fs::remove_file(&temporary);
+        IpcError::internal(format!("could not finish block preset write: {error}"))
+    })
+}
+
+fn save_preset_to(directory: &Path, mut preset: BlockPreset) -> IpcResult<BlockPreset> {
+    preset.name = preset.name.trim().to_string();
+    validate_block_key(&preset.block_key)?;
+    validate_preset_name(&preset.name)?;
+    std::fs::create_dir_all(directory).map_err(|error| {
+        IpcError::internal(format!("could not create the block preset folder: {error}"))
+    })?;
+    let path = find_preset_path(directory, &preset.name)
+        .unwrap_or_else(|| unique_preset_path(directory, &sanitize_file_stem(&preset.name)));
+    write_preset_file(&path, &preset)?;
+    Ok(preset)
+}
+
+fn delete_preset_from(directory: &Path, name: &str) -> IpcResult<bool> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok(false);
+    }
+    let Some(path) = find_preset_path(directory, name) else {
+        return Ok(false);
+    };
+    std::fs::remove_file(path).map_err(|error| {
+        IpcError::internal(format!("could not delete the block preset: {error}"))
+    })?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn list_block_presets(app: AppHandle, block_key: String) -> IpcResult<Vec<BlockPreset>> {
+    validate_block_key(&block_key)?;
+    let directory = block_presets_root(&app)?.join(&block_key);
+    read_presets_from(&directory)
+}
+
+#[tauri::command]
+pub fn save_block_preset(app: AppHandle, preset: BlockPreset) -> IpcResult<BlockPreset> {
+    validate_block_key(&preset.block_key)?;
+    let directory = block_presets_root(&app)?.join(&preset.block_key);
+    save_preset_to(&directory, preset)
+}
+
+#[tauri::command]
+pub fn delete_block_preset(app: AppHandle, block_key: String, name: String) -> IpcResult<bool> {
+    validate_block_key(&block_key)?;
+    let directory = block_presets_root(&app)?.join(&block_key);
+    delete_preset_from(&directory, &name)
+}
+
+/// Open the per-block preset folder in the system file manager. The folder is
+/// created first so the button still works before the first preset is saved.
+#[tauri::command]
+pub fn open_block_presets_folder(app: AppHandle, block_key: String) -> IpcResult<()> {
+    validate_block_key(&block_key)?;
+    let directory = block_presets_root(&app)?.join(&block_key);
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        IpcError::internal(format!("could not create the block preset folder: {error}"))
+    })?;
+    app.opener()
+        .open_path(directory.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|error| {
+            IpcError::internal(format!("could not open the block preset folder: {error}"))
+        })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{scan_captures_impl, tuner_note, tuner_view};
-    use serde_json::json;
+    use super::{
+        delete_preset_from, read_presets_from, sanitize_file_stem, save_preset_to,
+        scan_captures_impl, tuner_note, tuner_view, validate_block_key, BlockPreset,
+    };
+    use serde_json::{json, Value};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use stomp_protocol::node::{Node, NodeStore};
     use stomp_protocol::{TUNER_FREQ_PATH, TUNER_LEVEL_PATH, TUNER_ON_PATH, TUNER_REF_PATH};
+
+    fn temporary_directory(label: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("stomp-{label}-{}-{stamp}", std::process::id()))
+    }
+
+    fn sample_preset(name: &str) -> BlockPreset {
+        BlockPreset {
+            version: 1,
+            name: name.to_string(),
+            block_key: "drive".to_string(),
+            block_path: "root\\app\\drive".to_string(),
+            block_label: "Drive / Distortion".to_string(),
+            family: "drive".to_string(),
+            saved_at: "2026-11-24T13:20:00Z".to_string(),
+            values: json!({
+                "root\\app\\drive\\gain": 0.55,
+                "root\\app\\drive\\model": "Klone 3"
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        }
+    }
 
     fn node(value: serde_json::Value) -> Node {
         Node::new(value.as_object().unwrap().clone())
@@ -911,5 +1204,78 @@ mod tests {
             .iter()
             .any(|file| file.relative.contains(".hidden")));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn block_preset_files_round_trip_and_overwrite_case_insensitively() {
+        let directory = temporary_directory("block-presets");
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let saved = save_preset_to(&directory, sample_preset("Klone Lead")).unwrap();
+        assert_eq!(saved.name, "Klone Lead");
+        assert!(directory.join("Klone Lead.json").exists());
+
+        let mut renamed = sample_preset("KLONE LEAD");
+        renamed
+            .values
+            .insert("root\\app\\drive\\gain".to_string(), json!(0.75));
+        save_preset_to(&directory, renamed).unwrap();
+
+        let presets = read_presets_from(&directory).unwrap();
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets[0].name, "KLONE LEAD");
+        assert_eq!(
+            presets[0]
+                .values
+                .get("root\\app\\drive\\gain")
+                .and_then(Value::as_f64),
+            Some(0.75)
+        );
+
+        assert!(delete_preset_from(&directory, "klone lead").unwrap());
+        assert!(read_presets_from(&directory).unwrap().is_empty());
+        assert!(!delete_preset_from(&directory, "klone lead").unwrap());
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn block_preset_names_survive_unsafe_file_characters() {
+        let directory = temporary_directory("block-presets-names");
+        std::fs::create_dir_all(&directory).unwrap();
+        save_preset_to(&directory, sample_preset("Lead / Bright: 2")).unwrap();
+
+        let files: Vec<String> = std::fs::read_dir(&directory)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(files.len(), 1);
+        assert!(!files[0].contains('/'));
+        assert!(!files[0].contains(':'));
+
+        let presets = read_presets_from(&directory).unwrap();
+        assert_eq!(presets[0].name, "Lead / Bright: 2");
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn block_preset_storage_rejects_path_traversal_and_corrupt_files() {
+        assert!(validate_block_key("drive").is_ok());
+        assert!(validate_block_key("delay2").is_ok());
+        for key in ["", "../drive", "drive/lead", "drive\\lead", "drive lead"] {
+            assert!(validate_block_key(key).is_err(), "{key} should be rejected");
+        }
+        assert_eq!(sanitize_file_stem("CON"), "_CON");
+        assert_eq!(sanitize_file_stem("Lead / Bright"), "Lead _ Bright");
+
+        let directory = temporary_directory("block-presets-corrupt");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("broken.json"), b"{not json").unwrap();
+        std::fs::write(directory.join("ignored.txt"), b"ignore").unwrap();
+        save_preset_to(&directory, sample_preset("Good")).unwrap();
+        let presets = read_presets_from(&directory).unwrap();
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets[0].name, "Good");
+        let _ = std::fs::remove_dir_all(directory);
     }
 }

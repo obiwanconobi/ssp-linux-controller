@@ -29,6 +29,12 @@ import {
 } from '../lib/androidFiles';
 import { listNameError, presetNameError } from '../lib/presetNames';
 import {
+  applyPresetValuesToBlock,
+  blockPresetChanges,
+  prepareBlockPresetValues,
+  sortBlockPresetChanges,
+} from '../lib/blockPresets';
+import {
   allBlockControls,
   blockControl,
   getBlockKnobIds,
@@ -68,6 +74,7 @@ import {
 import type {
   ActivityEntry,
   Block,
+  BlockPreset,
   ConflictValue,
   ConnectionState,
   ControlGroup,
@@ -168,6 +175,7 @@ interface AppStore {
   setLaneModel: (blockId: string, model: string) => void;
   setLaneEnabled: (blockId: string, enabled: boolean) => void;
   setControl: (controlId: string, value: number | string | boolean) => void;
+  applyBlockPreset: (blockId: string, preset: BlockPreset) => void;
   setLink: (id: string, parallel: boolean) => void;
   moveBlock: (activeId: string, overId: string) => void;
   addBlock: (id: string, slot?: ChainSlotRef) => void;
@@ -804,6 +812,21 @@ const operationStatePatch = (
       ),
     };
   }
+  if (operation.kind === 'block-preset') {
+    const values = Object.fromEntries(
+      operation.changes.map((change) => [
+        change.path,
+        direction === 'undo' ? change.before : change.after,
+      ]),
+    );
+    return {
+      blocks: state.blocks.map((block) =>
+        block.id === operation.blockId
+          ? applyPresetValuesToBlock(block, values)
+          : block,
+      ),
+    };
+  }
   if (operation.kind === 'model') {
     return {
       blocks: state.blocks.map((block) =>
@@ -881,6 +904,14 @@ async function applyDeviceOperation(
       direction === 'undo' ? operation.before : operation.after,
     );
     revision = snapshot.revision;
+  } else if (operation.kind === 'block-preset') {
+    for (const change of operation.changes) {
+      const snapshot = await tauriClient.setControl(
+        change.path,
+        direction === 'undo' ? change.before : change.after,
+      );
+      revision = snapshot.revision;
+    }
   } else if (operation.kind === 'model') {
     const snapshot = await tauriClient.setControl(
       operation.path,
@@ -1829,6 +1860,140 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         }, 320);
         window.setTimeout(() => void get().refreshDevice(), 1_050);
       }
+    }
+  },
+
+  applyBlockPreset: (blockId, preset) => {
+    const state = get();
+    const block = state.blocks.find((item) => item.id === blockId);
+    if (!block) return;
+
+    const typeControl = block.controls.find(
+      (control) => control.name === 'type' && control.visible !== false,
+    );
+    const presetType = typeControl ? preset.values[typeControl.id] : undefined;
+    if (
+      typeControl &&
+      presetType !== undefined &&
+      String(typeControl.value) !== String(presetType)
+    ) {
+      get().notify(
+        `“${preset.name}” was saved with a different block type; switch the type first`,
+        'warn',
+      );
+      get().addActivity(
+        'Block preset type mismatch',
+        `${block.label} · ${preset.name}`,
+        'warn',
+      );
+      return;
+    }
+
+    const prepared = prepareBlockPresetValues(block, preset);
+    const changes = sortBlockPresetChanges(
+      block,
+      blockPresetChanges(block, prepared.values),
+    );
+    if (changes.length === 0) {
+      if (prepared.warnings.length > 0) get().notify(prepared.warnings[0], 'warn');
+      else get().notify(`“${preset.name}” already matches this block`, 'neutral');
+      return;
+    }
+
+    const before = snapshotOf(state);
+    const updated = applyPresetValuesToBlock(block, prepared.values);
+
+    const pendingIds = changes.map((change) => change.path);
+    const pendingEntries =
+      state.connection.mode === 'device'
+        ? changes.map((change) => {
+            const mainModel = change.path === block.modelControlId;
+            const laneModel =
+              block.secondLane?.modelControlId === change.path;
+            return rememberPendingWrite({
+              id: mainModel
+                ? `model.${blockId}`
+                : laneModel
+                  ? `model.${blockId}.lane`
+                  : change.path,
+              kind: mainModel || laneModel ? 'model' : 'control',
+              label:
+                mainModel || laneModel
+                  ? 'Model'
+                  : (change.path.split('\\').pop() ?? change.path),
+              localValue: change.after,
+              previousValue: change.before,
+              blockId,
+              controlId: change.path,
+              lane: laneModel ? true : undefined,
+            });
+          })
+        : [];
+    set({
+      blocks: state.blocks.map((item) => (item.id === blockId ? updated : item)),
+      undoStack: [...state.undoStack, before].slice(-40),
+      redoStack: [],
+      save: { ...state.save, edited: true },
+      pending: [...new Set([...state.pending, ...pendingIds])],
+    });
+    window.setTimeout(() => {
+      set((current) => ({
+        pending: current.pending.filter((item) => !pendingIds.includes(item)),
+      }));
+    }, 500);
+
+    get().addActivity(
+      'Block preset applied',
+      `${block.label} · ${preset.name}`,
+      'neutral',
+    );
+    if (prepared.warnings.length > 0) {
+      get().notify(prepared.warnings[0], 'warn');
+      get().addActivity(
+        'Block preset model fallback',
+        prepared.warnings.join(' · '),
+        'warn',
+      );
+    } else {
+      get().notify(`Applied “${preset.name}”`, 'good');
+    }
+
+    if (state.connection.mode === 'device') {
+      const operationChanges = changes.map((change) => ({ ...change }));
+      void (async () => {
+        try {
+          await flushCoalesced((message) => get().notify(message, 'bad'));
+          let revision = get().save.revision;
+          for (const change of operationChanges) {
+            const snapshot = await tauriClient.setControl(change.path, change.after);
+            revision = snapshot.revision;
+          }
+          for (const entry of pendingEntries) clearPendingWrite(entry);
+          set((current) => ({
+            save: { ...current.save, revision },
+            pending: current.pending.filter((item) => !pendingIds.includes(item)),
+          }));
+          get().recordDeviceOperation({
+            kind: 'block-preset',
+            key: `block-preset:${blockId}:${preset.name}`,
+            label: `${block.label} · ${preset.name}`,
+            blockId,
+            changes: operationChanges,
+          });
+        } catch (error) {
+          for (const entry of pendingEntries) clearPendingWrite(entry);
+          set((current) => ({
+            pending: current.pending.filter((item) => !pendingIds.includes(item)),
+          }));
+          get().notify(ipcErrorMessage(error), 'bad');
+          get().addActivity(
+            'Block preset apply failed',
+            `${block.label} · ${preset.name}`,
+            'bad',
+          );
+          void get().refreshDevice();
+        }
+      })();
     }
   },
 

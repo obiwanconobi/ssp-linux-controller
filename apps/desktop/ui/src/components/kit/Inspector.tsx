@@ -12,6 +12,7 @@ import { isMobileRuntime } from '../../ipc/client';
 import { parametricEqModel } from '../../lib/parametricEq';
 import { useAppStore } from '../../stores/useAppStore';
 import type { Block, Control, ControlGroup } from '../../types';
+import { BlockPresetsMenu } from './BlockPresetsMenu';
 import { Knob } from './Knob';
 import { ParametricEqPanel } from './ParametricEqPanel';
 
@@ -365,6 +366,7 @@ export const Inspector = ({
           </div>
         </div>
         <div className="inspector__head-actions">
+          <BlockPresetsMenu block={block} />
           <button
             type="button"
             className="btn btn--sm"

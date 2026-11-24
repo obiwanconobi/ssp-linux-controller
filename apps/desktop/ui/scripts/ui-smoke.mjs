@@ -127,6 +127,47 @@ try {
   );
   await invalidInput.press('Escape');
 
+  // Block presets: save the current drive settings, change a value, re-apply
+  // the preset, then remove it from the manager.
+  const blockPresetReadout = page.locator('.inspector .control-grid .knob__readout').first();
+  const savedPresetValue = (await blockPresetReadout.textContent())?.trim() ?? '';
+  await page.locator('[aria-label^="Block presets for"]').click();
+  await page.waitForSelector('.menu--presets');
+  await page.locator('.menu--presets .menu__item', { hasText: 'Save current preset' }).click();
+  await page.waitForSelector('#preset-name');
+  await page.locator('#preset-name').fill('Smoke preset');
+  await page.locator('.dialog-content button[type="submit"]', { hasText: 'Save preset' }).click();
+  await page.waitForTimeout(250);
+
+  await blockPresetReadout.click();
+  const blockPresetInput = page.locator('.inspector .control-grid .knob__readout-input').first();
+  await blockPresetInput.fill('3.3');
+  await blockPresetInput.press('Enter');
+  assert(
+    (await blockPresetReadout.textContent())?.includes('3.3'),
+    'block preset setup did not change the knob',
+  );
+
+  await page.locator('[aria-label^="Block presets for"]').click();
+  await page.locator('.menu--presets .menu__item', { hasText: 'Smoke preset' }).click();
+  await page.waitForTimeout(150);
+  assert(
+    (await blockPresetReadout.textContent())?.includes(savedPresetValue),
+    'block preset did not restore the saved knob value',
+  );
+
+  await page.locator('[aria-label^="Block presets for"]').click();
+  await page.locator('.menu--presets .menu__item', { hasText: 'Manage presets' }).click();
+  await page.waitForSelector('.block-preset-row');
+  await page.locator('[aria-label="Delete Smoke preset"]').click();
+  await page.locator('.block-preset-row__confirm .btn--danger', { hasText: 'Delete' }).click();
+  await page.waitForTimeout(150);
+  assert(
+    (await page.locator('.block-preset-row').count()) === 0,
+    'block preset delete did not remove the preset',
+  );
+  await page.locator('.dialog-content .dialog-foot .btn', { hasText: 'Close' }).click();
+
   // Parametric NAM must swap both the control list and the model list.
   const typeGroup = page.locator('.inspector__type .segmented');
   const typeBox = await page.locator('.inspector__type').boundingBox();

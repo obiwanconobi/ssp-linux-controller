@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { captureBlockPreset } from '../lib/blockPresets';
 import type {
   RustBlockEditor,
   RustSnapshot,
@@ -877,5 +878,35 @@ describe('device connection integration', () => {
         useAppStore.getState().blocks.find((block) => block.id === 'root\\app\\amp')?.on,
       ).toBe(before),
     );
+  });
+
+  it('applies a block preset through the device client as one operation', async () => {
+    client.getSnapshot.mockResolvedValue(fixture.snapshot);
+    client.selectBlock.mockImplementation(async (path: string) => fixture.editors[path]);
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const amp = useAppStore
+      .getState()
+      .blocks.find((block) => block.id === 'root\\app\\amp')!;
+    const preset = captureBlockPreset(amp, 'Amp test');
+    preset.values['root\\app\\amp\\gain'] = 7.7;
+    client.setControl.mockClear();
+
+    useAppStore.getState().applyBlockPreset(amp.id, preset);
+
+    expect(
+      useAppStore
+        .getState()
+        .blocks.find((block) => block.id === 'root\\app\\amp')!
+        .controls.find((control) => control.id === 'root\\app\\amp\\gain')?.value,
+    ).toBe(7.7);
+
+    await vi.waitFor(() =>
+      expect(client.setControl).toHaveBeenCalledWith('root\\app\\amp\\gain', 7.7),
+    );
+    await vi.waitFor(() => {
+      const state = useAppStore.getState();
+      expect(state.deviceUndoStack.at(-1)?.kind).toBe('block-preset');
+      expect(state.pending).not.toContain('root\\app\\amp\\gain');
+    });
   });
 });

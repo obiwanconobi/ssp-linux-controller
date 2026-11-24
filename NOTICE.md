@@ -6,6 +6,7 @@ shipped binary free of copyleft obligations that have not been reviewed.
 | Component | License |
 | --- | --- |
 | Tauri 2 | MIT / Apache-2.0 |
+| tauri-plugin-opener | MIT / Apache-2.0 |
 | React, React DOM | MIT |
 | Zustand | MIT |
 | dnd-kit | MIT |
@@ -20,4 +21,5 @@ shipped binary free of copyleft obligations that have not been reviewed.
 | mdns-sd | MIT / Apache-2.0 |
 
 No remote fonts, scripts, or styles are loaded by the application. Fonts ship
-as bundled woff2 subsets.
+as bundled woff2 subsets. The update check in Settings reads the public GitHub
+releases API when About is opened; it sends no device or usage data.

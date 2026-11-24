@@ -17,8 +17,13 @@ interface PresetNameDialogProps {
   names: string[];
   excludeName?: string;
   disabled?: boolean;
+  /** Allow an existing name so a save can overwrite it. */
+  allowExisting?: boolean;
+  nameLabel?: string;
+  namePlaceholder?: string;
+  validate?: (name: string) => string | null;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (name: string) => boolean | void;
+  onSubmit: (name: string) => boolean | void | Promise<boolean | void>;
 }
 
 export const PresetNameDialog = ({
@@ -30,6 +35,10 @@ export const PresetNameDialog = ({
   names,
   excludeName,
   disabled = false,
+  allowExisting = false,
+  nameLabel = 'Patch name',
+  namePlaceholder = 'Patch name',
+  validate = presetNameError,
   onOpenChange,
   onSubmit,
 }: PresetNameDialogProps) => {
@@ -45,11 +54,15 @@ export const PresetNameDialog = ({
   }, [initialName, open]);
 
   const trimmed = value.trim();
-  const problem = presetNameError(trimmed);
+  const problem = validate(trimmed);
   const duplicate = matchingPresetName(names, trimmed, excludeName);
-  const blocked = Boolean(problem) || Boolean(duplicate) || disabled;
+  const blocked =
+    Boolean(problem) || (Boolean(duplicate) && !allowExisting) || disabled;
   const showProblem = touched && problem;
-  const showDuplicate = touched && !problem && duplicate;
+  const showDuplicate = Boolean(
+    !problem && duplicate && (touched || allowExisting),
+  );
+  const showOverwrite = Boolean(showDuplicate && allowExisting);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -75,16 +88,16 @@ export const PresetNameDialog = ({
             </Dialog.Close>
           </div>
           <form
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
               if (blocked) return;
-              const result = onSubmit(trimmed);
+              const result = await onSubmit(trimmed);
               if (result !== false) onOpenChange(false);
             }}
           >
             <div className="dialog-body">
               <label className="field-label" htmlFor="preset-name">
-                Patch name
+                {nameLabel}
                 <span className="mono">
                   {presetNameBytes(value)} / {MAX_PRESET_NAME_BYTES}
                 </span>
@@ -95,7 +108,7 @@ export const PresetNameDialog = ({
                 className="input input--mono"
                 autoFocus
                 value={value}
-                placeholder="Patch name"
+                placeholder={namePlaceholder}
                 onChange={(event) => {
                   setValue(event.target.value);
                   setTouched(true);
@@ -107,7 +120,13 @@ export const PresetNameDialog = ({
                   <AlertTriangle size={12} aria-hidden="true" /> {problem}
                 </p>
               )}
-              {showDuplicate && (
+              {showDuplicate && showOverwrite && (
+                <p className="preflight__warning">
+                  <AlertTriangle size={12} aria-hidden="true" />Saving will overwrite “
+                  {duplicate}”.
+                </p>
+              )}
+              {showDuplicate && !showOverwrite && (
                 <p className="preflight__warning preflight__warning--error" role="alert">
                   <AlertTriangle size={12} aria-hidden="true" />A patch named “{duplicate}”
                   already exists.
@@ -121,7 +140,7 @@ export const PresetNameDialog = ({
                 </button>
               </Dialog.Close>
               <button type="submit" className="btn btn--primary" disabled={blocked}>
-                {submitLabel}
+                {showOverwrite ? 'Overwrite' : submitLabel}
               </button>
             </div>
           </form>

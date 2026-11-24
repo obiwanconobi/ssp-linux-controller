@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { BlockPreset } from '../types';
 
 export interface RustControlValue {
   id: string;
@@ -44,6 +45,8 @@ export interface RustPreset {
   list_path: string | null;
   preset_path: string | null;
 }
+
+export type RustBlockPreset = BlockPreset;
 
 export interface RustMaster {
   volume: RustControlValue | null;
@@ -465,6 +468,15 @@ export const tauriClient = {
   tunerPoll: () => invoke<RustTunerView>('tuner_poll'),
   tunerClose: () => invoke('tuner_close'),
   copyDiagnostics: () => invoke<string>('copy_diagnostics'),
+  openReleasePage: (url: string) => invoke<void>('open_release_page', { url }),
+  listBlockPresets: (blockKey: string) =>
+    invoke<RustBlockPreset[]>('list_block_presets', { blockKey }),
+  saveBlockPreset: (preset: RustBlockPreset) =>
+    invoke<RustBlockPreset>('save_block_preset', { preset }),
+  deleteBlockPreset: (blockKey: string, name: string) =>
+    invoke<boolean>('delete_block_preset', { blockKey, name }),
+  openBlockPresetsFolder: (blockKey: string) =>
+    invoke<void>('open_block_presets_folder', { blockKey }),
   scanCaptures: (directory: string) =>
     invoke<RustLocalScan>('scan_captures', { directory }),
   preflightUpload: (

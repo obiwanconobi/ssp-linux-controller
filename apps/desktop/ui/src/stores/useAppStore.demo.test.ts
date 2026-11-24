@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { captureBlockPreset } from '../lib/blockPresets';
 
 vi.mock('../ipc/client', () => ({
   tauriClient: {
@@ -94,5 +95,70 @@ describe('demo chain editing', () => {
     expect(after.selectedBlockId).toBe(after.blocks[gateIndex].id);
     expect(after.availableBlocks.some((block) => block.id === 'gate')).toBe(true);
     expect(after.availableBlocks.some((block) => block.id === 'chorus')).toBe(false);
+  });
+
+  it('applies a block preset as one undoable edit', () => {
+    const before = useAppStore.getState();
+    const drive = before.blocks.find((block) => block.id === 'drive')!;
+    const preset = captureBlockPreset(drive, 'Clean drive');
+    const originalGain = drive.controls.find((control) => control.id === 'drive.gain')!.value;
+
+    before.setControl('drive.gain', 9.5);
+    expect(
+      useAppStore.getState().blocks.find((block) => block.id === 'drive')!
+        .controls.find((control) => control.id === 'drive.gain')!.value,
+    ).toBe(9.5);
+    const undoBeforeApply = useAppStore.getState().undoStack.length;
+
+    useAppStore.getState().applyBlockPreset('drive', preset);
+
+    const after = useAppStore.getState();
+    expect(
+      after.blocks.find((block) => block.id === 'drive')!
+        .controls.find((control) => control.id === 'drive.gain')!.value,
+    ).toBe(originalGain);
+    expect(after.undoStack).toHaveLength(undoBeforeApply + 1);
+    expect(after.save.edited).toBe(true);
+    expect(after.toast?.tone).toBe('good');
+  });
+
+  it('falls back to the first model and flags a preset with no model', () => {
+    const before = useAppStore.getState();
+    const drive = before.blocks.find((block) => block.id === 'drive')!;
+    const options = drive.modelOptions!;
+    before.setBlockModel('drive', options[1]);
+    const preset = captureBlockPreset(
+      useAppStore.getState().blocks.find((block) => block.id === 'drive')!,
+      'No model',
+    );
+    delete preset.values['drive.model'];
+
+    useAppStore.getState().applyBlockPreset('drive', preset);
+
+    const after = useAppStore.getState();
+    expect(after.blocks.find((block) => block.id === 'drive')!.model).toBe(options[0]);
+    expect(after.toast?.tone).toBe('warn');
+    expect(after.toast?.message).toContain('has no model');
+  });
+
+  it('flags a preset saved with a different block type', () => {
+    const before = useAppStore.getState();
+    const drive = before.blocks.find((block) => block.id === 'drive')!;
+    const preset = captureBlockPreset(drive, 'PNAM drive');
+    preset.values['drive.type'] = 'Parametric NAM';
+    const gainBefore = drive.controls.find((control) => control.id === 'drive.gain')!.value;
+
+    before.applyBlockPreset('drive', preset);
+
+    const after = useAppStore.getState();
+    const nextDrive = after.blocks.find((block) => block.id === 'drive')!;
+    expect(nextDrive.controls.find((control) => control.id === 'drive.type')?.value).toBe(
+      'NAM',
+    );
+    expect(nextDrive.controls.find((control) => control.id === 'drive.gain')?.value).toBe(
+      gainBefore,
+    );
+    expect(after.toast?.tone).toBe('warn');
+    expect(after.toast?.message).toContain('different block type');
   });
 });

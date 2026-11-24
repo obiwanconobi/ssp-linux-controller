@@ -23,6 +23,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .manage(state)
         .setup(|app| {
             let state = tauri::Manager::state::<AppState>(app);
@@ -72,7 +77,12 @@ pub fn run() {
             commands::tuner_poll,
             commands::tuner_close,
             commands::copy_diagnostics,
+            commands::open_release_page,
             commands::scan_captures,
+            commands::list_block_presets,
+            commands::save_block_preset,
+            commands::delete_block_preset,
+            commands::open_block_presets_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running StompStation");

@@ -124,6 +124,20 @@ export interface PresetState {
   listPath?: string;
 }
 
+export type BlockPresetValue = number | string | boolean;
+
+/** A host-side preset for one block type. Values are keyed by control path. */
+export interface BlockPreset {
+  version: number;
+  name: string;
+  blockKey: string;
+  blockPath: string;
+  blockLabel: string;
+  family: BlockFamily;
+  savedAt: string;
+  values: Record<string, BlockPresetValue>;
+}
+
 export interface LibrarySlot {
   index: number;
   name: string;
@@ -223,6 +237,13 @@ export type DeviceOperation =
       path: string;
       before: string;
       after: string;
+    }
+  | {
+      kind: 'block-preset';
+      key: string;
+      label: string;
+      blockId: string;
+      changes: Array<{ path: string; before: ConflictValue; after: ConflictValue }>;
     }
   | {
       kind: 'toggle';

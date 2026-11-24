@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   Cpu,
+  ExternalLink,
   Info,
   Keyboard,
   Palette,
@@ -16,10 +17,12 @@ import {
   Wifi,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Knob } from '../../components/kit/Knob';
 import { ipcErrorMessage, isMobileRuntime, isTauriRuntime, tauriClient } from '../../ipc/client';
 import type { DiscoveredDevice, PortInfo } from '../../ipc/client';
+import { compareVersions, fetchLatestRelease } from '../../lib/updates';
+import type { LatestRelease } from '../../lib/updates';
 import { THEMES } from '../../theme/themes';
 import { useAppStore } from '../../stores/useAppStore';
 import type { Density, Motion } from '../../types';
@@ -149,6 +152,35 @@ export const SettingsView = () => {
   const [scanning, setScanning] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [manualAddress, setManualAddress] = useState('');
+  const [updatePhase, setUpdatePhase] = useState<'idle' | 'checking' | 'ready' | 'error'>('idle');
+  const [latestRelease, setLatestRelease] = useState<LatestRelease | null>(null);
+  const [updateError, setUpdateError] = useState('');
+  const updateChecked = useRef(false);
+
+  const checkForUpdates = async () => {
+    setUpdatePhase('checking');
+    setUpdateError('');
+    try {
+      setLatestRelease(await fetchLatestRelease());
+      setUpdatePhase('ready');
+    } catch (error) {
+      setLatestRelease(null);
+      setUpdateError(ipcErrorMessage(error));
+      setUpdatePhase('error');
+    }
+  };
+
+  const openReleasePage = async (url: string) => {
+    if (!tauri) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    try {
+      await tauriClient.openReleasePage(url);
+    } catch (error) {
+      notify(ipcErrorMessage(error), 'bad');
+    }
+  };
 
   const scanDevices = async (announce = true) => {
     if (!tauri) {
@@ -195,6 +227,14 @@ export const SettingsView = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, tauri]);
 
+  useEffect(() => {
+    if (section !== 'about' || updateChecked.current) return;
+    updateChecked.current = true;
+    void checkForUpdates();
+    // One automatic check per visit to Settings; the card has a manual retry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section]);
+
   const connectTarget = async (target: string) => {
     if (!tauri) {
       notify('The browser preview uses the simulator. Open the Tauri shell to use USB or TCP.', 'neutral');
@@ -226,6 +266,41 @@ export const SettingsView = () => {
   ]
     .filter(Boolean)
     .join('\n');
+
+  const versionOrder =
+    latestRelease && appVersion
+      ? compareVersions(latestRelease.version, appVersion)
+      : null;
+  const updateChip =
+    updatePhase === 'checking'
+      ? { label: 'Checking', tone: '' }
+      : updatePhase === 'error'
+        ? { label: 'Check failed', tone: 'chip--bad' }
+        : !latestRelease
+          ? { label: 'Not checked', tone: '' }
+          : versionOrder === null
+            ? { label: 'Latest found', tone: '' }
+            : versionOrder > 0
+              ? { label: 'Update available', tone: 'chip--warn' }
+              : versionOrder < 0
+                ? { label: 'Ahead of release', tone: '' }
+                : { label: 'Up to date', tone: 'chip--good' };
+  const updateStatus =
+    updatePhase === 'checking'
+      ? 'Contacting GitHub for the latest release…'
+      : updatePhase === 'error'
+        ? updateError || 'Could not check for updates.'
+        : !latestRelease
+          ? 'Check for updates to compare this build with the published release.'
+          : !appVersion
+            ? `The latest published release is v${latestRelease.version}. This build does not report a version.`
+            : versionOrder === null
+              ? `The latest published release is v${latestRelease.version}; this build reports v${appVersion}, which could not be compared.`
+              : versionOrder > 0
+                ? `v${latestRelease.version} is available — this build is v${appVersion}.`
+                : versionOrder < 0
+                  ? `This build (v${appVersion}) is newer than the latest published release (v${latestRelease.version}).`
+                  : `Up to date — v${appVersion} is the latest published release.`;
 
   return (
     <div className="settings-view">
@@ -854,45 +929,108 @@ export const SettingsView = () => {
           )}
 
           {section === 'about' && (
-            <section className="settings-card panel about-card">
-              <header className="settings-card__head">
-                <div>
-                  <h2>StompStation</h2>
-                  <p className="hint">Pedalboard-first desktop controller for the Sonulab StompStation PRO.</p>
+            <>
+              <section className="settings-card panel">
+                <header className="settings-card__head">
+                  <div>
+                    <h2>Updates</h2>
+                    <p className="hint">
+                      Compares this build with the latest published GitHub release. No account or
+                      telemetry.
+                    </p>
+                  </div>
+                  <span className={`chip ${updateChip.tone}`}>{updateChip.label}</span>
+                </header>
+                <dl className="settings-meta">
+                  <div>
+                    <dt>Installed</dt>
+                    <dd className="mono">{appVersion ? `v${appVersion}` : 'dev build'}</dd>
+                  </div>
+                  <div>
+                    <dt>Latest release</dt>
+                    <dd className="mono">{latestRelease ? `v${latestRelease.version}` : '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Published</dt>
+                    <dd className="mono">{latestRelease?.publishedAt?.slice(0, 10) ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Source</dt>
+                    <dd>GitHub releases</dd>
+                  </div>
+                </dl>
+                <p className="settings-note" role="status" aria-live="polite">
+                  {updateStatus}
+                </p>
+                <div className="about-card__links">
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() => void checkForUpdates()}
+                    disabled={updatePhase === 'checking'}
+                  >
+                    <RefreshCw
+                      size={12}
+                      className={updatePhase === 'checking' ? 'spin' : undefined}
+                    />
+                    {updatePhase === 'checking'
+                      ? 'Checking…'
+                      : latestRelease
+                        ? 'Check again'
+                        : 'Check now'}
+                  </button>
+                  {latestRelease && (
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--primary"
+                      onClick={() => void openReleasePage(latestRelease.url)}
+                    >
+                      <ExternalLink size={12} /> View release
+                    </button>
+                  )}
                 </div>
-                <span className="chip chip--good">{appVersion ? `v${appVersion}` : 'dev'}</span>
-              </header>
-              <dl className="settings-meta">
-                <div>
-                  <dt>Frame</dt>
-                  <dd>Tauri 2 · Rust + React 19</dd>
+              </section>
+
+              <section className="settings-card panel about-card">
+                <header className="settings-card__head">
+                  <div>
+                    <h2>StompStation</h2>
+                    <p className="hint">Pedalboard-first desktop controller for the Sonulab StompStation PRO.</p>
+                  </div>
+                  <span className="chip chip--good">{appVersion ? `v${appVersion}` : 'dev'}</span>
+                </header>
+                <dl className="settings-meta">
+                  <div>
+                    <dt>Frame</dt>
+                    <dd>Tauri 2 · Rust + React 19</dd>
+                  </div>
+                  <div>
+                    <dt>Protocol</dt>
+                    <dd>VoidX node protocol · firmware 2.5.3</dd>
+                  </div>
+                  <div>
+                    <dt>Theme</dt>
+                    <dd>{THEMES.find((item) => item.id === theme)?.name}</dd>
+                  </div>
+                  <div>
+                    <dt>Fonts</dt>
+                    <dd>Inter · JetBrains Mono (OFL)</dd>
+                  </div>
+                </dl>
+                <p className="settings-note">
+                  The Python GTK client remains in the repository as the protocol oracle and fallback.
+                  This build is the Tauri parity path. No Python runtime ships in the release app.
+                </p>
+                <div className="about-card__links">
+                  <button type="button" className="btn btn--sm" onClick={() => notify('Licenses: MIT, Apache-2.0, OFL', 'neutral')}>
+                    Licenses
+                  </button>
+                  <button type="button" className="btn btn--sm" onClick={() => copyDiagnostics()}>
+                    <Copy size={12} /> Copy report
+                  </button>
                 </div>
-                <div>
-                  <dt>Protocol</dt>
-                  <dd>VoidX node protocol · firmware 2.5.3</dd>
-                </div>
-                <div>
-                  <dt>Theme</dt>
-                  <dd>{THEMES.find((item) => item.id === theme)?.name}</dd>
-                </div>
-                <div>
-                  <dt>Fonts</dt>
-                  <dd>Inter · JetBrains Mono (OFL)</dd>
-                </div>
-              </dl>
-              <p className="settings-note">
-                The Python GTK client remains in the repository as the protocol oracle and fallback.
-                This build is the Tauri parity path. No Python runtime ships in the release app.
-              </p>
-              <div className="about-card__links">
-                <button type="button" className="btn btn--sm" onClick={() => notify('Licenses: MIT, Apache-2.0, OFL', 'neutral')}>
-                  Licenses
-                </button>
-                <button type="button" className="btn btn--sm" onClick={() => copyDiagnostics()}>
-                  <Copy size={12} /> Copy report
-                </button>
-              </div>
-            </section>
+              </section>
+            </>
           )}
         </div>
       </div>
