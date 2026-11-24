@@ -281,7 +281,8 @@ Android constraints:
 - mDNS requires the `MulticastLock` in `MainActivity`; emulator mDNS is not a
   reliable test because its virtual network does not route to the host LAN;
 - the physical phone has not been tested;
-- release APKs are signed with the local Android debug key for sideloading.
+- locally built release APKs are signed with the local Android debug key for
+  sideloading; CI release APKs use the repository release key.
 
 See [`ANDROID.md`](ANDROID.md) for build and install instructions and
 [`ANDROID_UI_TESTING.md`](ANDROID_UI_TESTING.md) for the emulator UI/native-shell

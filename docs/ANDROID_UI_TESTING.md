@@ -433,7 +433,8 @@ copies; do not let them drift from this document.
 
 ## Related
 
-- [`README.md`](../README.md) — repository overview and test commands.
+- [`DEVELOPMENT.md`](DEVELOPMENT.md) — architecture, build, test commands, and
+  release pipeline.
 - [`ANDROID.md`](ANDROID.md) — build, install, signing, local-network notes.
 - [`apps/desktop/ui/e2e/android/README.md`](../apps/desktop/ui/e2e/android/README.md)
   — harness-specific usage.

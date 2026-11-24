@@ -2,9 +2,9 @@
 
 Last updated: 2026-11-22
 
-Sources: [`README.md`](../README.md) status, [`BACKLOG.md`](BACKLOG.md),
-[`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md), and
-[`DEVICE_SAFETY.md`](DEVICE_SAFETY.md).
+Sources: [`DEVELOPMENT.md`](DEVELOPMENT.md#project-status) status,
+[`BACKLOG.md`](BACKLOG.md), [`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md),
+and [`DEVICE_SAFETY.md`](DEVICE_SAFETY.md).
 
 The order below is chosen to reduce risk first, finish visible gaps while the
 device layer is stable, then take on the larger architectural work. Android and

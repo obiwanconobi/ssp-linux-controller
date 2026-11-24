@@ -17,8 +17,8 @@ transport returns a clear “unsupported” error if an address is forced.
 | Tested runtime | Pixel 10 Pro emulator, API 37, x86_64 |
 | Tested transport | TCP through `adb reverse` to the bundled simulator |
 | UI tests | Playwright/CDP + Appium/UiAutomator2 debug-APK harness; CI emulator workflow |
-| APK signing | Android debug key by default; upload-key env vars for Play releases |
-| Artifacts | `dist/android/stompstation-<arch>-<mode>.apk`, `…-release.aab` |
+| APK signing | CI release key from GitHub Actions secrets; local builds use the debug key unless `STOMPSTATION_KEYSTORE` is set |
+| Artifacts | Local: `dist/android/stompstation-<arch>-<mode>.apk`, `…-release.aab`; CI: `StompStation_<version>_arm64-v8a.apk` |
 
 The arm64 APK/AAB build successfully but have not been run on a physical phone.
 The x86_64 debug APK is installed and exercised in the emulator by the full
@@ -68,9 +68,9 @@ the debug/release APKs; `dist/` is ignored.
 - The desktop Local-files folder scan. Android SAF tree URIs are not filesystem
   paths, so the Library tab hides Local files on mobile; single-file capture
   upload/download works through the content-URI bridge.
-- Play Store publishing: the AAB build/signing path works, but the current
-  local AAB uses the debug key. A real upload key and Play Console setup are
-  still needed.
+- Play Store publishing: the AAB build/signing path works, but Play Console
+  setup is still needed. The CI release keystore signs the sideloaded APK; use
+  a dedicated Play upload key for store distribution.
 - Physical-device validation on Wi-Fi, including multicast behavior on locked
   screens and vendor Wi-Fi stacks.
 - A separate Android visual-regression baseline set. The browser baselines
@@ -138,6 +138,65 @@ export STOMPSTATION_KEY_PASSWORD=…
 Do not commit the keystore or passwords. The generated Gradle project also
 ignores `key.properties` / `keystore.properties`.
 
+The GitHub release workflow uses a dedicated release keystore, not the debug
+key. Android requires every update to be signed with the same certificate, so
+this key must be created once and backed up. Generate it with:
+
+```bash
+./scripts/android-release-keystore.sh
+```
+
+The helper refuses to overwrite an existing key and prints the Base64 value plus
+the `gh secret set` commands. Add these repository secrets under **Settings →
+Secrets and variables → Actions**:
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | Base64 of the `.jks` file (one line) |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `ANDROID_KEY_ALIAS` | Key alias (`stompstation` by default) |
+| `ANDROID_KEY_PASSWORD` | Key password |
+
+`gh secret set` takes the secret **name**, not the value; it prompts for the
+value. Do not replace `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD`
+with the password text. Press Enter at keytool's key-password prompt to reuse
+the keystore password, or set a distinct one.
+
+Back up the keystore and both passwords. If the key is lost, existing installs
+cannot be updated; users must uninstall and reinstall. Never commit the keystore.
+
+### CI release and Obtainium
+
+The `android` job in [`.github/workflows/build.yml`](../.github/workflows/build.yml)
+builds the published APK on pushes to `master`/`main`, `v*` tags, and manual
+dispatch (not pull requests). It installs JDK 21, Android platform 37.0,
+build-tools 36.0.0, NDK `28.2.13676358`, and the `aarch64-linux-android` Rust
+target, then runs `./scripts/build-android.sh aarch64 release`.
+
+Before uploading, CI verifies the package name (`pro.stompstation.desktop`), the
+`versionName` against `tauri.conf.json`, that the `versionCode` is positive,
+that the APK contains only `arm64-v8a`, and that `apksigner verify` succeeds. It
+fails rather than publish a debug-signed APK when any signing secret is missing.
+
+The APK is attached to the same GitHub Release as the desktop bundles as
+`StompStation_<version>_arm64-v8a.apk`, with a `.sha256` checksum next to it.
+The [root README](../README.md#android) documents the Obtainium install steps.
+In short: add the repository URL
+`https://github.com/obiwanconobi/ssp-linux-controller` as an app in
+[Obtainium](https://github.com/ImranR98/Obtainium), and Obtainium will offer
+each new GitHub release as an update.
+
+Android's `versionCode` is derived from the app version:
+`major × 1_000_000 + minor × 1_000 + patch`, so `0.6.3` becomes `6003`.
+Obtainium compares the version name and code; bump
+`apps/desktop/src-tauri/tauri.conf.json` for every release that users should
+receive. Rebuilding an existing version replaces the release asset without
+prompting installed apps to update.
+
+If you previously installed a locally built, debug-signed APK, uninstall it
+once before installing the release-signed APK. Android will not update across
+different signing keys.
+
 ## Install
 
 ```bash
@@ -162,6 +221,20 @@ adb install -r dist/android/stompstation-x86_64-release.apk
 In the app use `127.0.0.1:45700`. `adb reverse` is needed because the emulator
 does not route to the host LAN. The app’s mDNS scan may return nothing in the
 emulator; manual address entry is expected there.
+
+### Obtainium
+
+Release builds are published as signed APKs on the GitHub releases page, so
+[Obtainium](https://github.com/ImranR98/Obtainium) can install and update them
+without a store account:
+
+1. Install Obtainium.
+2. Choose **Add App**.
+3. Paste `https://github.com/obiwanconobi/ssp-linux-controller`.
+4. Install StompStation and let Obtainium check for new releases.
+
+The published APK is arm64-only and Wi-Fi/TCP-only. Users upgrading from an
+older locally built, debug-signed APK must uninstall it once first.
 
 ## UI tests
 

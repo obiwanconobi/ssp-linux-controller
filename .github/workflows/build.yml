@@ -1,9 +1,14 @@
-name: Build desktop
+name: Build and release
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      android_only:
+        description: Build and publish only the Android APK
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,6 +62,7 @@ jobs:
     name: UI checks
     runs-on: ubuntu-latest
     needs: version
+    if: github.event_name != 'workflow_dispatch' || inputs.android_only != true
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -121,6 +127,7 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
     needs: version
+    if: github.event_name != 'workflow_dispatch' || inputs.android_only != true
     strategy:
       fail-fast: false
       matrix:
@@ -287,14 +294,226 @@ jobs:
           if-no-files-found: error
           path: artifacts/
 
+  # Signed arm64 APK for GitHub Releases / Obtainium. Skipped on PRs so fork
+  # PRs never need the release signing secrets.
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    needs: version
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name != 'pull_request' &&
+       (github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/main' ||
+        startsWith(github.ref, 'refs/tags/v')))
+    timeout-minutes: 75
+    env:
+      ANDROID_NDK_VERSION: '28.2.13676358'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/ui/pnpm-lock.yaml
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # `tools` was removed from the current SDK repository and the
+          # action's default package list still asks for it. The runner
+          # already ships platform-tools; the next step installs the NDK,
+          # platform, and build-tools explicitly.
+          packages: platform-tools
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          sdkmanager --install "ndk;${ANDROID_NDK_VERSION}" "platforms;android-37.0" "build-tools;36.0.0"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          key: android-release
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version '^2' --locked
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate signing secrets
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set; refusing to publish a debug-signed APK."
+            missing=1
+          fi
+          if [ -z "${KEYSTORE_PASSWORD:-}" ]; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD is not set; refusing to publish a debug-signed APK."
+            missing=1
+          fi
+          if [ -z "${KEY_ALIAS:-}" ]; then
+            echo "::error::ANDROID_KEY_ALIAS is not set; refusing to publish a debug-signed APK."
+            missing=1
+          fi
+          if [ -z "${KEY_PASSWORD:-}" ]; then
+            echo "::error::ANDROID_KEY_PASSWORD is not set; refusing to publish a debug-signed APK."
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Decode release keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          test -s "$RUNNER_TEMP/release.keystore"
+          echo "STOMPSTATION_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        shell: bash
+        env:
+          STOMPSTATION_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          STOMPSTATION_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          STOMPSTATION_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./scripts/build-android.sh aarch64 release
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="dist/android/stompstation-aarch64-release.apk"
+          test -f "$APK"
+          BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          VERSION="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+          BADGING="$("$BUILD_TOOLS/aapt2" dump badging "$APK")"
+          echo "$BADGING" | grep -E "^(package|sdkVersion|targetSdkVersion):"
+          PACKAGE="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$BADGING")"
+          APK_VERSION="$(sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" <<<"$BADGING")"
+          VERSION_CODE="$(sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p" <<<"$BADGING")"
+          echo "package=${PACKAGE} versionName=${APK_VERSION} versionCode=${VERSION_CODE}"
+          test "$PACKAGE" = "pro.stompstation.desktop"
+          test "$APK_VERSION" = "$VERSION"
+          test -n "$VERSION_CODE" && test "$VERSION_CODE" -gt 0
+          ABIS="$(unzip -Z1 "$APK" 'lib/*' | cut -d/ -f2 | sort -u | tr '\n' ' ')"
+          echo "ABIs: ${ABIS}"
+          test "$ABIS" = "arm64-v8a "
+          CERTS="$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK")"
+          echo "$CERTS"
+          if grep -q "CN=Android Debug" <<<"$CERTS"; then
+            echo "::error::APK is signed with the Android debug key; refusing to publish it."
+            exit 1
+          fi
+
+      - name: Collect release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+          NAME="StompStation_${VERSION}_arm64-v8a.apk"
+          mkdir -p artifacts
+          cp dist/android/stompstation-aarch64-release.apk "artifacts/$NAME"
+          (cd artifacts && sha256sum "$NAME" > "$NAME.sha256")
+          ls -lh artifacts
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: stompstation-android
+          if-no-files-found: error
+          path: artifacts/
+
+  android-release:
+    name: Publish Android release
+    needs: [version, android]
+    if: github.event_name == 'workflow_dispatch' && inputs.android_only == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: stompstation-android
+          path: release
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          version=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(release/*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No Android release assets were downloaded."
+            exit 1
+          fi
+          printf '%s\n' "${files[@]}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --title "StompStation $TAG" \
+              --generate-notes \
+              --target "${{ github.sha }}"
+          fi
+
   release:
     name: Publish release
-    needs: [version, build, ui]
+    needs: [version, build, ui, android]
     if: |
       github.event_name != 'pull_request' &&
       (github.ref == 'refs/heads/master' ||
        github.ref == 'refs/heads/main' ||
-       startsWith(github.ref, 'refs/tags/v'))
+       startsWith(github.ref, 'refs/tags/v')) &&
+      (github.event_name != 'workflow_dispatch' || inputs.android_only != true)
     runs-on: ubuntu-latest
     permissions:
       contents: write

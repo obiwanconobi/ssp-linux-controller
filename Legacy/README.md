@@ -164,10 +164,12 @@ framing.
 ## Primary Tauri desktop app
 
 The main application now lives in the repository root. It uses the same
-protocol and keeps this Python client as the reference implementation. Build,
-install, and test instructions are in the [root README](../README.md). Android
-notes are in [`../docs/ANDROID.md`](../docs/ANDROID.md), and hardware validation
-is in [`../docs/HARDWARE_VALIDATION.md`](../docs/HARDWARE_VALIDATION.md).
+protocol and keeps this Python client as the reference implementation. The
+user-facing overview and download links are in the [root README](../README.md);
+build, test, and architecture notes are in the
+[development guide](../docs/DEVELOPMENT.md). Android notes are in
+[`../docs/ANDROID.md`](../docs/ANDROID.md), and hardware validation is in
+[`../docs/HARDWARE_VALIDATION.md`](../docs/HARDWARE_VALIDATION.md).
 
 ## Repository layout
 
@@ -207,6 +209,21 @@ paths; router writes must wrap the matrix as `{"value":[[...]]}`. On save, the
 firmware applies fields in order: `value` selects the target preset, then
 `save` persists the live state. Reversing them reloads the stored preset and
 discards unsaved edits. See `docs/stompstation-pro-protocol.md` for details.
+
+## Source of truth
+
+This directory is the original reference material for the protocol and the
+Tauri port:
+
+- Python protocol: `Legacy/stomp.py`
+- Python UI behaviour inventory: `Legacy/stomp_ui.py`,
+  `Legacy/stomp_ui_legacy.py`
+- Tests to mirror: `Legacy/tests/test_stomp.py`
+- Protocol notes: `Legacy/docs/stompstation-pro-protocol.md`
+- Design dossier: `Legacy/docs/tauri-rebuild-report.html`
+
+Nothing in the desktop app requires Python at runtime. The Python client is
+kept as a reference implementation and a fallback during the port.
 
 ## Known limitations
 

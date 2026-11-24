@@ -14,6 +14,11 @@ test-results/
 **/build/
 apps/desktop/src-tauri/gen/android/local.properties
 
+# Android signing material — never commit these
+*.jks
+*.keystore
+*.jks.b64
+
 # Legacy Python client
 __pycache__/
 *.pyc
