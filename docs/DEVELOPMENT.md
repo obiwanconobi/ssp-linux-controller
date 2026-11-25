@@ -107,6 +107,7 @@ prioritized plan for the remaining work is in [`REMAINING_WORK.md`](REMAINING_WO
 ├─ packaging/                  # Linux desktop entry and udev rule
 └─ scripts/
    ├─ smoke.sh                 # simulator -> core -> assertions
+   ├─ auth-smoke.sh            # password/token simulator -> CLI assertions
    ├─ build-android.sh         # APK build + zipalign + sign
    ├─ android-release-keystore.sh # release key + GitHub secret setup
    ├─ android-e2e.sh           # Android UI tests (CDP + Appium)
@@ -302,12 +303,13 @@ Run the fast, hardware-free suite from the repository root:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace          # 99 Rust tests
+cargo test --workspace          # 124 Rust tests
 ./scripts/smoke.sh              # simulator -> core -> chain/save/preset/upload assertions
+./scripts/auth-smoke.sh         # password/token simulator -> reads/write/upload/download
 
 cd apps/desktop/ui
 pnpm lint
-pnpm test                       # 73 Vitest tests
+pnpm test                       # 99 Vitest tests
 pnpm build
 pnpm test:ui                    # interaction smoke
 pnpm test:mobile                # phone layout/geometry smoke
@@ -413,8 +415,8 @@ Losing it means existing installs cannot be updated. See
 [`ANDROID.md`](ANDROID.md#release-signing) for the full setup.
 
 The Android `versionCode` is derived from the app version:
-`major × 1_000_000 + minor × 1_000 + patch`. For example, `0.6.3` becomes
-`6003`. Obtainium and Android compare the version name and code, so bump
+`major × 1_000_000 + minor × 1_000 + patch`. For example, `0.7.0` becomes
+`7000`. Obtainium and Android compare the version name and code, so bump
 `tauri.conf.json` for every release that users should receive. Rebuilding an
 existing version replaces the release asset without prompting installed apps
 to update.

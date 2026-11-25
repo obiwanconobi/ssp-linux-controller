@@ -26,6 +26,48 @@ impl ParsedLine {
         let chunk = object.get("chunk")?.as_i64()?;
         Some((index, chunk))
     }
+
+    /// True for the firmware's password challenge/status line.
+    pub fn is_token(&self) -> bool {
+        self.command.as_deref() == Some("token")
+    }
+
+    /// The nonce carried by a `token` line.
+    pub fn token_nonce(&self) -> Option<&str> {
+        self.object()?.get("nonce")?.as_str()
+    }
+
+    /// The status carried by a `token` line. `Some(true)` is `y` (accepted),
+    /// `Some(false)` is `n` (missing/invalid), `None` is not a token line.
+    ///
+    /// Firmware 2.5.3 sends lowercase `y`/`n`; older notes assumed uppercase
+    /// `Y`, so both are accepted.
+    pub fn token_accepted(&self) -> Option<bool> {
+        if !self.is_token() {
+            return None;
+        }
+        self.object()?.get("secure")?.as_bool()
+    }
+
+    /// True when this is a token rejection line (`token … n`).
+    pub fn token_rejected(&self) -> bool {
+        self.token_accepted() == Some(false)
+    }
+}
+
+/// True when any line in a response rejects the request token.
+pub fn has_token_rejection(lines: &[ParsedLine]) -> bool {
+    lines.iter().any(ParsedLine::token_rejected)
+}
+
+/// True when any line in a response accepted the request token.
+pub fn has_token_acceptance(lines: &[ParsedLine]) -> bool {
+    lines.iter().any(|line| line.token_accepted() == Some(true))
+}
+
+/// The latest nonce carried by a response, if any.
+pub fn latest_token_nonce(lines: &[ParsedLine]) -> Option<&str> {
+    lines.iter().rev().find_map(ParsedLine::token_nonce)
 }
 
 /// Split a complete response message into `path:json` lines.
@@ -46,7 +88,11 @@ pub fn parse_message(text: &str) -> Result<Vec<ParsedLine>> {
         if fields.len() == 3 && fields[0] == "token" {
             out.push(ParsedLine {
                 path: String::new(),
-                value: json!({ "nonce": fields[1], "secure": fields[2] == "Y" }),
+                value: json!({
+                    "nonce": fields[1],
+                    "secure": fields[2].eq_ignore_ascii_case("y"),
+                    "status": fields[2],
+                }),
                 command: Some("token".to_string()),
                 raw: raw.to_string(),
             });
@@ -196,6 +242,36 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].command.as_deref(), Some("token"));
         assert_eq!(detect_token(&lines), Some(true));
+        assert_eq!(lines[0].token_nonce(), Some("abcdef0123456789"));
+        assert_eq!(lines[0].token_accepted(), Some(true));
+    }
+
+    #[test]
+    fn parses_lowercase_token_status_from_firmware() {
+        let lines = parse_message(
+            "token 51FBF8B3B7BB5DC9 n\r\nroot\\sys\\_name:{\"value\":\"StompStation PRO\"}\0",
+        )
+        .unwrap();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].is_token());
+        assert_eq!(lines[0].token_accepted(), Some(false));
+        assert!(lines[0].token_rejected());
+        assert!(has_token_rejection(&lines));
+        assert!(!has_token_acceptance(&lines));
+        assert_eq!(latest_token_nonce(&lines), Some("51FBF8B3B7BB5DC9"));
+        assert_eq!(lines[1].path, r"root\sys\_name");
+    }
+
+    #[test]
+    fn accepts_uppercase_and_mixed_case_token_status() {
+        for status in ["Y", "y"] {
+            let lines = parse_message(&format!("token ABCDEF0123456789 {status}\r\n")).unwrap();
+            assert_eq!(lines[0].token_accepted(), Some(true));
+        }
+        for status in ["N", "n"] {
+            let lines = parse_message(&format!("token ABCDEF0123456789 {status}\r\n")).unwrap();
+            assert_eq!(lines[0].token_accepted(), Some(false));
+        }
     }
 
     #[test]

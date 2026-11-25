@@ -179,14 +179,6 @@
   color: var(--text);
 }
 
-.brand__sub {
-  margin-top: 4px;
-  font-family: var(--font-mono);
-  font-size: 7px;
-  letter-spacing: 0.24em;
-  color: var(--accent);
-}
-
 .brand-mark {
   border-radius: 7px;
   box-shadow: 0 2px 7px rgba(0, 0, 0, 0.35);

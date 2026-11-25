@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { AlertTriangle, Cable, Check, RefreshCw, Router, Usb, Wifi, X } from 'lucide-react';
+import { AlertTriangle, Cable, Check, Lock, RefreshCw, Router, Usb, Wifi, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ipcErrorMessage, isMobileRuntime, isTauriRuntime, tauriClient } from '../../ipc/client';
 import type { DiscoveredDevice } from '../../ipc/client';
@@ -28,6 +28,8 @@ export const ConnectionSheet = () => {
   const demoAllowed = useAppStore((state) => state.demoAllowed);
   const connectDemo = useAppStore((state) => state.connectDemo);
   const connectReal = useAppStore((state) => state.connectReal);
+  const unlockDevice = useAppStore((state) => state.unlockDevice);
+  const forgetSavedPassword = useAppStore((state) => state.forgetSavedPassword);
   const disconnect = useAppStore((state) => state.disconnect);
   const notify = useAppStore((state) => state.notify);
   const mobile = isMobileRuntime();
@@ -35,6 +37,9 @@ export const ConnectionSheet = () => {
   const [ports, setPorts] = useState(USB_PORTS);
   const [port, setPort] = useState(USB_PORTS[0].device);
   const [address, setAddress] = useState(mobile ? '' : '127.0.0.1:45678');
+  const [password, setPassword] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(true);
   const [reconnect, setReconnect] = useState(true);
   const [remember, setRemember] = useState(true);
   const [networkDevices, setNetworkDevices] = useState<DiscoveredDevice[]>(
@@ -96,7 +101,20 @@ export const ConnectionSheet = () => {
       return;
     }
     const target = transport === 'usb' ? `serial:${port}` : `tcp:${address}`;
-    await connectReal(target);
+    await connectReal(target, password.trim() || undefined, rememberPassword);
+  };
+
+  const unlock = async () => {
+    if (!password.trim()) {
+      notify('Enter the device password first', 'warn');
+      return;
+    }
+    setUnlocking(true);
+    try {
+      await unlockDevice(password.trim(), rememberPassword);
+    } finally {
+      setUnlocking(false);
+    }
   };
 
   return (
@@ -148,6 +166,79 @@ export const ConnectionSheet = () => {
                 </div>
               </div>
             )}
+            <section className="connection-section">
+              <div className="section-title">
+                <Lock size={13} /> Device password
+                <span className="connection-section__badge">
+                  {connection.requiresPassword
+                    ? connection.authenticated
+                      ? 'unlocked'
+                      : 'required'
+                    : 'not needed'}
+                </span>
+              </div>
+              <label className="field-label" htmlFor="device-password">
+                Password
+                <span className="mono">only if set on the pedal</span>
+              </label>
+              <div className="connection-inline">
+                <input
+                  id="device-password"
+                  className="input"
+                  type="password"
+                  autoComplete="off"
+                  value={password}
+                  placeholder="Leave empty for a pedal without a password"
+                  onChange={(event) => setPassword(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && connection.connected && connection.requiresPassword) {
+                      void unlock();
+                    }
+                  }}
+                />
+                {connection.connected && connection.requiresPassword && (
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    disabled={unlocking}
+                    onClick={() => void unlock()}
+                  >
+                    {unlocking ? 'Checking…' : connection.authenticated ? 'Re-check' : 'Unlock'}
+                  </button>
+                )}
+              </div>
+              <p className="hint">
+                Reads work without it. Writes and uploads are rejected by the pedal until the
+                password is accepted.
+              </p>
+              {connection.authError && (
+                <p className="hint" role="alert" style={{ color: 'var(--danger)' }}>
+                  {connection.authError}
+                </p>
+              )}
+              <div className="connection-toggles">
+                <button
+                  type="button"
+                  role="switch"
+                  className="switch"
+                  aria-checked={rememberPassword}
+                  onClick={() => setRememberPassword((value) => !value)}
+                >
+                  <span className="switch__track"><span className="switch__thumb" /></span>
+                  Remember in OS keyring
+                </button>
+                {connection.authenticated && (
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() => void forgetSavedPassword()}
+                  >
+                    Forget saved password
+                  </button>
+                )}
+              </div>
+            </section>
+
             <div className="segmented" role="group" aria-label="Transport">
               {!mobile && (
                 <button type="button" aria-pressed={transport === 'usb'} onClick={() => setTransport('usb')}>

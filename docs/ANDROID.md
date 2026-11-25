@@ -187,7 +187,7 @@ In short: add the repository URL
 each new GitHub release as an update.
 
 Android's `versionCode` is derived from the app version:
-`major × 1_000_000 + minor × 1_000 + patch`, so `0.6.3` becomes `6003`.
+`major × 1_000_000 + minor × 1_000 + patch`, so `0.7.0` becomes `7000`.
 Obtainium compares the version name and code; bump
 `apps/desktop/src-tauri/tauri.conf.json` for every release that users should
 receive. Rebuilding an existing version replaces the release asset without

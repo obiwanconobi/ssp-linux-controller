@@ -1,5 +1,6 @@
 mod actor;
 mod commands;
+mod credentials;
 mod error;
 mod state;
 
@@ -46,6 +47,10 @@ pub fn run() {
             commands::discover_wifi,
             commands::connect,
             commands::auto_connect,
+            commands::set_password,
+            commands::load_device_password,
+            commands::save_device_password,
+            commands::forget_device_password,
             commands::disconnect,
             commands::get_snapshot,
             commands::refresh,

@@ -324,6 +324,9 @@ export interface ConnectionState {
   pollMs: number;
   lastPollMs: number;
   address: string;
+  requiresPassword?: boolean;
+  authenticated?: boolean;
+  authError?: string;
 }
 
 export interface SaveState {

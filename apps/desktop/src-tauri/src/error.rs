@@ -33,7 +33,7 @@ impl From<ProtocolError> for IpcError {
             ProtocolError::Timeout => ("timeout", true),
             ProtocolError::ConnectionClosed => ("connection_closed", true),
             ProtocolError::Protocol(_) => ("protocol", false),
-            ProtocolError::AuthenticationRequired(_) => ("permission", false),
+            ProtocolError::AuthenticationRequired(_) => ("auth_required", false),
             ProtocolError::UploadRejected(_) => ("rejected", false),
             ProtocolError::InvalidRequest(_) => ("invalid_request", false),
             ProtocolError::Unsupported(_) => ("unsupported", false),

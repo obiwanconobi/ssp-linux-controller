@@ -114,6 +114,7 @@ export interface RustSnapshot {
   meters: { input: [number, number]; output: [number, number] };
   eq: RustEq | null;
   lists: RustLibraryList[];
+  auth?: AuthStatus;
 }
 
 export interface RustTunerView {
@@ -177,12 +178,18 @@ export interface RustBlockEditor {
   items: RustEditorNode[];
 }
 
+export interface AuthStatus {
+  required: boolean;
+  authenticated: boolean;
+}
+
 export interface ConnectionInfo {
   address: string;
   transport: string;
   device_name: string;
   firmware: string;
   node_count: number;
+  auth?: AuthStatus;
 }
 
 export interface PortInfo {
@@ -441,8 +448,18 @@ export const tauriClient = {
   bootstrap: () => invoke<Bootstrap>('get_bootstrap'),
   listPorts: () => invoke<PortInfo[]>('list_serial_ports'),
   discoverWifi: () => invoke<DiscoveredDevice[]>('discover_wifi'),
-  connect: (address: string) => invoke<ConnectionInfo>('connect', { address }),
-  autoConnect: () => invoke<ConnectionInfo>('auto_connect'),
+  connect: (address: string, password?: string) =>
+    invoke<ConnectionInfo>('connect', { address, password: password ?? null }),
+  autoConnect: (password?: string) =>
+    invoke<ConnectionInfo>('auto_connect', { password: password ?? null }),
+  setPassword: (password: string | null) =>
+    invoke<AuthStatus>('set_password', { password }),
+  loadDevicePassword: (address: string) =>
+    invoke<string | null>('load_device_password', { address }),
+  saveDevicePassword: (address: string, password: string) =>
+    invoke<void>('save_device_password', { address, password }),
+  forgetDevicePassword: (address: string) =>
+    invoke<void>('forget_device_password', { address }),
   disconnect: () => invoke<void>('disconnect'),
   getSnapshot: () => invoke<RustSnapshot>('get_snapshot'),
   refresh: () => invoke<RustSnapshot>('refresh'),

@@ -29,7 +29,6 @@ export const Brand = ({ compact = false }: { compact?: boolean }) => (
     {compact ? <Zap size={17} /> : <BrandMark />}
     <div className="brand__text">
       <span className="brand__name">STOMPSTATION</span>
-      <span className="brand__sub">TAURI</span>
     </div>
   </div>
 );

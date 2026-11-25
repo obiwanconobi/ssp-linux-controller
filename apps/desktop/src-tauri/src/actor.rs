@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::Value;
 use stomp_device::{
-    parse_host_port, ChainEdit, ConnectionInfo, Device, DeviceSnapshot, UploadProgress,
+    parse_host_port, AuthStatus, ChainEdit, ConnectionInfo, Device, DeviceSnapshot, UploadProgress,
 };
 use stomp_protocol::editor::BlockEditor;
 use stomp_protocol::ProtocolError;
@@ -50,6 +50,8 @@ pub struct ActorStatus {
     pub retry_in_ms: Option<u64>,
     pub pending_writes: usize,
     pub last_error: Option<String>,
+    pub requires_password: bool,
+    pub authenticated: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,10 +63,16 @@ pub struct ActorDiagnostics {
 pub enum ActorCommand {
     Connect {
         address: String,
+        password: Option<String>,
         reply: Reply<ConnectionInfo>,
     },
     AutoConnect {
+        password: Option<String>,
         reply: Reply<ConnectionInfo>,
+    },
+    SetPassword {
+        password: Option<String>,
+        reply: Reply<AuthStatus>,
     },
     Disconnect {
         reply: Reply<()>,
@@ -283,6 +291,7 @@ impl ActorHandle {
             download_cancel: download_cancel.clone(),
             device: None,
             last_target: None,
+            last_password: None,
             last_info: None,
             last_snapshot: None,
             revision: 0,
@@ -411,9 +420,22 @@ impl Target {
     }
 }
 
-fn open_target(target: &Target) -> IpcResult<(Device, ConnectionInfo)> {
+fn open_target(target: &Target, password: Option<&str>) -> IpcResult<(Device, ConnectionInfo)> {
     let mut device = target.open();
-    let info = device.connect().map_err(IpcError::from)?;
+    if let Some(password) = password {
+        device.set_password(Some(password.to_string()));
+    }
+    let mut info = device.connect().map_err(IpcError::from)?;
+
+    // A remembered password is a convenience, not a requirement. If the
+    // keyring is unavailable or the password changed, keep the read-only
+    // connection and let the UI prompt for a new one.
+    if info.auth.required && !info.auth.authenticated && password.is_none() {
+        if let Some(saved) = crate::credentials::load(&target.label()) {
+            device.set_password(Some(saved));
+            info = device.connection_info();
+        }
+    }
     Ok((device, info))
 }
 
@@ -458,6 +480,7 @@ struct Actor {
     download_cancel: Arc<AtomicBool>,
     device: Option<Device>,
     last_target: Option<Target>,
+    last_password: Option<String>,
     last_info: Option<ConnectionInfo>,
     last_snapshot: Option<DeviceSnapshot>,
     revision: u64,
@@ -567,11 +590,18 @@ impl Actor {
             command,
         } = request;
         match command {
-            ActorCommand::Connect { address, reply } => {
-                let _ = reply.send(self.connect(&address));
+            ActorCommand::Connect {
+                address,
+                password,
+                reply,
+            } => {
+                let _ = reply.send(self.connect(&address, password));
             }
-            ActorCommand::AutoConnect { reply } => {
-                let _ = reply.send(self.auto_connect());
+            ActorCommand::AutoConnect { password, reply } => {
+                let _ = reply.send(self.auto_connect(password));
+            }
+            ActorCommand::SetPassword { password, reply } => {
+                let _ = reply.send(self.set_password(password));
             }
             ActorCommand::Disconnect { reply } => {
                 self.disconnect();
@@ -793,15 +823,21 @@ impl Actor {
         }
     }
 
-    fn connect(&mut self, address: &str) -> IpcResult<ConnectionInfo> {
+    fn connect(&mut self, address: &str, password: Option<String>) -> IpcResult<ConnectionInfo> {
         let target = Target::parse(address)?;
         self.last_target = None;
+        self.last_password = None;
         self.last_info = None;
         self.reconnect_at = None;
         self.reconnect_attempts = 0;
         self.close_current();
-        match open_target(&target) {
+        match open_target(&target, password.as_deref()) {
             Ok((device, info)) => {
+                self.last_password = if info.auth.authenticated {
+                    password
+                } else {
+                    None
+                };
                 self.install(device, info.clone(), target);
                 Ok(info)
             }
@@ -813,8 +849,9 @@ impl Actor {
         }
     }
 
-    fn auto_connect(&mut self) -> IpcResult<ConnectionInfo> {
+    fn auto_connect(&mut self, password: Option<String>) -> IpcResult<ConnectionInfo> {
         self.last_target = None;
+        self.last_password = None;
         self.last_info = None;
         self.reconnect_at = None;
         self.reconnect_attempts = 0;
@@ -829,8 +866,13 @@ impl Actor {
                 host: found.host.clone(),
                 port: found.port,
             };
-            match open_target(&target) {
+            match open_target(&target, password.as_deref()) {
                 Ok((device, info)) => {
+                    self.last_password = if info.auth.authenticated {
+                        password.clone()
+                    } else {
+                        None
+                    };
                     self.install(device, info.clone(), target);
                     return Ok(info);
                 }
@@ -854,8 +896,13 @@ impl Actor {
                 port: port.device.clone(),
                 baud: 115_200,
             };
-            match open_target(&target) {
+            match open_target(&target, password.as_deref()) {
                 Ok((device, info)) => {
+                    self.last_password = if info.auth.authenticated {
+                        password
+                    } else {
+                        None
+                    };
                     self.install(device, info.clone(), target);
                     return Ok(info);
                 }
@@ -883,6 +930,32 @@ impl Actor {
         self.last_error = Some(message.clone());
         self.emit_status();
         Err(IpcError::no_device(message))
+    }
+
+    fn set_password(&mut self, password: Option<String>) -> IpcResult<AuthStatus> {
+        let Some(device) = self.device.as_mut() else {
+            return Err(IpcError::from(stomp_protocol::ProtocolError::NotConnected));
+        };
+        let status = match password.clone() {
+            Some(password) => match device.authenticate(&password) {
+                Ok(status) => status,
+                Err(error) => {
+                    let status = device.clear_password();
+                    self.last_password = None;
+                    if let Some(info) = self.last_info.as_mut() {
+                        info.auth = status;
+                    }
+                    return Err(IpcError::from(error));
+                }
+            },
+            None => device.clear_password(),
+        };
+        if let Some(info) = self.last_info.as_mut() {
+            info.auth = status.clone();
+        }
+        self.last_password = if status.authenticated { password } else { None };
+        self.emit_status();
+        Ok(status)
     }
 
     fn install(&mut self, device: Device, info: ConnectionInfo, target: Target) {
@@ -918,6 +991,7 @@ impl Actor {
     fn disconnect(&mut self) {
         self.close_current();
         self.last_target = None;
+        self.last_password = None;
         self.last_info = None;
         self.reconnect_at = None;
         self.reconnect_attempts = 0;
@@ -950,7 +1024,8 @@ impl Actor {
             self.reconnect_at = None;
             return;
         };
-        match open_target(&target) {
+        let password = self.last_password.clone();
+        match open_target(&target, password.as_deref()) {
             Ok((device, info)) => {
                 self.install(device, info, target);
                 self.emit(
@@ -1524,6 +1599,12 @@ impl Actor {
 
     fn status(&self) -> ActorStatus {
         let now = Instant::now();
+        let auth = self
+            .device
+            .as_ref()
+            .map(|device| device.auth_status())
+            .or_else(|| self.last_info.as_ref().map(|info| info.auth.clone()))
+            .unwrap_or_default();
         ActorStatus {
             connected: self.device.is_some(),
             transport: self
@@ -1545,6 +1626,8 @@ impl Actor {
                 .map(|at| at.saturating_duration_since(now).as_millis() as u64),
             pending_writes: self.pending_writes.load(Ordering::SeqCst),
             last_error: self.last_error.clone(),
+            requires_password: auth.required,
+            authenticated: auth.authenticated,
         }
     }
 
@@ -1737,6 +1820,7 @@ mod tests {
             device_name: "Simulator".to_string(),
             firmware: "test".to_string(),
             node_count: 0,
+            auth: Default::default(),
         }
     }
 
@@ -1759,6 +1843,114 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires STOMP_TEST_TCP and STOMP_TEST_PASSWORD for a real password-protected pedal"]
+    fn connects_with_a_password_and_reconnects_against_hardware() {
+        let Ok(address) = std::env::var("STOMP_TEST_TCP") else {
+            return;
+        };
+        let Ok(password) = std::env::var("STOMP_TEST_PASSWORD") else {
+            return;
+        };
+        tauri::async_runtime::block_on(async {
+            let handle = ActorHandle::spawn();
+            let info = handle
+                .call(|reply| ActorCommand::Connect {
+                    address: address.clone(),
+                    password: Some(password.clone()),
+                    reply,
+                })
+                .await
+                .expect("password connect");
+            assert!(info.auth.required, "pedal should require a password");
+            assert!(info.auth.authenticated, "password should be accepted");
+
+            let snapshot = handle
+                .call(|reply| ActorCommand::Snapshot { reply })
+                .await
+                .expect("snapshot");
+            assert!(snapshot.auth.required);
+            assert!(snapshot.auth.authenticated);
+            let drive = snapshot
+                .chain
+                .blocks
+                .iter()
+                .find(|block| block.path == r"root\app\drive")
+                .expect("drive block");
+            let before = drive.on.unwrap_or(false);
+
+            let toggled = handle
+                .call(|reply| ActorCommand::SetBlock {
+                    path: r"root\app\drive".to_string(),
+                    on: !before,
+                    reply,
+                })
+                .await
+                .expect("authenticated toggle");
+            let after = toggled
+                .chain
+                .blocks
+                .iter()
+                .find(|block| block.path == r"root\app\drive")
+                .expect("drive block after toggle")
+                .on
+                .unwrap_or(false);
+            assert_ne!(before, after);
+
+            let restored = handle
+                .call(|reply| ActorCommand::SetBlock {
+                    path: r"root\app\drive".to_string(),
+                    on: before,
+                    reply,
+                })
+                .await
+                .expect("authenticated restore");
+            assert_eq!(
+                restored
+                    .chain
+                    .blocks
+                    .iter()
+                    .find(|block| block.path == r"root\app\drive")
+                    .expect("drive block after restore")
+                    .on
+                    .unwrap_or(false),
+                before
+            );
+
+            handle
+                .call(|reply| ActorCommand::Disconnect { reply })
+                .await
+                .expect("disconnect");
+            let reconnected = handle
+                .call(|reply| ActorCommand::Connect {
+                    address: address.clone(),
+                    password: Some(password.clone()),
+                    reply,
+                })
+                .await
+                .expect("password reconnect");
+            assert!(reconnected.auth.authenticated);
+
+            // Exercise the keyring path the UI/reconnect flow uses when no
+            // password is passed to connect().
+            crate::credentials::save(&address, &password).expect("save keyring password");
+            handle
+                .call(|reply| ActorCommand::Disconnect { reply })
+                .await
+                .expect("disconnect before keyring reconnect");
+            let keyring_connected = handle
+                .call(|reply| ActorCommand::Connect {
+                    address: address.clone(),
+                    password: None,
+                    reply,
+                })
+                .await
+                .expect("keyring reconnect");
+            assert!(keyring_connected.auth.authenticated);
+            crate::credentials::forget(&address).expect("remove keyring password");
+        });
+    }
+
+    #[test]
     #[ignore = "requires STOMP_TEST_TCP to point at a running simulator"]
     fn connects_reads_and_writes_against_a_simulator() {
         let Ok(address) = std::env::var("STOMP_TEST_TCP") else {
@@ -1767,7 +1959,11 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let handle = ActorHandle::spawn();
             let info = handle
-                .call(|reply| ActorCommand::Connect { address, reply })
+                .call(|reply| ActorCommand::Connect {
+                    address,
+                    password: None,
+                    reply,
+                })
                 .await
                 .expect("actor connect");
             assert!(info.node_count > 0);
@@ -1896,6 +2092,7 @@ mod tests {
                 host: "127.0.0.1".to_string(),
                 port: 45678,
             }),
+            last_password: None,
             last_info: None,
             last_snapshot: None,
             revision: 0,

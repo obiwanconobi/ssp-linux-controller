@@ -47,6 +47,7 @@ import {
 import {
   coalesce,
   flushCoalesced,
+  ipcErrorCode,
   ipcErrorMessage,
   isMobileRuntime,
   isStaleWriteError,
@@ -200,8 +201,14 @@ interface AppStore {
   setActivityOpen: (open: boolean) => void;
   setShortcutsOpen: (open: boolean) => void;
   connectDemo: () => void;
-  connectAuto: () => Promise<void>;
-  connectReal: (address: string) => Promise<void>;
+  connectAuto: (password?: string, rememberPassword?: boolean) => Promise<void>;
+  connectReal: (
+    address: string,
+    password?: string,
+    rememberPassword?: boolean,
+  ) => Promise<void>;
+  unlockDevice: (password: string | null, rememberPassword?: boolean) => Promise<boolean>;
+  forgetSavedPassword: () => Promise<void>;
   setDemoAllowed: (allowed: boolean) => void;
   setAppVersion: (version: string) => void;
   refreshDevice: () => Promise<void>;
@@ -561,12 +568,15 @@ const initialView = (): ViewId => {
 
 async function collectDevice(
   connectAddress?: string,
+  password?: string,
 ): Promise<{
   snapshot: Awaited<ReturnType<typeof tauriClient.getSnapshot>>;
   editors: Record<string, RustBlockEditor>;
   info: ConnectionInfo | null;
 }> {
-  const info = connectAddress ? await tauriClient.connect(connectAddress) : null;
+  const info = connectAddress
+    ? await tauriClient.connect(connectAddress, password)
+    : null;
   const snapshot = await tauriClient.getSnapshot();
   const editors: Record<string, RustBlockEditor> = {};
   for (const block of snapshot.chain.blocks) {
@@ -2822,7 +2832,13 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       conflicts: [],
       deviceUndoStack: [],
       deviceRedoStack: [],
-      connection: { ...boot.connection, connected: false, connecting: true },
+      connection: {
+        ...boot.connection,
+        connected: false,
+        connecting: true,
+        requiresPassword: false,
+        authenticated: true,
+      },
       save: { ...boot.save, revision: state.save.revision + 1 },
       undoStack: [],
       redoStack: [],
@@ -2842,7 +2858,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }, 450);
   },
 
-  connectAuto: async () => {
+  connectAuto: async (password, rememberPassword) => {
     if (get().connection.connecting) return;
     userDisconnected = false;
     pendingBlockWrites.clear();
@@ -2866,7 +2882,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       connectionOpen: true,
     }));
     try {
-      const info = await tauriClient.autoConnect();
+      const info = await tauriClient.autoConnect(password);
       const { snapshot, editors } = await collectDevice();
       lastDeviceSnapshot = snapshot;
       const current = get();
@@ -2879,6 +2895,10 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         mapped.blocks.find((block) => block.id === current.selectedBlockId)?.id ??
         mapped.blocks[0]?.id ??
         null;
+      const authError =
+        password && mapped.connection.requiresPassword && !mapped.connection.authenticated
+          ? 'The device rejected that password.'
+          : undefined;
       set((state) => ({
         ...mapped,
         emptySlots: snapshot.chain.slots
@@ -2895,8 +2915,11 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           autoSearch: 'idle',
           autoSearchMessage: '',
           error: undefined,
+          authError,
         },
-        connectionOpen: false,
+        connectionOpen: Boolean(
+          mapped.connection.requiresPassword && !mapped.connection.authenticated,
+        ),
         save: {
           ...state.save,
           edited: false,
@@ -2905,6 +2928,13 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           lastSaved: now(),
         },
       }));
+      if (password && mapped.connection.requiresPassword && mapped.connection.authenticated) {
+        const remember = rememberPassword !== false;
+        void (remember
+          ? tauriClient.saveDevicePassword(info.address, password)
+          : tauriClient.forgetDevicePassword(info.address)
+        ).catch((error) => get().notify(ipcErrorMessage(error), 'warn'));
+      }
       get().addActivity('Device found', `${info.node_count} nodes · ${info.transport}`, 'good');
       get().notify(`Connected to ${info.device_name || 'StompStation PRO'}`, 'good');
     } catch (error) {
@@ -2926,7 +2956,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }
   },
 
-  connectReal: async (address) => {
+  connectReal: async (address, password, rememberPassword) => {
     userDisconnected = false;
     pendingBlockWrites.clear();
     pendingInputWrites.clear();
@@ -2948,7 +2978,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       connectionOpen: true,
     }));
     try {
-      const { snapshot, editors, info } = await collectDevice(address);
+      const { snapshot, editors, info } = await collectDevice(address, password);
       if (!info) throw new Error('the device did not return connection information');
       lastDeviceSnapshot = snapshot;
       const current = get();
@@ -2962,6 +2992,10 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         mapped.blocks.find((block) => block.id === current.selectedBlockId)?.id ??
         mapped.blocks[0]?.id ??
         null;
+      const authError =
+        password && mapped.connection.requiresPassword && !mapped.connection.authenticated
+          ? 'The device rejected that password.'
+          : undefined;
       set((state) => ({
         ...mapped,
         emptySlots: snapshot.chain.slots
@@ -2978,8 +3012,11 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           autoSearch: 'idle',
           autoSearchMessage: '',
           error: undefined,
+          authError,
         },
-        connectionOpen: false,
+        connectionOpen: Boolean(
+          mapped.connection.requiresPassword && !mapped.connection.authenticated,
+        ),
         save: {
           ...state.save,
           edited: false,
@@ -2988,6 +3025,13 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           lastSaved: now(),
         },
       }));
+      if (password && mapped.connection.requiresPassword && mapped.connection.authenticated) {
+        const remember = rememberPassword !== false;
+        void (remember
+          ? tauriClient.saveDevicePassword(info.address, password)
+          : tauriClient.forgetDevicePassword(info.address)
+        ).catch((error) => get().notify(ipcErrorMessage(error), 'warn'));
+      }
       get().addActivity('Device synced', `${info.node_count} nodes · ${info.transport}`, 'good');
       get().notify(`Connected to ${info.device_name || 'StompStation PRO'}`, 'good');
     } catch (error) {
@@ -3003,6 +3047,63 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       }));
       get().addActivity('Connection failed', message, 'bad');
       get().notify(message, 'bad');
+    }
+  },
+
+  unlockDevice: async (password, rememberPassword) => {
+    try {
+      const auth = await tauriClient.setPassword(password);
+      set((state) => ({
+        connection: {
+          ...state.connection,
+          requiresPassword: auth.required,
+          authenticated: auth.authenticated,
+          error: undefined,
+          authError:
+            auth.authenticated || !auth.required
+              ? undefined
+              : 'Incorrect device password.',
+        },
+      }));
+      if (auth.authenticated || !auth.required) {
+        const address = get().connection.address;
+        if (address) {
+          const remember = Boolean(password) && rememberPassword !== false;
+          void (remember
+            ? tauriClient.saveDevicePassword(address, password as string)
+            : tauriClient.forgetDevicePassword(address)
+          ).catch((error) => get().notify(ipcErrorMessage(error), 'warn'));
+        }
+        get().notify(password ? 'Device unlocked' : 'Device password cleared', 'good');
+        return true;
+      }
+      get().notify('Incorrect device password', 'bad');
+      return false;
+    } catch (error) {
+      const message = ipcErrorMessage(error);
+      if (ipcErrorCode(error) === 'auth_required') {
+        set((state) => ({
+          connection: {
+            ...state.connection,
+            requiresPassword: true,
+            authenticated: false,
+            authError: message,
+          },
+        }));
+      }
+      get().notify(message, 'bad');
+      return false;
+    }
+  },
+
+  forgetSavedPassword: async () => {
+    const address = get().connection.address;
+    if (!address) return;
+    try {
+      await tauriClient.forgetDevicePassword(address);
+      get().notify('Saved device password removed', 'good');
+    } catch (error) {
+      get().notify(ipcErrorMessage(error), 'bad');
     }
   },
 
@@ -3389,6 +3490,9 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         autoSearch: 'idle',
         autoSearchMessage: '',
         error: undefined,
+        requiresPassword: false,
+        authenticated: false,
+        authError: undefined,
       },
       connectionOpen: false,
     }));
@@ -3620,6 +3724,18 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   },
 
   handleWriteFailure: (id, message, error) => {
+    const authRequired = ipcErrorCode(error) === 'auth_required';
+    if (authRequired) {
+      set((state) => ({
+        connection: {
+          ...state.connection,
+          requiresPassword: true,
+          authenticated: false,
+          authError: message,
+        },
+        connectionOpen: true,
+      }));
+    }
     const pending = pendingDeviceWrites.get(id);
     if (pending) clearPendingWrite(pending);
     set((state) => ({
@@ -3627,7 +3743,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       conflicts: state.conflicts.filter((conflict) => conflict.id !== id),
     }));
     if (!pending) {
-      get().notify(message, 'bad');
+      get().notify(message, authRequired ? 'warn' : 'bad');
       return;
     }
     set((state) => pendingStatePatch(state, pending, pending.previousValue));
@@ -3638,7 +3754,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         'warn',
       );
     } else {
-      get().notify(message, 'bad');
+      get().notify(message, authRequired ? 'warn' : 'bad');
     }
     if (pending.blockId && (pending.kind === 'control' || pending.kind === 'model')) {
       void refreshBlockFromDevice(pending.blockId);

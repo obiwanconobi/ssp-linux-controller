@@ -11,9 +11,12 @@ use stomp_preset_bundle::{
     dependency_archive_path, read_bundle, write_bundle_to_vec, BundleDependency, BundleError,
     BundleManifest, DependencyManifest,
 };
+use stomp_protocol::auth;
 use stomp_protocol::command;
 use stomp_protocol::editor::{block_editor, BlockEditor};
-use stomp_protocol::frame::{parse_message, FrameBuffer, ParsedLine};
+use stomp_protocol::frame::{
+    has_token_acceptance, has_token_rejection, parse_message, FrameBuffer, ParsedLine,
+};
 use stomp_protocol::node::NodeStore;
 use stomp_protocol::preset::{
     list_name_error, preset_name_error, preset_references, preset_state, presets_using, rename_hex,
@@ -42,6 +45,22 @@ pub const BROWSE_TIMEOUT: Duration = Duration::from_millis(8_000);
 pub const PRESET_SLOT_SIZE: usize = 32 * 1024;
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthStatus {
+    /// True when the firmware sent a `token …` line. Reads still work, but
+    /// writes/transfers need the password hash.
+    pub required: bool,
+    /// True once the device accepted a password hash. Always true on devices
+    /// without a password.
+    pub authenticated: bool,
+}
+
+impl AuthStatus {
+    pub fn unlocked(&self) -> bool {
+        self.authenticated || !self.required
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectionInfo {
     pub address: String,
@@ -49,6 +68,8 @@ pub struct ConnectionInfo {
     pub device_name: String,
     pub firmware: String,
     pub node_count: usize,
+    #[serde(default)]
+    pub auth: AuthStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -193,6 +214,14 @@ pub struct Device {
     nodes: NodeStore,
     connected: bool,
     revision: u64,
+    /// Password supplied by the caller. Never serialized or logged.
+    password: Option<String>,
+    /// A `token …` line was seen; protected commands need authentication.
+    auth_required: bool,
+    /// The device accepted a token hash for this session.
+    authenticated: bool,
+    /// Latest challenge nonce from the device.
+    auth_nonce: Option<String>,
 }
 
 impl Device {
@@ -206,6 +235,10 @@ impl Device {
             nodes: NodeStore::new(),
             connected: false,
             revision: 0,
+            password: None,
+            auth_required: false,
+            authenticated: false,
+            auth_nonce: None,
         }
     }
 
@@ -229,6 +262,185 @@ impl Device {
 
     pub fn scripted(steps: Vec<stomp_transport::Step>) -> Self {
         Self::new(ScriptedTransport::new(steps))
+    }
+
+    // ---- authentication -------------------------------------------------
+
+    /// Current password/token state for the UI.
+    pub fn auth_status(&self) -> AuthStatus {
+        AuthStatus {
+            required: self.auth_required,
+            authenticated: !self.auth_required || self.authenticated,
+        }
+    }
+
+    pub fn requires_password(&self) -> bool {
+        self.auth_required
+    }
+
+    /// Supply or clear the device password. The password is only held in
+    /// memory; persistence belongs to the platform keyring.
+    ///
+    /// A wrong password is reported as `authenticated == false`; call
+    /// [`Device::authenticate`] if the caller wants a hard error.
+    pub fn set_password(&mut self, password: Option<String>) -> AuthStatus {
+        self.password = password.filter(|value| !value.is_empty());
+        self.authenticated = false;
+        if self.connected && self.auth_required {
+            let _ = self.validate_password();
+        } else if !self.auth_required {
+            self.authenticated = true;
+        }
+        self.auth_status()
+    }
+
+    /// Set and validate a password, returning an auth error when the device
+    /// rejects it. Used by the UI unlock action.
+    pub fn authenticate(&mut self, password: &str) -> Result<AuthStatus, ProtocolError> {
+        self.password = Some(password.to_string());
+        self.authenticated = false;
+        if !self.connected {
+            return Err(ProtocolError::NotConnected);
+        }
+        if !self.auth_required {
+            self.authenticated = true;
+            return Ok(self.auth_status());
+        }
+        if self.validate_password()? {
+            Ok(self.auth_status())
+        } else {
+            Err(ProtocolError::AuthenticationRequired(
+                "the device rejected the password; check it and try again".into(),
+            ))
+        }
+    }
+
+    pub fn clear_password(&mut self) -> AuthStatus {
+        self.password = None;
+        self.authenticated = !self.auth_required;
+        self.auth_status()
+    }
+
+    /// Ask the device whether the current password is accepted.
+    ///
+    /// Reads are allowed without a token, so the response data alone proves
+    /// nothing; this checks the `token … y` line. A stale nonce and a wrong
+    /// password both produce `n`, so one retry uses the fresh nonce.
+    pub fn validate_password(&mut self) -> Result<bool, ProtocolError> {
+        if !self.auth_required {
+            self.authenticated = true;
+            return Ok(true);
+        }
+        let Some(password) = self.password.clone() else {
+            self.authenticated = false;
+            return Ok(false);
+        };
+
+        let name_command = command_text(command::read(r"root\sys\_name"))?;
+        for attempt in 0..2 {
+            let nonce = self.ensure_auth_nonce()?;
+            let hash = auth::token_hash(&password, &nonce);
+            let body = format!("token {hash}\r\n{name_command}");
+            let lines = self.request(
+                &body,
+                |lines| {
+                    lines.iter().any(|line| line.path == r"root\sys\_name")
+                        || has_token_rejection(lines)
+                        || has_token_acceptance(lines)
+                },
+                Duration::from_millis(2_000),
+                Duration::from_millis(250),
+                false,
+            )?;
+            if has_token_acceptance(&lines) {
+                self.authenticated = true;
+                return Ok(true);
+            }
+            self.authenticated = false;
+            if attempt == 0 {
+                continue;
+            }
+            return Ok(false);
+        }
+        self.authenticated = false;
+        Ok(false)
+    }
+
+    fn ensure_auth_nonce(&mut self) -> Result<String, ProtocolError> {
+        if let Some(nonce) = self.auth_nonce.clone() {
+            return Ok(nonce);
+        }
+        let name = r"root\sys\_name";
+        let name_command = command_text(command::read(name))?;
+        self.request(
+            &name_command,
+            |lines| {
+                lines.iter().any(|line| line.path == name) || lines.iter().any(ParsedLine::is_token)
+            },
+            Duration::from_millis(2_000),
+            Duration::from_millis(250),
+            false,
+        )?;
+        self.auth_nonce.clone().ok_or_else(|| {
+            ProtocolError::AuthenticationRequired(
+                "the device asked for a password but did not provide a challenge nonce".into(),
+            )
+        })
+    }
+
+    /// Run a command that the firmware protects with the password token.
+    ///
+    /// A `token … n` response means the command was not executed. Retry once
+    /// with the nonce from that response; if it is still rejected, report an
+    /// authentication error instead of a misleading timeout.
+    fn request_protected<F>(
+        &mut self,
+        command: &str,
+        matcher: F,
+        timeout: Duration,
+        idle: Duration,
+    ) -> Result<Vec<ParsedLine>, ProtocolError>
+    where
+        F: Fn(&[ParsedLine]) -> bool,
+    {
+        if !self.auth_required {
+            return self.request(command, matcher, timeout, idle, false);
+        }
+        let Some(password) = self.password.clone() else {
+            self.authenticated = false;
+            return Err(ProtocolError::AuthenticationRequired(
+                "this device has a password; enter it before making changes".into(),
+            ));
+        };
+
+        for attempt in 0..2 {
+            let nonce = self.ensure_auth_nonce()?;
+            let hash = auth::token_hash(&password, &nonce);
+            let body = format!("token {hash}\r\n{command}");
+            let lines = self.request(
+                &body,
+                |lines| matcher(lines) || has_token_rejection(lines),
+                timeout,
+                idle,
+                false,
+            )?;
+            if has_token_rejection(&lines) {
+                self.authenticated = false;
+                if attempt == 0 {
+                    continue;
+                }
+                return Err(ProtocolError::AuthenticationRequired(
+                    "the device rejected the password; check it and try again".into(),
+                ));
+            }
+            if has_token_acceptance(&lines) {
+                self.authenticated = true;
+            }
+            return Ok(lines);
+        }
+        Err(ProtocolError::AuthenticationRequired(
+            "the device rejected the password; check it and try again".into(),
+        ))
     }
 
     pub fn is_connected(&self) -> bool {
@@ -255,6 +467,7 @@ impl Device {
             device_name,
             firmware,
             node_count: self.nodes.len(),
+            auth: self.auth_status(),
         }
     }
 
@@ -264,9 +477,19 @@ impl Device {
         self.transport.open()?;
         self.rx.clear();
         self.connected = false;
+        self.auth_required = false;
+        self.authenticated = false;
+        self.auth_nonce = None;
 
-        // Consume an optional immediate token announcement.
-        let _ = self.read_frame(Duration::from_millis(350), Duration::from_millis(150));
+        // Consume and parse an optional immediate token announcement. Older
+        // firmware may send it before the first request; 2.5.3 normally sends
+        // it on the first response instead.
+        if let Ok(frame) = self.read_frame(Duration::from_millis(350), Duration::from_millis(150)) {
+            let text = String::from_utf8_lossy(&frame);
+            if let Ok(lines) = parse_message(&text) {
+                self.handle_lines(&lines)?;
+            }
+        }
 
         let name_command = command_text(command::read(r"root\sys\_name"))?;
         let _ = self.request(
@@ -277,6 +500,20 @@ impl Device {
             false,
         );
 
+        // Reads remain available on a protected device. If the caller supplied
+        // a password, check it now so the UI can show an accurate lock state;
+        // a wrong password does not fail the connection.
+        if self.auth_required && self.password.is_some() {
+            let _ = self.validate_password();
+        } else if !self.auth_required {
+            self.authenticated = true;
+        }
+        if self.auth_required && !self.authenticated {
+            tracing::warn!(
+                "device requires a password; reads work but writes and transfers will be rejected"
+            );
+        }
+
         self.refresh_full_state()?;
         self.connected = true;
         self.revision += 1;
@@ -285,6 +522,9 @@ impl Device {
 
     pub fn close(&mut self) {
         self.connected = false;
+        self.auth_required = false;
+        self.authenticated = false;
+        self.auth_nonce = None;
         self.transport.close();
     }
 
@@ -395,17 +635,16 @@ impl Device {
 
     fn handle_lines(&mut self, lines: &[ParsedLine]) -> Result<(), ProtocolError> {
         for line in lines {
-            if line.command.as_deref() == Some("token") {
-                let secure = line
-                    .object()
-                    .and_then(|object| object.get("secure"))
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                if secure {
-                    return Err(ProtocolError::AuthenticationRequired(
-                        "this device requires a password; the VoidX token hash is not implemented"
-                            .into(),
-                    ));
+            if line.is_token() {
+                // A token line means the device has a password. `n` is normal
+                // on unauthenticated reads, so it must not fail the request;
+                // protected writes inspect the status explicitly.
+                self.auth_required = true;
+                if let Some(nonce) = line.token_nonce() {
+                    self.auth_nonce = Some(nonce.to_string());
+                }
+                if line.token_accepted() == Some(true) {
+                    self.authenticated = true;
                 }
                 continue;
             }
@@ -519,12 +758,11 @@ impl Device {
     fn write_payload(&mut self, path: &str, payload: Value) -> Result<(), ProtocolError> {
         let command_text = command_text(command::write_raw(path, &payload)?)?;
         let expected = normalize_path(path);
-        self.request(
+        self.request_protected(
             &command_text,
             |lines| lines.iter().any(|line| line.path == expected),
             DEFAULT_TIMEOUT,
             Duration::from_millis(250),
-            false,
         )?;
         if let Some(value) = payload.get("value") {
             self.nodes.set_value(path, value.clone());
@@ -628,7 +866,7 @@ impl Device {
     ) -> Result<(i64, i64), ProtocolError> {
         let command_text = command_text(command::dwrite(path, index, chunk, value)?)?;
         let expected = normalize_path(path);
-        let lines = self.request(
+        let lines = self.request_protected(
             &command_text,
             |lines| {
                 lines.iter().any(|line| {
@@ -639,7 +877,6 @@ impl Device {
             },
             Duration::from_millis(15_000),
             Duration::from_millis(400),
-            false,
         )?;
         lines
             .iter()
@@ -1020,7 +1257,34 @@ impl Device {
         let result = self.perform_upload(target, preflight.slot, &prepared, &mut on_progress)?;
         // Even a cancelled upload resyncs the target list so the UI never
         // shows a slot state that the device has already moved past.
-        let _ = self.read_path(target, Duration::from_millis(3_000));
+        let refreshed = self.read_path(target, Duration::from_millis(3_000));
+        if let Some(result) = result.as_ref() {
+            // Some firmware silently ignores a capture upload whose display
+            // name already exists, even while ACKing every chunk. ACKs alone
+            // are not proof that the slot was published.
+            if let Err(error) = refreshed {
+                return Err(ProtocolError::UploadRejected(format!(
+                    "upload was acknowledged but the list could not be read back: {error}"
+                )));
+            }
+            let published = self
+                .nodes
+                .get(target)
+                .and_then(|node| node.value())
+                .and_then(Value::as_array)
+                .and_then(|items| items.get(result.slot))
+                .and_then(Value::as_str);
+            if published != Some(result.name.as_str()) {
+                return Err(ProtocolError::UploadRejected(format!(
+                    "the device acknowledged the upload but UI slot {} (wire {}) still reads {:?}; \
+                     a capture named {:?} may already exist",
+                    result.slot + 1,
+                    result.slot,
+                    published,
+                    result.name
+                )));
+            }
+        }
         self.revision += 1;
         Ok(result)
     }
@@ -2016,7 +2280,7 @@ impl Device {
     ) -> Result<(Vec<u8>, Option<usize>), ProtocolError> {
         let command_text = command_text(command::dread(list_path, index as i64, chunk as i64)?)?;
         let expected = normalize_path(list_path);
-        let lines = self.request(
+        let lines = self.request_protected(
             &command_text,
             |lines| {
                 lines.iter().any(|line| {
@@ -2030,7 +2294,6 @@ impl Device {
             },
             Duration::from_millis(20_000),
             Duration::from_millis(400),
-            false,
         )?;
         let line = lines
             .iter()
@@ -2313,6 +2576,7 @@ impl Device {
             eq: eq_view(&self.nodes),
             lists: library_lists(&self.nodes),
             capabilities,
+            auth: self.auth_status(),
         }
     }
 
@@ -3668,5 +3932,209 @@ mod tests {
         assert!(error.to_string().contains("63 bytes"));
         let error = device.save_preset(Some("other")).unwrap_err();
         assert!(error.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn upload_rejects_an_acknowledged_but_unpublished_duplicate_name() {
+        let prepared = prepare_upload(UploadKind::Nam, RAW, "Duplicate", Some(65536)).unwrap();
+        let mut steps = dwrite_steps(&prepared);
+        steps.push(Step::new(
+            command::read(TARGET),
+            reply(format!(
+                r#"{TARGET}:{{"type":"list","item_type":"nam","value":[""],"size":65536}}"#
+            )),
+        ));
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.nodes.insert(TARGET, list_node(&["", ""]));
+
+        let error = device
+            .upload_named(
+                UploadKind::Nam,
+                RAW,
+                "duplicate.nam",
+                "Duplicate",
+                TARGET,
+                Some(0),
+            )
+            .unwrap_err();
+        assert!(matches!(error, ProtocolError::UploadRejected(_)), "{error}");
+        assert!(error.to_string().contains("may already exist"), "{error}");
+    }
+
+    // ---- authentication ------------------------------------------------
+
+    fn password_device(steps: Vec<Step>) -> Device {
+        let mut device = Device::new(ScriptedTransport::new(steps));
+        device.transport.open().unwrap();
+        device.connected = true;
+        device.password = Some("12345678".to_string());
+        device.auth_required = true;
+        device.auth_nonce = Some("0123456789ABCDEF".to_string());
+        device
+    }
+
+    fn auth_write(hash: &str, path: &str, value: &str) -> Vec<u8> {
+        stomp_protocol::auth::authenticated_command(
+            hash,
+            &format!("write {path}:{{\"value\":\"{value}\"}}"),
+        )
+    }
+
+    #[test]
+    fn auth_status_tracks_challenge_and_acceptance() {
+        let mut device = Device::new(ScriptedTransport::new(Vec::new()));
+        device.transport.open().unwrap();
+        assert!(device.auth_status().authenticated);
+        assert!(!device.auth_status().required);
+
+        device
+            .handle_lines(&parse_message("token AABBCCDDEEFF0011 n\r\n").unwrap())
+            .unwrap();
+        assert_eq!(
+            device.auth_status(),
+            AuthStatus {
+                required: true,
+                authenticated: false
+            }
+        );
+        assert_eq!(device.auth_nonce.as_deref(), Some("AABBCCDDEEFF0011"));
+
+        device
+            .handle_lines(&parse_message("token AABBCCDDEEFF0011 y\r\n").unwrap())
+            .unwrap();
+        assert!(device.auth_status().authenticated);
+    }
+
+    #[test]
+    fn protected_write_without_password_fails_before_writing() {
+        let mut device = password_device(Vec::new());
+        device.password = None;
+        let error = device
+            .set_value(r"root\app\gate\on_off", json!("ON"))
+            .unwrap_err();
+        assert!(matches!(error, ProtocolError::AuthenticationRequired(_)));
+    }
+
+    #[test]
+    fn protected_write_uses_the_challenge_and_updates_the_nonce() {
+        let nonce = "0123456789ABCDEF";
+        let next = "FEDCBA9876543210";
+        let hash = stomp_protocol::auth::token_hash("12345678", nonce);
+        let path = r"root\app\gate\on_off";
+        let mut device = password_device(vec![Step::new(
+            auth_write(&hash, path, "ON"),
+            reply(format!("token {next} y\r\n{path}:{{\"value\":\"ON\"}}")),
+        )]);
+
+        device.set_value(path, json!("ON")).unwrap();
+        assert!(device.auth_status().authenticated);
+        assert_eq!(device.auth_nonce.as_deref(), Some(next));
+    }
+
+    #[test]
+    fn stale_nonce_retries_once_with_the_fresh_challenge() {
+        let first = "0123456789ABCDEF";
+        let second = "FEDCBA9876543210";
+        let third = "0011223344556677";
+        let path = r"root\app\gate\on_off";
+        let mut device = password_device(vec![
+            Step::new(
+                auth_write(
+                    &stomp_protocol::auth::token_hash("12345678", first),
+                    path,
+                    "ON",
+                ),
+                reply(format!("token {second} n\r\n")),
+            ),
+            Step::new(
+                auth_write(
+                    &stomp_protocol::auth::token_hash("12345678", second),
+                    path,
+                    "ON",
+                ),
+                reply(format!("token {third} y\r\n{path}:{{\"value\":\"ON\"}}")),
+            ),
+        ]);
+
+        device.set_value(path, json!("ON")).unwrap();
+        assert!(device.auth_status().authenticated);
+        assert_eq!(device.auth_nonce.as_deref(), Some(third));
+    }
+
+    #[test]
+    fn wrong_password_is_reported_after_one_retry() {
+        let first = "0123456789ABCDEF";
+        let second = "FEDCBA9876543210";
+        let third = "0011223344556677";
+        let path = r"root\app\gate\on_off";
+        let mut device = password_device(vec![
+            Step::new(
+                auth_write(
+                    &stomp_protocol::auth::token_hash("12345678", first),
+                    path,
+                    "ON",
+                ),
+                reply(format!("token {second} n\r\n")),
+            ),
+            Step::new(
+                auth_write(
+                    &stomp_protocol::auth::token_hash("12345678", second),
+                    path,
+                    "ON",
+                ),
+                reply(format!("token {third} n\r\n")),
+            ),
+        ]);
+
+        let error = device.set_value(path, json!("ON")).unwrap_err();
+        assert!(matches!(error, ProtocolError::AuthenticationRequired(_)));
+        assert!(!device.auth_status().authenticated);
+        assert_eq!(device.auth_nonce.as_deref(), Some(third));
+    }
+
+    #[test]
+    fn reads_do_not_need_a_token_on_a_protected_device() {
+        let path = r"root\sys\_name";
+        let mut device = password_device(vec![Step::new(
+            command::read(path),
+            reply(format!(
+                "token 0123456789ABCDEF n\r\n{path}:{{\"value\":\"StompStation PRO\"}}"
+            )),
+        )]);
+
+        device.read_path(path, Duration::from_millis(500)).unwrap();
+        assert!(device.auth_status().required);
+        assert!(!device.auth_status().authenticated);
+    }
+
+    #[test]
+    fn authenticate_returns_an_error_for_a_rejected_password() {
+        let path = r"root\sys\_name";
+        let mut device = password_device(vec![
+            Step::new(
+                stomp_protocol::auth::authenticated_command(
+                    &stomp_protocol::auth::token_hash("99999999", "0123456789ABCDEF"),
+                    &format!("read {path}"),
+                ),
+                reply(
+                    "token FEDCBA9876543210 n\r\nroot\\sys\\_name:{\"value\":\"StompStation PRO\"}"
+                        .to_string(),
+                ),
+            ),
+            Step::new(
+                stomp_protocol::auth::authenticated_command(
+                    &stomp_protocol::auth::token_hash("99999999", "FEDCBA9876543210"),
+                    &format!("read {path}"),
+                ),
+                reply(
+                    "token 0011223344556677 n\r\nroot\\sys\\_name:{\"value\":\"StompStation PRO\"}"
+                        .to_string(),
+                ),
+            ),
+        ]);
+
+        let error = device.authenticate("99999999").unwrap_err();
+        assert!(matches!(error, ProtocolError::AuthenticationRequired(_)));
     }
 }

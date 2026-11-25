@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use stomp_device::{parse_host_port, ChainEdit, Device};
@@ -9,12 +10,17 @@ use stomp_protocol::ProtocolError;
 use stomp_transport::{list_serial_ports, ScriptedTransport, Step, Transport};
 use stomp_upload::UploadKind;
 
+/// Optional `--password` parsed before the command. Kept out of traces and
+/// command output.
+static CLI_PASSWORD: OnceLock<Option<String>> = OnceLock::new();
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .with_target(false)
+        .with_writer(std::io::stderr)
         .init();
     if let Err(error) = run() {
         eprintln!("error: {error}");
@@ -23,7 +29,20 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let mut args = std::env::args().skip(1);
+    let mut argv: Vec<String> = std::env::args().skip(1).collect();
+    let password = if let Some(position) = argv.iter().position(|arg| arg == "--password") {
+        if position + 1 >= argv.len() {
+            eprintln!("error: --password needs a value");
+            std::process::exit(2);
+        }
+        let value = argv.remove(position + 1);
+        argv.remove(position);
+        Some(value)
+    } else {
+        None
+    };
+    let _ = CLI_PASSWORD.set(password);
+    let mut args = argv.into_iter();
     let Some(command) = args.next() else {
         usage();
         std::process::exit(2);
@@ -192,7 +211,13 @@ fn run() -> Result<(), Box<dyn Error>> {
                 usage_exit();
             }
             let slot: usize = values[2].parse()?;
-            let overwrite = values.iter().any(|value| value == "--overwrite");
+            let overwrite_all = values.iter().any(|value| value == "--overwrite");
+            let overwrite_preset =
+                overwrite_all || values.iter().any(|value| value == "--overwrite-preset");
+            let overwrite_dependencies = overwrite_all
+                || values
+                    .iter()
+                    .any(|value| value == "--overwrite-dependencies");
             let bytes = std::fs::read(&values[1])?;
             let mut device = open(&values[0])?;
             device.connect()?;
@@ -207,8 +232,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                 &bytes,
                 stomp_device::ImportOptions {
                     target_slot: slot,
-                    overwrite_preset: overwrite,
-                    overwrite_dependencies: overwrite,
+                    overwrite_preset,
+                    overwrite_dependencies,
                 },
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
@@ -221,6 +246,16 @@ fn run() -> Result<(), Box<dyn Error>> {
             let mut device = open(&values[0])?;
             device.connect()?;
             device.delete_list_item(&values[1], values[2].parse()?)?;
+            println!("{}", serde_json::to_string_pretty(&device.state())?);
+        }
+        "rename-list-item" => {
+            let values: Vec<String> = args.collect();
+            if values.len() != 4 {
+                usage_exit();
+            }
+            let mut device = open(&values[0])?;
+            device.connect()?;
+            device.rename_list_item(&values[1], values[2].parse()?, &values[3])?;
             println!("{}", serde_json::to_string_pretty(&device.state())?);
         }
         "set-control" => {
@@ -354,17 +389,21 @@ fn run() -> Result<(), Box<dyn Error>> {
 }
 
 fn open(address: &str) -> Result<Device, Box<dyn Error>> {
-    if let Some(text) = address.strip_prefix("serial:") {
+    let mut device = if let Some(text) = address.strip_prefix("serial:") {
         let (port, baud) = text
             .split_once('@')
             .map(|(port, baud)| (port, baud.parse().unwrap_or(115_200)))
             .unwrap_or((text, 115_200));
-        Ok(Device::serial(port, baud))
+        Device::serial(port, baud)
     } else {
         let address = address.strip_prefix("tcp:").unwrap_or(address);
         let (host, port) = parse_host_port(address)?;
-        Ok(Device::tcp(host, port))
+        Device::tcp(host, port)
+    };
+    if let Some(Some(password)) = CLI_PASSWORD.get() {
+        device.set_password(Some(password.clone()));
     }
+    Ok(device)
 }
 
 fn usage_exit() -> String {
@@ -387,7 +426,7 @@ fn usage() {
   clear-chain <addr>
   download-list-item <addr> <list-path> <index> <output>
   export-preset <addr> <index> <output.zip>
-  import-preset <addr> <bundle.zip> <slot> [--overwrite]
+  import-preset <addr> <bundle.zip> <slot> [--overwrite | --overwrite-preset] [--overwrite-dependencies]
   delete-list-item <addr> <list-path> <index>
   set-control <addr> <node-path> <json-value>
   save-preset <addr> [name]
@@ -400,6 +439,10 @@ fn usage() {
 Address forms:
   tcp:192.168.1.97:8080
   serial:/dev/ttyACM0
-  serial:/dev/ttyACM0@115200"
+  serial:/dev/ttyACM0@115200
+
+Options:
+  --password <password>   device password/token (avoid shell history)
+"
     );
 }

@@ -417,6 +417,14 @@ export function mapSnapshot(
       address: info.address,
       pollMs: 500,
       lastPollMs: 0,
+      requiresPassword:
+        snapshot.auth?.required ??
+        info.auth?.required ??
+        previous.connection.requiresPassword,
+      authenticated:
+        snapshot.auth?.authenticated ??
+        info.auth?.authenticated ??
+        previous.connection.authenticated,
     },
   };
 }

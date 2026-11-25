@@ -25,6 +25,13 @@ struct SimState {
     payloads: HashMap<(String, usize), Vec<u8>>,
     /// Partially received uploads.
     upload_buffers: HashMap<(String, usize), Vec<u8>>,
+    /// Optional device password. When set, every response carries a token
+    /// status and protected commands require the matching hash.
+    password: Option<String>,
+    /// Current challenge nonce. Deterministic so offline tests can reproduce
+    /// a full auth conversation.
+    nonce: String,
+    nonce_counter: u64,
 }
 
 impl SimState {
@@ -33,9 +40,24 @@ impl SimState {
             nodes: demo_store(),
             payloads: HashMap::new(),
             upload_buffers: HashMap::new(),
+            password: None,
+            nonce: "0000000000000001".to_string(),
+            nonce_counter: 1,
         };
         seed_payloads(&mut state);
         state
+    }
+
+    fn with_password(password: impl Into<String>) -> Self {
+        let mut state = Self::new();
+        state.password = Some(password.into());
+        state
+    }
+
+    fn rotate_nonce(&mut self) -> String {
+        self.nonce_counter = self.nonce_counter.wrapping_add(1);
+        self.nonce = format!("{:016X}", self.nonce_counter);
+        self.nonce.clone()
     }
 }
 
@@ -675,10 +697,14 @@ pub fn preset_names() -> Vec<String> {
     names
 }
 
-pub fn serve(port: u16, once: bool) -> std::io::Result<()> {
+pub fn serve(port: u16, once: bool, password: Option<String>) -> std::io::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     println!("stomp-sim listening on tcp://127.0.0.1:{port}");
-    let state = Arc::new(Mutex::new(SimState::new()));
+    let initial = match password {
+        Some(password) => SimState::with_password(password),
+        None => SimState::new(),
+    };
+    let state = Arc::new(Mutex::new(initial));
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -736,14 +762,54 @@ fn handle_client(mut stream: TcpStream, state: Arc<Mutex<SimState>>) -> std::io:
     }
 }
 
+/// Split an optional `token <hash>\r\n` prefix from a request.
+fn split_token(command: &str) -> (Option<&str>, &str) {
+    let Some(rest) = command.strip_prefix("token ") else {
+        return (None, command);
+    };
+    let Some((hash, body)) = rest.split_once("\r\n") else {
+        return (None, command);
+    };
+    (Some(hash.trim()), body.trim_start_matches(['\r', '\n']))
+}
+
+fn protected_command(command: &str) -> bool {
+    ["write ", "dwrite ", "dread ", "dmove ", "dswap "]
+        .iter()
+        .any(|prefix| command.starts_with(prefix))
+}
+
 fn respond(command: &str, state: &mut SimState) -> Vec<u8> {
+    let (hash, command) = split_token(command);
+    let authenticated = match state.password.as_deref() {
+        Some(password) => hash
+            .map(|hash| hash == stomp_protocol::token_hash(password, &state.nonce))
+            .unwrap_or(false),
+        None => true,
+    };
+    let allowed = authenticated || !protected_command(command);
+    let mut lines = if allowed {
+        respond_body(command, state)
+    } else {
+        Vec::new()
+    };
+
+    if state.password.is_some() {
+        let nonce = state.rotate_nonce();
+        let status = if authenticated { "y" } else { "n" };
+        lines.insert(0, format!("token {nonce} {status}"));
+    }
+    frame(&lines)
+}
+
+fn respond_body(command: &str, state: &mut SimState) -> Vec<String> {
     if command == "browse root" {
         let lines: Vec<String> = state
             .nodes
             .iter()
             .map(|(path, node)| format!("{path}:{}", Value::Object(node.raw().clone())))
             .collect();
-        return frame(&lines);
+        return lines;
     }
     if let Some(path) = command.strip_prefix("read ") {
         let path = normalize_path(path);
@@ -759,28 +825,28 @@ fn respond(command: &str, state: &mut SimState) -> Vec<u8> {
                     ));
                 }
             }
-            return frame(&lines);
+            return lines;
         }
         return match state.nodes.get(&path) {
-            Some(node) => frame(&[format!("{path}:{}", Value::Object(node.raw().clone()))]),
-            None => b"\0".to_vec(),
+            Some(node) => vec![format!("{path}:{}", Value::Object(node.raw().clone()))],
+            None => Vec::new(),
         };
     }
     if let Some(body) = command.strip_prefix("dread ") {
         let Some((path, payload)) = body.split_once(':') else {
-            return b"\0".to_vec();
+            return Vec::new();
         };
         let path = normalize_path(path);
         let Ok(object) = serde_json::from_str::<Value>(payload) else {
-            return b"\0".to_vec();
+            return Vec::new();
         };
         let index = object.get("index").and_then(Value::as_i64).unwrap_or(-1);
         let chunk = object.get("chunk").and_then(Value::as_i64).unwrap_or(0);
         if index < 0 || chunk <= 0 {
-            return b"\0".to_vec();
+            return Vec::new();
         }
         let Some(payload) = state.payloads.get(&(path.clone(), index as usize)) else {
-            return b"\0".to_vec();
+            return Vec::new();
         };
         let size = payload.len();
         let chunk_size = state
@@ -790,35 +856,35 @@ fn respond(command: &str, state: &mut SimState) -> Vec<u8> {
             .unwrap_or(1024) as usize;
         let start = (chunk as usize - 1) * chunk_size;
         if start >= size {
-            return b"\0".to_vec();
+            return Vec::new();
         }
         let end = (start + chunk_size).min(size);
         let value = stomp_protocol::hex_encode(&payload[start..end]);
-        return frame(&[format!(
+        return vec![format!(
             "dread {path}:{}",
             json!({"index": index, "chunk": chunk, "size": size, "value": value})
-        )]);
+        )];
     }
     if let Some(body) = command.strip_prefix("write ") {
         let Some((path, payload)) = body.split_once(':') else {
-            return b"\0".to_vec();
+            return Vec::new();
         };
         let path = normalize_path(path);
         let Ok(Value::Object(object)) = serde_json::from_str::<Value>(payload) else {
-            return b"\0".to_vec();
+            return Vec::new();
         };
         if let Some(value) = object.get("value") {
             state.nodes.set_value(&path, value.clone());
         }
-        return frame(&[format!("{path}:{}", Value::Object(object))]);
+        return vec![format!("{path}:{}", Value::Object(object))];
     }
     if let Some(body) = command.strip_prefix("dwrite ") {
         let Some((path, payload)) = body.split_once(':') else {
-            return b"\0".to_vec();
+            return Vec::new();
         };
         let path = normalize_path(path);
         let Ok(object) = serde_json::from_str::<Value>(payload) else {
-            return b"\0".to_vec();
+            return Vec::new();
         };
         let index = object.get("index").and_then(Value::as_i64).unwrap_or(-1);
         let chunk = object.get("chunk").and_then(Value::as_i64).unwrap_or(0);
@@ -908,12 +974,12 @@ fn respond(command: &str, state: &mut SimState) -> Vec<u8> {
         } else {
             chunk + 1
         };
-        return frame(&[format!(
+        return vec![format!(
             "dwrite {path}:{}",
             json!({"index": index, "chunk": reply_chunk})
-        )]);
+        )];
     }
-    b"\0".to_vec()
+    Vec::new()
 }
 
 fn frame(lines: &[String]) -> Vec<u8> {
@@ -952,6 +1018,7 @@ fn decode_hex_name(value: &str) -> String {
 fn main() {
     let mut port = 45678u16;
     let mut once = false;
+    let mut password: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -961,14 +1028,15 @@ fn main() {
                 }
             }
             "--once" => once = true,
+            "--password" => password = args.next(),
             "--help" | "-h" => {
-                println!("stomp-sim [--port 45678] [--once]");
+                println!("stomp-sim [--port 45678] [--once] [--password <password>]");
                 return;
             }
             other => eprintln!("unknown argument: {other}"),
         }
     }
-    if let Err(error) = serve(port, once) {
+    if let Err(error) = serve(port, once, password) {
         eprintln!("simulator failed: {error}");
         std::process::exit(1);
     }
@@ -1005,5 +1073,118 @@ mod tests {
         );
         let text = String::from_utf8_lossy(&reply);
         assert!(text.contains(r#""chunk":2"#), "{text}");
+    }
+
+    fn response_token(reply: &[u8]) -> (String, bool) {
+        let text = String::from_utf8_lossy(reply);
+        let lines = stomp_protocol::frame::parse_message(&text).unwrap();
+        let token = lines
+            .iter()
+            .find(|line| line.is_token())
+            .expect("token line");
+        (
+            token.token_nonce().unwrap().to_string(),
+            token.token_accepted().unwrap(),
+        )
+    }
+
+    fn read_nonce(state: &mut SimState) -> String {
+        let reply = respond(r"read root\sys\_name", state);
+        let (nonce, accepted) = response_token(&reply);
+        assert!(!accepted, "unauthenticated read should report n");
+        nonce
+    }
+
+    #[test]
+    fn password_mode_allows_reads_but_rejects_writes_without_a_token() {
+        let mut state = SimState::with_password("12345678");
+        let read = respond(r"read root\sys\_name", &mut state);
+        let text = String::from_utf8_lossy(&read);
+        assert!(text.contains("StompStation PRO"), "{text}");
+        assert!(!response_token(&read).1);
+
+        let before = state
+            .nodes
+            .value_str(r"root\app\gate\on_off")
+            .unwrap()
+            .to_string();
+        let write = respond(r#"write root\app\gate\on_off:{"value":"ON"}"#, &mut state);
+        let text = String::from_utf8_lossy(&write);
+        assert!(text.contains(" n"), "{text}");
+        assert!(!text.contains("root\\app\\gate\\on_off"), "{text}");
+        assert_eq!(
+            state.nodes.value_str(r"root\app\gate\on_off"),
+            Some(before.as_str()),
+            "unauthenticated write must not apply"
+        );
+    }
+
+    #[test]
+    fn password_mode_accepts_a_write_with_the_current_nonce() {
+        let mut state = SimState::with_password("12345678");
+        let nonce = read_nonce(&mut state);
+        let hash = stomp_protocol::token_hash("12345678", &nonce);
+        let write = respond(
+            &format!("token {hash}\r\nwrite root\\app\\gate\\on_off:{{\"value\":\"ON\"}}"),
+            &mut state,
+        );
+        let (next, accepted) = response_token(&write);
+        assert!(accepted, "{}", String::from_utf8_lossy(&write));
+        assert_ne!(next, nonce, "the simulator rotates the nonce");
+        assert_eq!(state.nodes.value_str(r"root\app\gate\on_off"), Some("ON"));
+    }
+
+    #[test]
+    fn password_mode_rejects_a_stale_nonce_then_accepts_the_fresh_one() {
+        let mut state = SimState::with_password("12345678");
+        let stale = read_nonce(&mut state);
+        let fresh = read_nonce(&mut state);
+        assert_ne!(stale, fresh);
+
+        let stale_hash = stomp_protocol::token_hash("12345678", &stale);
+        let rejected = respond(
+            &format!("token {stale_hash}\r\nwrite root\\app\\gate\\on_off:{{\"value\":\"ON\"}}"),
+            &mut state,
+        );
+        let (next, accepted) = response_token(&rejected);
+        assert!(!accepted);
+        assert_eq!(state.nodes.value_str(r"root\app\gate\on_off"), Some("OFF"));
+
+        let fresh_hash = stomp_protocol::token_hash("12345678", &next);
+        let accepted_reply = respond(
+            &format!("token {fresh_hash}\r\nwrite root\\app\\gate\\on_off:{{\"value\":\"ON\"}}"),
+            &mut state,
+        );
+        assert!(response_token(&accepted_reply).1);
+        assert_eq!(state.nodes.value_str(r"root\app\gate\on_off"), Some("ON"));
+    }
+
+    #[test]
+    fn password_mode_gates_dwrite_and_dread() {
+        let mut state = SimState::with_password("12345678");
+        let rejected = respond(
+            r#"dwrite root\nam_amp:{"index":0,"chunk":0,"value":"00"}"#,
+            &mut state,
+        );
+        let text = String::from_utf8_lossy(&rejected);
+        assert!(text.contains(" n"), "{text}");
+        assert!(!text.contains("dwrite"), "{text}");
+
+        let nonce = read_nonce(&mut state);
+        let hash = stomp_protocol::token_hash("12345678", &nonce);
+        let accepted = respond(
+            &format!(
+                "token {hash}\r\ndwrite root\\nam_amp:{{\"index\":0,\"chunk\":0,\"value\":\"00\"}}"
+            ),
+            &mut state,
+        );
+        let text = String::from_utf8_lossy(&accepted);
+        assert!(text.contains(" y"), "{text}");
+        assert!(text.contains("dwrite"), "{text}");
+
+        let rejected_dread = respond(r#"dread root\nam_amp:{"index":0,"chunk":1}"#, &mut state);
+        let text = String::from_utf8_lossy(&rejected_dread);
+        assert!(text.contains(" n"), "{text}");
+        assert!(!text.contains("dread"), "{text}");
     }
 }

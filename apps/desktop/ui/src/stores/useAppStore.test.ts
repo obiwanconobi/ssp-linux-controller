@@ -23,6 +23,7 @@ const info = {
   device_name: 'StompStation PRO',
   firmware: '2.4.4',
   node_count: 132,
+  auth: { required: false, authenticated: true },
 };
 
 const tuner = {
@@ -39,6 +40,11 @@ const tuner = {
 
 const client = {
   connect: vi.fn(async () => info),
+  autoConnect: vi.fn(async () => info),
+  setPassword: vi.fn(async () => ({ required: true, authenticated: true })),
+  loadDevicePassword: vi.fn(async () => null),
+  saveDevicePassword: vi.fn(async () => undefined),
+  forgetDevicePassword: vi.fn(async () => undefined),
   getSnapshot: vi.fn(async () => fixture.snapshot),
   refresh: vi.fn(async () => fixture.snapshot),
   selectBlock: vi.fn(async (path: string) => fixture.editors[path]),
@@ -92,7 +98,12 @@ const client = {
 vi.mock('../ipc/client', () => ({
   tauriClient: client,
   isTauriRuntime: () => true,
-  ipcErrorMessage: (error: unknown) => String(error),
+  ipcErrorMessage: (error: unknown) =>
+    typeof error === 'object' && error && 'message' in error
+      ? String((error as { message: unknown }).message)
+      : String(error),
+  ipcErrorCode: (error: unknown) =>
+    String((error as { code?: unknown })?.code ?? '') || null,
   isStaleWriteError: (error: unknown) =>
     String((error as { message?: unknown })?.message ?? error).includes(
       'connection changed before this write was sent',
@@ -119,6 +130,46 @@ const { useAppStore } = await import('./useAppStore');
 describe('device connection integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('keeps a locked device connected for reads and unlocks writes with the password', async () => {
+    client.connect.mockResolvedValueOnce({
+      ...info,
+      auth: { required: true, authenticated: false },
+    });
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+
+    let state = useAppStore.getState();
+    expect(state.connection.connected).toBe(true);
+    expect(state.connection.requiresPassword).toBe(true);
+    expect(state.connection.authenticated).toBe(false);
+    expect(state.connectionOpen).toBe(true);
+
+    await state.unlockDevice('password');
+    state = useAppStore.getState();
+    expect(client.setPassword).toHaveBeenCalledWith('password');
+    expect(state.connection.requiresPassword).toBe(true);
+    expect(state.connection.authenticated).toBe(true);
+  });
+
+  it('keeps the password prompt open and reports a rejected password', async () => {
+    client.connect.mockResolvedValueOnce({
+      ...info,
+      auth: { required: true, authenticated: false },
+    });
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.setPassword.mockRejectedValueOnce({
+      code: 'auth_required',
+      message: 'the device rejected the password',
+    });
+
+    const unlocked = await useAppStore.getState().unlockDevice('wrong');
+    const state = useAppStore.getState();
+    expect(unlocked).toBe(false);
+    expect(state.connection.connected).toBe(true);
+    expect(state.connection.requiresPassword).toBe(true);
+    expect(state.connection.authenticated).toBe(false);
+    expect(state.connection.authError).toContain('rejected');
   });
 
   it('maps the snapshot and routes edits back through the IPC client', async () => {

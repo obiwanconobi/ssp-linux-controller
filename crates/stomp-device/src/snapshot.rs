@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 use stomp_eq::{BandType, EqBand};
+
+use crate::device::AuthStatus;
 use stomp_protocol::editor::block_model_type;
 use stomp_protocol::preset::preset_references;
 use stomp_protocol::router::{ChainBlock, ChainSlot};
@@ -33,6 +35,8 @@ pub struct DeviceSnapshot {
     pub eq: Option<EqView>,
     pub lists: Vec<LibraryList>,
     pub capabilities: Capabilities,
+    #[serde(default)]
+    pub auth: AuthStatus,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

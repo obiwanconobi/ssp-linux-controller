@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use stomp_device::{
-    validate_alias, ChainEdit, ConnectionInfo, Device, DeviceSnapshot, UploadResult,
+    validate_alias, AuthStatus, ChainEdit, ConnectionInfo, Device, DeviceSnapshot, UploadResult,
 };
 use stomp_protocol::editor::BlockEditor;
 use stomp_protocol::{
@@ -158,19 +158,58 @@ pub fn list_serial_ports() -> Vec<SerialPort> {
 }
 
 #[tauri::command]
-pub async fn connect(state: State<'_, AppState>, address: String) -> IpcResult<ConnectionInfo> {
+pub async fn connect(
+    state: State<'_, AppState>,
+    address: String,
+    password: Option<String>,
+) -> IpcResult<ConnectionInfo> {
     state
         .actor
-        .call(|reply| ActorCommand::Connect { address, reply })
+        .call(|reply| ActorCommand::Connect {
+            address,
+            password,
+            reply,
+        })
         .await
 }
 
 #[tauri::command]
-pub async fn auto_connect(state: State<'_, AppState>) -> IpcResult<ConnectionInfo> {
+pub async fn auto_connect(
+    state: State<'_, AppState>,
+    password: Option<String>,
+) -> IpcResult<ConnectionInfo> {
     state
         .actor
-        .call(|reply| ActorCommand::AutoConnect { reply })
+        .call(|reply| ActorCommand::AutoConnect { password, reply })
         .await
+}
+
+#[tauri::command]
+pub async fn set_password(
+    state: State<'_, AppState>,
+    password: Option<String>,
+) -> IpcResult<AuthStatus> {
+    state
+        .actor
+        .call(|reply| ActorCommand::SetPassword { password, reply })
+        .await
+}
+
+#[tauri::command]
+pub fn load_device_password(address: String) -> IpcResult<Option<String>> {
+    Ok(crate::credentials::load(&address))
+}
+
+#[tauri::command]
+pub fn save_device_password(address: String, password: String) -> IpcResult<()> {
+    crate::credentials::save(&address, &password)
+        .map_err(|error| IpcError::internal(format!("could not save the password: {error}")))
+}
+
+#[tauri::command]
+pub fn forget_device_password(address: String) -> IpcResult<()> {
+    crate::credentials::forget(&address)
+        .map_err(|error| IpcError::internal(format!("could not forget the password: {error}")))
 }
 
 #[tauri::command]
@@ -688,6 +727,16 @@ pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Ipc
                 "offline"
             }
         ),
+        format!(
+            "device password: {}",
+            if !status.requires_password {
+                "not set"
+            } else if status.authenticated {
+                "accepted"
+            } else {
+                "required or rejected"
+            }
+        ),
         format!("pending writes: {}", status.pending_writes),
         format!("reconnect attempts: {}", status.reconnect_attempt),
     ];
@@ -904,7 +953,7 @@ fn validate_preset_name(name: &str) -> IpcResult<()> {
             "preset name cannot be empty".into(),
         )));
     }
-    if name.as_bytes().len() > 63 {
+    if name.len() > 63 {
         return Err(IpcError::from(ProtocolError::InvalidRequest(
             "preset name must be at most 63 bytes".into(),
         )));
@@ -978,7 +1027,7 @@ fn read_presets_from(directory: &Path) -> IpcResult<Vec<BlockPreset>> {
         };
         presets.push(preset);
     }
-    presets.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    presets.sort_by_key(|preset| preset.name.to_lowercase());
     Ok(presets)
 }
 

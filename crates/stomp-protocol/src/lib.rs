@@ -4,6 +4,7 @@
 //! deliberately transport-free: parsing, encoding, node storage, router
 //! geometry, preset discovery, and editor derivation all live here.
 
+pub mod auth;
 pub mod command;
 pub mod editor;
 pub mod error;
@@ -13,6 +14,7 @@ pub mod node;
 pub mod preset;
 pub mod router;
 
+pub use auth::{authenticated_command, hash_bytes, token_hash, SALT};
 pub use command::hex_encode;
 pub use error::ProtocolError;
 pub use node::{Node, NodeStore};

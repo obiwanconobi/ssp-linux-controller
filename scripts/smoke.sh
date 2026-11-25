@@ -6,10 +6,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PORT="${PORT:-45681}"
+PORT2="${PORT2:-45682}"
 SIM="$ROOT/target/debug/stomp-sim"
 CLI="$ROOT/target/debug/stomp"
 TMP="$(mktemp -d)"
-trap '[[ -n "${SIM_PID:-}" ]] && kill "$SIM_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+trap '[[ -n "${SIM_PID:-}" ]] && kill "$SIM_PID" 2>/dev/null || true; [[ -n "${SIM2_PID:-}" ]] && kill "$SIM2_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
 echo "== build =="
 cargo build -p stomp-sim -p stomp-cli
@@ -47,7 +48,7 @@ assert [block["label"] for block in snapshot["chain"]["blocks"]] == [
 amp_slot = next(slot for slot in snapshot["chain"]["slots"] if slot["label"] == "Amp (NAM)")
 assert amp_slot["fixed"] is True, "amp should be a fixed slot"
 assert len(snapshot["eq"]["bands"]) == 4, len(snapshot["eq"]["bands"])
-assert len(snapshot["lists"]) == 5, len(snapshot["lists"])
+assert len(snapshot["lists"]) == 6, len(snapshot["lists"])
 level = snapshot["master"]["preset_level"]
 assert level["id"] == r"root\app\output\pst\level", level
 assert level["min"] == -20 and level["max"] == 20 and level["step"] == 0.1, level
@@ -313,13 +314,13 @@ with zipfile.ZipFile(sys.argv[2]) as archive:
 print("preset export assertion passed")
 PY
 
-echo "== import the exported bundle into an empty preset slot =="
-"$CLI" import-preset "$ADDR" "$TMP/Brave Smoke.zip" 50 >"$TMP/import.json" 2>"$TMP/import.log"
+echo "== import the exported bundle back into its source slot =="
+"$CLI" import-preset "$ADDR" "$TMP/Brave Smoke.zip" 3 --overwrite >"$TMP/import.json" 2>"$TMP/import.log"
 python3 - "$TMP/import.json" "$TMP/Brave Smoke.zip" <<'PY'
 import json, sys, zipfile
 report = json.load(open(sys.argv[1]))
 assert report["preset_name"] == "Match Brave Chorus", report
-assert report["target_slot"] == 50, report
+assert report["target_slot"] == 3, report
 assert report["preset_bytes"] == 32768, report
 assert sorted(report["dependencies_reused"]) == [
     "Klone 3", "Match Brave Hi D 3", "TJ3 58BND310"
@@ -330,7 +331,7 @@ with zipfile.ZipFile(sys.argv[2]) as archive:
     assert len(expected) == 32768
 print("preset import assertion passed")
 PY
-"$CLI" download-list-item "$ADDR" 'root\presets' 50 "$TMP/imported.pst" >"$TMP/imported-preset.json" 2>"$TMP/imported-preset.log"
+"$CLI" download-list-item "$ADDR" 'root\presets' 3 "$TMP/imported.pst" >"$TMP/imported-preset.json" 2>"$TMP/imported-preset.log"
 python3 - "$TMP/imported-preset.json" "$TMP/imported.pst" "$TMP/Brave Smoke.zip" <<'PY'
 import json, sys, zipfile
 result = json.load(open(sys.argv[1]))
