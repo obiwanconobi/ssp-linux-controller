@@ -2899,6 +2899,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         password && mapped.connection.requiresPassword && !mapped.connection.authenticated
           ? 'The device rejected that password.'
           : undefined;
+      const locked =
+        mapped.connection.requiresPassword && !mapped.connection.authenticated;
       set((state) => ({
         ...mapped,
         emptySlots: snapshot.chain.slots
@@ -2917,9 +2919,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           error: undefined,
           authError,
         },
-        connectionOpen: Boolean(
-          mapped.connection.requiresPassword && !mapped.connection.authenticated,
-        ),
+        connectionOpen: false,
         save: {
           ...state.save,
           edited: false,
@@ -2935,8 +2935,20 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           : tauriClient.forgetDevicePassword(info.address)
         ).catch((error) => get().notify(ipcErrorMessage(error), 'warn'));
       }
-      get().addActivity('Device found', `${info.node_count} nodes · ${info.transport}`, 'good');
-      get().notify(`Connected to ${info.device_name || 'StompStation PRO'}`, 'good');
+      if (locked) {
+        get().addActivity(
+          'Device locked',
+          'connected read-only · password required for writes',
+          'warn',
+        );
+        get().notify(
+          'Connected read-only — enter the device password to enable writes',
+          'warn',
+        );
+      } else {
+        get().addActivity('Device found', `${info.node_count} nodes · ${info.transport}`, 'good');
+        get().notify(`Connected to ${info.device_name || 'StompStation PRO'}`, 'good');
+      }
     } catch (error) {
       const message = ipcErrorMessage(error);
       set((state) => ({
@@ -2996,6 +3008,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         password && mapped.connection.requiresPassword && !mapped.connection.authenticated
           ? 'The device rejected that password.'
           : undefined;
+      const locked =
+        mapped.connection.requiresPassword && !mapped.connection.authenticated;
       set((state) => ({
         ...mapped,
         emptySlots: snapshot.chain.slots
@@ -3014,9 +3028,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           error: undefined,
           authError,
         },
-        connectionOpen: Boolean(
-          mapped.connection.requiresPassword && !mapped.connection.authenticated,
-        ),
+        connectionOpen: false,
         save: {
           ...state.save,
           edited: false,
@@ -3032,8 +3044,20 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           : tauriClient.forgetDevicePassword(info.address)
         ).catch((error) => get().notify(ipcErrorMessage(error), 'warn'));
       }
-      get().addActivity('Device synced', `${info.node_count} nodes · ${info.transport}`, 'good');
-      get().notify(`Connected to ${info.device_name || 'StompStation PRO'}`, 'good');
+      if (locked) {
+        get().addActivity(
+          'Device locked',
+          'connected read-only · password required for writes',
+          'warn',
+        );
+        get().notify(
+          'Connected read-only — enter the device password to enable writes',
+          'warn',
+        );
+      } else {
+        get().addActivity('Device synced', `${info.node_count} nodes · ${info.transport}`, 'good');
+        get().notify(`Connected to ${info.device_name || 'StompStation PRO'}`, 'good');
+      }
     } catch (error) {
       const message = ipcErrorMessage(error);
       set((state) => ({
@@ -3053,19 +3077,18 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   unlockDevice: async (password, rememberPassword) => {
     try {
       const auth = await tauriClient.setPassword(password);
+      const unlocked = auth.authenticated || !auth.required;
       set((state) => ({
         connection: {
           ...state.connection,
           requiresPassword: auth.required,
           authenticated: auth.authenticated,
           error: undefined,
-          authError:
-            auth.authenticated || !auth.required
-              ? undefined
-              : 'Incorrect device password.',
+          authError: unlocked ? undefined : 'Incorrect device password.',
         },
+        connectionOpen: unlocked ? false : state.connectionOpen,
       }));
-      if (auth.authenticated || !auth.required) {
+      if (unlocked) {
         const address = get().connection.address;
         if (address) {
           const remember = Boolean(password) && rememberPassword !== false;

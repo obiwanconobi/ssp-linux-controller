@@ -33,12 +33,21 @@ export const TitleBar = () => {
   const redoDepth = connection.mode === 'device' ? deviceRedoDepth : localRedoDepth;
   // Phones show a condensed label; the full transport string is still shown
   // in the status bar, and the connection sheet carries the detail.
+  const connectionLocked =
+    connection.connected && connection.requiresPassword && !connection.authenticated;
+  const connectionLed = autoSearching || connectionLocked
+    ? 'led--amber'
+    : connection.connected
+      ? 'led--on'
+      : 'led--off';
   const shortConnectionLabel = autoSearching
     ? 'Searching'
     : connection.connected
       ? connection.mode === 'demo'
         ? 'Demo'
-        : 'Linked'
+        : connectionLocked
+          ? 'Locked'
+          : 'Linked'
       : 'Offline';
 
   const previousIndex = (index: number) => {
@@ -153,10 +162,7 @@ export const TitleBar = () => {
           onClick={() => setConnectionOpen(true)}
           title="Connection settings"
         >
-          <span
-            className={`led ${autoSearching ? 'led--amber' : connection.connected ? 'led--on' : 'led--off'}`}
-            aria-hidden="true"
-          />
+          <span className={`led ${connectionLed}`} aria-hidden="true" />
           <span className="connection-pill__label">
             {autoSearching
               ? 'Searching…'
@@ -171,7 +177,9 @@ export const TitleBar = () => {
             {autoSearching
               ? 'Wi-Fi → USB'
               : connection.connected
-                ? 'Connected'
+                ? connectionLocked
+                  ? 'Password needed'
+                  : 'Connected'
                 : autoFailed
                   ? 'Connect'
                   : 'Reconnect'}

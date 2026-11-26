@@ -132,7 +132,7 @@ describe('device connection integration', () => {
     vi.clearAllMocks();
   });
 
-  it('keeps a locked device connected for reads and unlocks writes with the password', async () => {
+  it('keeps a locked device connected for reads and closes the sheet after unlock', async () => {
     client.connect.mockResolvedValueOnce({
       ...info,
       auth: { required: true, authenticated: false },
@@ -143,13 +143,37 @@ describe('device connection integration', () => {
     expect(state.connection.connected).toBe(true);
     expect(state.connection.requiresPassword).toBe(true);
     expect(state.connection.authenticated).toBe(false);
-    expect(state.connectionOpen).toBe(true);
+    expect(state.connectionOpen).toBe(false);
 
-    await state.unlockDevice('password');
+    // Reopening the sheet and unlocking must dismiss it.
+    useAppStore.getState().setConnectionOpen(true);
+    await useAppStore.getState().unlockDevice('password');
     state = useAppStore.getState();
     expect(client.setPassword).toHaveBeenCalledWith('password');
     expect(state.connection.requiresPassword).toBe(true);
     expect(state.connection.authenticated).toBe(true);
+    expect(state.connectionOpen).toBe(false);
+  });
+
+  it('reopens the password prompt when a write is rejected', async () => {
+    client.connect.mockResolvedValueOnce({
+      ...info,
+      auth: { required: true, authenticated: false },
+    });
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    expect(useAppStore.getState().connectionOpen).toBe(false);
+
+    useAppStore.getState().handleWriteFailure(
+      'auth-write',
+      'device password required',
+      { code: 'auth_required' },
+    );
+
+    const state = useAppStore.getState();
+    expect(state.connectionOpen).toBe(true);
+    expect(state.connection.requiresPassword).toBe(true);
+    expect(state.connection.authenticated).toBe(false);
+    expect(state.connection.authError).toContain('password');
   });
 
   it('keeps the password prompt open and reports a rejected password', async () => {

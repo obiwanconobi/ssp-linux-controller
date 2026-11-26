@@ -26,10 +26,10 @@ without hardware.
 | Phase 0 — protocol freeze | Core ported and tested; simulator + hardware fixtures; Python/Rust differential is clean on 2.4.4 and live 2.5.3 |
 | Phase 1 — walking skeleton | Tauri commands, USB/TCP transports, browse, writes, presets, chain edits, snapshot mapping, real connect path; the single-owner actor owns polling, reconnect backoff, and monotonic snapshot revisions; reversible gate write/readback/restore passed on hardware; launch discovery is Wi-Fi → USB with an explicit no-device state |
 | Phase 2 — design system & board | Design tokens, three themes, component kit, Board, Amp room, Global EQ, Library, Settings, Stage mode, command palette, tuner deck, responsive layouts |
-| Phase 3 — deep parity | Uploads are wired end-to-end for NAM, Parametric NAM, IR, and the legacy VXAMP list: native picker, device preflight with model/WAV structural validation, capture-list guard, slot selection, ACK progress, cancel-after-current-chunk, and refreshed-list highlighting. Both NAM A1 (flat WaveNet/LSTM weights) and NAM A2 (`SlimmableContainer` submodels) are supported and covered by validator/simulator tests; basic A2, PNAM, and IR uploads are validated on 2.5.3, including the `wav_48000` IR list type. VXAMP is uploaded as an opaque, zero-padded 12 KiB raw payload and has been tested working on hardware. A1 hardware upload, cancel-after-ACK, and overwrite paths remain to be exercised. Preset save, chain add/remove, Wi-Fi discovery, and the Parametric NAM editor are hardware-validated on 2.4.4; 2.5.3 PNAM switches and multi-client Wi-Fi were verified live |
+| Phase 3 — deep parity | Uploads are wired end-to-end for NAM, Parametric NAM, IR, and the legacy VXAMP list: native picker, device preflight with model/WAV structural validation, capture-list guard, slot selection, ACK progress, cancel-after-current-chunk, and refreshed-list highlighting. Both NAM A1 (flat WaveNet/LSTM weights) and NAM A2 (`SlimmableContainer` submodels) are supported and covered by validator/simulator tests; NAM A1, NAM A2, PNAM, and IR uploads are validated on 2.5.3, including the `wav_48000` IR list type. VXAMP is uploaded as an opaque, zero-padded 12 KiB raw payload and has been tested working on hardware. Upload cancel-after-ACK and overwrite paths are validated on 2.5.3; audio readback remains. Preset save, chain add/remove, Wi-Fi discovery, and the Parametric NAM editor are hardware-validated on 2.4.4; 2.5.3 PNAM switches and multi-client Wi-Fi were verified live |
 | Live updates | Interim Tauri poller emits snapshots every 500 ms, with a 2 s browse on TCP; uploads pause polling |
 | Local library | Sectioned Amps/Drives/IRs browser with NAM/Parametric NAM/VXAMP subsections, recursive `.nam`/`.pnam`/`.wav`/`.vxamp` folder indexing, preflight, and target/format validation |
-| List deletion | Per-row delete in the patch rail and Library lists uses the official zero-fill `dwrite` with confirmation and read-back verification; simulator-tested, hardware delete semantics pending |
+| List deletion | Per-row delete in the patch rail and Library lists uses the official zero-fill `dwrite` with confirmation and read-back verification; NAM delete passed on 2.5.3, while preset/PNAM/IR deletion remains simulator-tested only |
 | Chain editing | Remove, replace, and clear use one router write per action; add/remove/replace/move/link/clear are covered by the simulator smoke. Clear chain preserves fixed blocks and connectors behind a destructive confirmation. The chain write payload is wrapped as `{"value": ...}` so the firmware accepts it |
 | Preset save | Saves the live chain and parameter edits; JSON field order matches the device (`value` before `save`), coalesced writes flush first, and router edits keep the preset dirty until saved |
 | Global input settings | Settings → Audio & pedal reads/writes `gain1`/`gain2` (−15…+15 dB, 0.1 steps) and displays the read-only `_connected1`/`_connected2` jack state. Gain writes are global and do not mark the preset dirty |
@@ -39,7 +39,7 @@ without hardware.
 | Library downloads | NAM/PNAM downloads consume `dread` chunks from 1, decompress gzip, trim slot padding, and validate the model; IR slots return 2048 raw little-endian `f32` samples, which the app wraps in the same 48 kHz mono float WAV header the official app exports; VXAMP returns the raw padded slot payload. Progress is cancellable at chunk boundaries and writes use a temp file |
 | Library rename | Renames use the 128-byte `dwrite` name chunk with readback and duplicate validation. Captures referenced by `root\presets.used` are blocked with the affected preset names until the firmware reference-update behavior is verified on hardware |
 | Add-block menu | Capped at `min(60vh, 440px)` with internal scrolling, collision padding, Radix type-ahead/keyboard navigation, and an 800×600 Playwright check |
-| Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, the PNAM drive editor, and a VXAMP raw-list upload have been exercised on hardware. Firmware 2.4.4 covered gate, preset, chain, discovery, and PNAM editing; firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, simultaneous Wi-Fi clients, and basic NAM A2/PNAM/IR uploads. On 2026-11-23, live 2.5.3 reads confirmed IR slots are raw `f32` payloads, and a live `Brave` export matched the official `Brave.zip` `.pst` and dependency hashes. Chain move/link, EQ writes, upload cancel/overwrite paths, and long idle polling remain open |
+| Hardware-verified | Gate toggle/restore, preset save with chain + parameter changes, chain add/remove, Wi-Fi auto-discovery, the PNAM drive editor, and a VXAMP raw-list upload have been exercised on hardware. Firmware 2.4.4 covered gate, preset, chain, discovery, and PNAM editing; firmware 2.5.3 was checked live for the 694-node tree, PNAM switch controls, simultaneous Wi-Fi clients, and NAM A1/A2/PNAM/IR uploads. On 2026-11-23, live 2.5.3 reads confirmed IR slots are raw `f32` payloads, and a live `Brave` export matched the official `Brave.zip` `.pst` and dependency hashes. On 2026-11-25, the authenticated hardware pass also covered preset save, chain move/link, EQ writes, tuner, NAM delete/readback, rename, and downloads. On 2026-11-26, upload cancel/overwrite, device undo/redo, input gain, Preset Level, and Parametric EQ writes were validated. Audio readback, external-change handling, and unplug/replug remain open |
 | Android | Wi-Fi/TCP-only Tauri app; targetSdk 37 with the runtime local-network permission, content-URI file-picker bridge, background/resume reconnect, and compact landscape layout. APK and AAB builds/signing paths exist, and a CI Appium emulator suite covers smoke, typed-knob, rotation, resume, and native file-picker upload. USB-OTG and physical-phone validation remain; see [`ANDROID.md`](ANDROID.md) |
 | Local install | `scripts/install-local.sh` installs the release binary, desktop entry, and icons; rerun to update |
 | Update check | Settings → About reads the public GitHub releases feed, compares the latest tag with the running build, and opens the release page in the default browser. It does not download or install updates |
@@ -50,8 +50,10 @@ input gain/connection settings, Preset Level, the scrolling Add-block menu, the
 Parametric EQ graph, preset export/import, Library file downloads, and Library
 file renaming. The simulator, Rust/unit tests, UI smoke, accessibility, keyboard,
 and visual baselines cover the new paths; hardware validation is the remaining
-gate, especially preset-bundle writes, download bytes, used-capture rename
-policy, and input-gain readback.
+gate, especially Library download bytes, the used-capture rename policy, and
+import `used`/cancelled-dependency semantics. Input gain, Preset Level,
+Parametric EQ writes, preset-bundle import/commit, and dependency reuse were
+validated on 2.5.3.
 
 The browser build runs against a deterministic demo device so every surface is
 inspectable without hardware. The Tauri shell starts disconnected: it scans
@@ -452,21 +454,22 @@ to update.
    boards, not a correctness blocker.
 2. **Upload hardware validation.** The picker → preflight → `begin_upload`
    path, ACK progress, cancel boundary, refreshed target list, and new-slot
-   highlight are wired. A1, cancel-after-ACK, overwrite, and audio readback
-   still need a hardware pass.
+   highlight are wired. NAM A1/A2, PNAM, and IR uploads, cancel-after-ACK, and
+   overwrite are validated on 2.5.3; audio readback still needs a hardware pass.
 3. **Settings discovery panel.** Launch/manual discovery works (Wi-Fi → USB,
    mDNS list), and Settings now re-scans real serial/mDNS results, shows the
    active transport/address, and accepts a manual TCP target.
-4. **Device undo hardware pass.** Device edits now record typed operations and
-   replay inverse control/router writes; validate undo/redo and reconnect
-   history clearing on real firmware.
-5. **Hardware validation.** Uploads still need a scratch-slot pass; move/link,
-   EQ writes, external-change handling, and unplug/replug remain open. Tuner
-   open/close passed on 2.5.3 with v0.4.2. Ten-minute idle polling passed
-   read-only. See the hardware checklist.
-6. **Android release.** Physical-phone Wi-Fi/mDNS validation, USB-OTG serial
-   (optional), Play Store AAB/upload-key signing, tablet layout, and
-   reconnect-on-resume remain open.
+4. **Device undo/redo.** Device edits record typed operations and replay inverse
+   control/router writes. Undo/redo of control, master, EQ, bypass, and router
+   edits passed on 2026-11-26.
+5. **Hardware validation.** Upload A1/A2/PNAM/IR, move/link, EQ writes, tuner
+   open/close, input gain, Preset Level, Parametric EQ writes, and device
+   undo/redo passed on 2.5.3. Ten-minute idle polling passed read-only.
+   External-change handling, unplug/replug, and audio readback remain open. See
+   the hardware checklist.
+6. **Android release.** Physical-phone Wi-Fi/mDNS validation and optional
+   USB-OTG serial remain open. Tablet layout and reconnect-on-resume are
+   implemented.
 7. **Packaging.** GitHub Actions builds Windows NSIS/MSI, Linux deb/AppImage,
    macOS app/DMG, and the Android APK. macOS signing/notarization, an updater,
    and crash-report opt-in remain.

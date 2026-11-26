@@ -68,9 +68,8 @@ Passed on firmware 2.5.3 over Wi-Fi TCP and USB CDC-ACM:
   The upload path now reads the list back and returns `UploadRejected` instead
   of reporting a phantom success. Regression test added.
 
-Still pending on hardware: upload cancel/overwrite paths, packaged
-AppImage/Android keyring behavior, non-ASCII passwords, password change/clear,
-and factory-default auto-login.
+Still pending on hardware: packaged AppImage/Android keyring behavior,
+non-ASCII passwords, password change/clear, and factory-default auto-login.
 
 ## Why writes time out today
 

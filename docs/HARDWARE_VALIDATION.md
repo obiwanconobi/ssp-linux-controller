@@ -108,7 +108,8 @@ issuing any write commands:
   `...\ref`; the guessed `...\note`, `...\cents`, `...\freq`, and
   `...\level` paths used by 0.4.1 do not exist and timed out, which also
   backlogged tuner polls ahead of the close write. v0.4.2 corrects the paths and
-  computes note/cents; full open/close still requires the write-based test.
+  computes note/cents; the write-based open/close test passed on 2.5.3 with
+  v0.4.2 (see Tuner open/close below).
 
 No user capture/preset names were committed. One UI-label nit was observed:
 the in-chain EQ block uses the generic `UTILITY` shell plate because there is
@@ -164,8 +165,8 @@ and link.
 The simulator smoke performs remove → add → replace → replace-back and asserts
 the resulting labels, empty slots, and available-block list. Add/remove were
 then exercised on hardware during the reversible save test below, including a
-fresh-read check. Move/link still need a hardware pass; they use the same
-wrapped router payload.
+fresh-read check. Move/link were user-confirmed on 2026-11-25 in the
+authenticated pass; they use the same wrapped router payload.
 
 ## Preset save field-order fix (hardware-validated)
 
@@ -271,9 +272,9 @@ simulator through `adb reverse tcp:45700 tcp:45700` and loaded the full board,
 inspector, chain, and master controls. The mobile connection sheet correctly
 omitted USB and used Wi-Fi/manual TCP.
 
-The build targets SDK 36 because SDK 37 enforces `ACCESS_LOCAL_NETWORK` as a
-runtime permission; target 36 keeps `INTERNET`’s implicit LAN access for this
-sideload APK. Bumping to 37 requires adding and requesting that permission.
+The build targets SDK 37, declares `ACCESS_LOCAL_NETWORK`, and requests it at
+runtime from `MainActivity`. The emulator suite auto-grants runtime permissions,
+so the interactive allow/deny prompt remains a physical-device check.
 
 Android constraints:
 
@@ -320,8 +321,7 @@ The Library now drives the real uploader instead of a preview:
 - a synthetic stub NAM rejected before any bytes were sent, and a wrong-kind
   target rejected before any write.
 
-Still open: cancel-after-ACK on hardware, overwriting a used slot, and audio
-readback/verification.
+Still open: upload audio readback/verification.
 
 > Preflight is structural, not semantic: it cannot prove a model is loadable
 > by this firmware. Use files exported by a compatible NAM/PNAM version, and
@@ -340,8 +340,8 @@ dwrite <listPath>:{"index":N,"chunk":-1,"value":"<128 zero bytes as hex>"}
 The backend permits only preset and capture lists, rejects empty/out-of-range
 slots, sends one command per item, reads the list back, and verifies the name
 was cleared. Indices are not shifted. The simulator and UI tests cover the
-flow; the firmware's exact zero-fill/ACK semantics are still unvalidated on
-hardware.
+flow. NAM delete/readback passed on 2.5.3; the same zero-fill/ACK path for
+presets, PNAM, and IR still needs validation.
 
 ## Tuner open/close (validated 0.4.2 / 2.5.3)
 
@@ -365,30 +365,25 @@ write tests, expected results, evidence to capture, and stop conditions.
 
 ## Still unvalidated on hardware
 
-These intentionally remain on the Phase 3 checklist:
+These intentionally remain on the Phase 3 checklist. The 2026-11-25
+authenticated pass also validated preset save, chain move/link, EQ writes,
+tuner, NAM delete/readback, rename, and downloads. The 2026-11-26 pass validated
+upload cancel/overwrite, device undo/redo, input gain, Preset Level, and
+Parametric EQ writes. Those are no longer listed below.
 
-- A1 NAM upload on real hardware. A1 is covered by the validator and simulator,
-  but only A2/PNAM/IR uploads have been recorded on 2.5.3 so far;
-- list deletion on hardware (presets, NAM, PNAM, IR). Verify the slot empties,
-  indices do not shift, the ACK is completion, and deleting an active/current
-  item does not leave the app or a block in a broken state;
-- upload cancellation after an ACK, overwriting a used slot, and audio
-  readback/verification. Basic NAM A2/PNAM/IR uploads were validated on 2.5.3
-  (see the upload section above), including the A2 final marker;
-- live snapshot polling for 10 minutes and reconnect after unplugging USB
-  mid-poll (10-minute idle polling passed read-only on 2026-11-22; the
-  single-owner actor has capped reconnect backoff and rejects stale queued
-  writes; hardware reconnect still needs a pass);
+- list deletion on hardware for presets, PNAM, and IR (NAM delete/readback
+  passed on 2026-11-25). Verify the slot empties, indices do not shift, the ACK
+  is completion, and deleting an active/current item does not leave the app or
+  a block in a broken state;
+- upload audio readback/verification. NAM A1/A2, PNAM, and IR uploads,
+  cancel-after-ACK, and overwriting a used slot were validated on 2.5.3,
+  including the final marker;
+- reconnect after unplugging USB mid-poll (10-minute idle polling passed
+  read-only on 2026-11-22; the single-owner actor has capped reconnect backoff
+  and rejects stale queued writes; hardware reconnect still needs a pass);
 - external preset/chain/control changes from the pedal while the app is open,
   including a local edit pending at the same time (the conflict bar and
   stale-write rollback are simulator/unit tested);
-- EQ writes and chain move/link writes on hardware. Chain add/remove, Clear
-  Chain, and the PNAM editor have been exercised; move/link and EQ writes still
-  need a pass. Clear Chain preserves fixed blocks/connectors and is
-  user-confirmed on 2.5.3.
-- device undo/redo of control, master, EQ, bypass, and router edits, including
-  history clearing after reconnect (simulator/store tests cover the inverse
-  writes; hardware pass pending).
 - Android on a physical phone, including Wi-Fi mDNS discovery, one-client
   behavior, and reconnect after screen lock;
 - factory reset (do not run without a fresh backup).

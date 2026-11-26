@@ -142,7 +142,9 @@ export interface BlockPreset {
 export interface LibrarySlot {
   index: number;
   name: string;
+  /** True when the slot holds a capture (non-empty name); unrelated to preset use. */
   used: boolean;
+  /** True when a selector in the live signal chain points at this capture. */
   active: boolean;
   /** Preset slot indices whose `used` map references this capture. */
   usedBy?: number[];

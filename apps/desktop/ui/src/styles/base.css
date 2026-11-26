@@ -416,6 +416,12 @@ svg {
   background: color-mix(in srgb, var(--danger) 9%, transparent);
 }
 
+.chip--muted {
+  color: var(--muted-2);
+  border-color: var(--hairline-soft);
+  background: transparent;
+}
+
 .divider {
   height: 1px;
   background: var(--hairline);

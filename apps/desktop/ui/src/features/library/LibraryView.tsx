@@ -31,6 +31,8 @@ import {
 } from '../../ipc/client';
 import type { RustDownloadProgress, RustImportPreflight } from '../../ipc/client';
 import { listNameError } from '../../lib/presetNames';
+import { librarySlotStatus } from '../../lib/libraryStatus';
+import type { LibrarySlotStatus } from '../../lib/libraryStatus';
 import {
   loadDirectoryPreference,
   rememberDirectoryForPath,
@@ -65,6 +67,13 @@ const KIND_LABEL: Record<string, string> = {
   pnam: 'PNAM',
   ir: 'IR',
   vxamp: 'VXAMP',
+};
+
+const SLOT_STATUS: Record<LibrarySlotStatus, { label: string; chip: string }> = {
+  active: { label: 'Active', chip: 'chip--good' },
+  'in-use': { label: 'In use', chip: 'chip--warn' },
+  loaded: { label: 'Loaded', chip: '' },
+  free: { label: 'Free', chip: 'chip--muted' },
 };
 
 const VXAMP_SLOT_SIZE = 12 * 1024;
@@ -317,6 +326,7 @@ const LibraryTable = ({
               const renameTitle = renameBlocked
                 ? `Cannot rename — this capture is in use by ${users}`
                 : 'Rename capture';
+              const status = SLOT_STATUS[librarySlotStatus(slot)];
               return (
               <tr
                 key={`${list.id}-${slot.index}`}
@@ -348,13 +358,7 @@ const LibraryTable = ({
                 <td>{targetDef(list.id)?.label ?? list.label}</td>
                 <td className="mono">{String(slot.index + 1).padStart(2, '0')}</td>
                 <td>
-                  {slot.active ? (
-                    <span className="chip chip--good">Active</span>
-                  ) : slot.used ? (
-                    <span className="chip">Used</span>
-                  ) : (
-                    <span className="chip">Free</span>
-                  )}
+                  <span className={`chip ${status.chip}`.trim()}>{status.label}</span>
                 </td>
                 <td className="library-table__actions">
                   {slot.used && (
@@ -1085,7 +1089,7 @@ export const LibraryView = () => {
           <span className="eyebrow">Captures / slots / uploads</span>
           <h1>Library</h1>
           <span className="view-head__meta mono">
-            {slotsTotal} slots · {slotsUsed} used · {lists.length} lists
+            {slotsTotal} slots · {slotsUsed} loaded · {lists.length} lists
           </span>
         </div>
         <div className="view-head__actions">
@@ -1173,7 +1177,7 @@ export const LibraryView = () => {
               <span className="chip">{activeTargetLabel}</span>
               <span className="chip">
                 {activeList
-                  ? `${activeList.slots.filter((slot) => slot.used).length}/${activeList.slots.length} used`
+                  ? `${activeList.slots.filter((slot) => slot.used).length}/${activeList.slots.length} loaded`
                   : 'list unavailable'}
               </span>
             </div>

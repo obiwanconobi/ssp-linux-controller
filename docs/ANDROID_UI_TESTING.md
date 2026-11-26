@@ -276,8 +276,8 @@ Two Android-specific automation limits shaped the tests:
 - **Controlled text inputs:** CDP typing into the knob's controlled editor
   changes the DOM value but does not reliably raise React's `onChange` in the
   Android WebView. The smoke uses the slider's keyboard contract
-  (`End`/`Home`/arrows). Add a typed-value test with Appium `setValue` if that
-  path needs coverage.
+  (`End`/`Home`/arrows). `typed-knob.spec.mjs` covers Appium `setValue` through
+  the real Tauri IPC path.
 
 `strictSelectors: false` is intentional: `.signal-chain .pedal` / `.mobile-block-card`
 can match multiple board blocks and `$` should resolve the first one. Specs use

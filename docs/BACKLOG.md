@@ -4,7 +4,7 @@ See [`V0.6.0_PLAN.md`](V0.6.0_PLAN.md) for the next release scope: input
 settings, Preset Level, Add-block scrolling, the Parametric EQ graph, preset
 export/import, Library file downloads, and Library file renaming.
 
-Last updated: 2026-11-23
+Last updated: 2026-11-26
 
 ## UI feedback — this pass
 
@@ -31,8 +31,8 @@ Last updated: 2026-11-23
 | 19 | A minimal stub `.nam` was accepted and could reach the pedal’s loader. | Fixed: preflight now validates that NAM/PNAM files are JSON objects with an architecture, config, numeric weights, and a valid sample rate; malformed IR WAVs are decoded before upload. The target must be a `nam`, `pnam`, or `ir` capture list, so no other list or wrong-kind target can be written. |
 | 20 | A legitimate NAM v0.7 A2 file was rejected as “no weights.” | Fixed: A2 `SlimmableContainer` keeps weights in `config.submodels`, not top-level `weights`. Validation now recurses through `config.models`/`config.submodels`, unwraps `{ "model": ... }` entries, and accepts object-map container forms. IR preflight also accepts WAVs larger than the decoded 8 KiB slot. |
 | 21 | IR upload was blocked because firmware reports the list type as `wav_48000`. | Fixed: capture-list matching accepts exact types plus rate-tagged variants (`wav_*`, `ir_*`, `nam_*`, `pnam_*`) and untyped known lists, while still rejecting wrong-kind and unknown targets. |
-| 22 | The official app and Python client have Clear Chain; the Tauri Board did not. | Added a Board “Chain…” menu with a destructive confirmation. `ChainEdit::Clear` writes one router payload that removes every movable block while preserving fixed blocks and links. Covered by a Rust layout test, CLI simulator smoke, demo-store test, and UI smoke. Hardware pass still pending. |
-| 23 | Lists had no delete action; the official app deletes via a zero-fill `dwrite`. | Added per-row delete buttons in the patch rail, Library presets tab, and NAM/PNAM/IR tables. Confirmation names the slot and warns if it is active/current. The backend sends the official `dwrite <list>:{"index":N,"chunk":-1,"value":"00"*128}`, validates the list/index, and reads the list back to verify the slot cleared. Covered by Rust, store, simulator, and UI tests; hardware delete semantics still need manual validation. |
+| 22 | The official app and Python client have Clear Chain; the Tauri Board did not. | Added a Board “Chain…” menu with a destructive confirmation. `ChainEdit::Clear` writes one router payload that removes every movable block while preserving fixed blocks and links. Covered by a Rust layout test, CLI simulator smoke, demo-store test, and UI smoke; user-confirmed on 2.5.3. |
+| 23 | Lists had no delete action; the official app deletes via a zero-fill `dwrite`. | Added per-row delete buttons in the patch rail, Library presets tab, and NAM/PNAM/IR tables. Confirmation names the slot and warns if it is active/current. The backend sends the official `dwrite <list>:{"index":N,"chunk":-1,"value":"00"*128}`, validates the list/index, and reads the list back to verify the slot cleared. Covered by Rust, store, simulator, and UI tests. NAM delete/readback passed on 2.5.3; preset, PNAM, and IR deletion still need manual validation. |
 
 > Device-write incidents, format invariants, and the update-mode recovery
 > playbook are now maintained in
@@ -45,8 +45,8 @@ Last updated: 2026-11-23
   polling pause while an upload holds the transport.
 - UI event listener applies live master, meters, EQ, preset, list, and block
   on/off updates; a changed preset/chain triggers the full editor rebrowse.
-- Snapshot polling has not yet been validated for 10 minutes of hardware idle
-  time; that remains on the hardware checklist.
+- Snapshot polling was validated for 10 minutes of hardware idle time on
+  2026-11-22 (1,179 reads, 0 errors, unchanged post-run snapshot).
 - Local capture indexing is implemented in Rust and the browser directory
   picker. Local entries and native-picked files now preflight against the
   connected device and upload through the ACK path; the simulated browser queue
@@ -77,13 +77,15 @@ Last updated: 2026-11-23
 - Android Back now closes the topmost web overlay instead of exiting the app.
   The connection sheet footer is fixed while its body scrolls so
   Connect/Disconnect stay reachable on phones.
-- Remaining UI-test work: physical-phone run, rotation/background/native
-  file-picker specs, a typed-knob Appium test, Android-specific visual
-  baselines, and a CI emulator job.
-- Remaining Android work: physical-phone Wi-Fi/mDNS test, Play Store
-  AAB/upload-key signing, tablet/landscape layout, USB-OTG serial (optional),
-  reconnect-on-resume, and the Android 17 `ACCESS_LOCAL_NETWORK` runtime request
-  before moving `targetSdk` from 36 to 37.
+- Emulator UI coverage is complete: rotation, background/resume, native
+  file-picker upload/save, and typed-knob specs run under Appium, with screenshots
+  and geometry assertions instead of separate Android visual baselines. A CI
+  emulator workflow runs the suite.
+- Remaining Android work: physical-phone Wi-Fi/mDNS and manual-address
+  validation, the Android 17 `ACCESS_LOCAL_NETWORK` allow/deny dialog on a
+  physical/API 37 device, and optional USB-OTG serial. The AAB/upload-key path,
+  tablet/landscape layout, reconnect-on-resume, and the runtime local-network
+  permission request are implemented.
 - Details: [`docs/ANDROID.md`](ANDROID.md) and
   [`docs/ANDROID_UI_TESTING.md`](ANDROID_UI_TESTING.md).
 
@@ -127,13 +129,12 @@ work is in [`REMAINING_WORK.md`](REMAINING_WORK.md).
    remains.
 3. **Device-mode undo/redo.** Implemented as a typed device-operation log:
    controls, models, bypass, master, EQ, and router edits replay their inverse
-   through the actor; rapid knob writes coalesce. Hardware validation remains.
+   through the actor; rapid knob writes coalesce. Undo/redo of control, master,
+   EQ, bypass, and router edits passed on 2026-11-26.
 4. **Upload hardware validation.** The picker → preflight → `begin_upload`
    path, ACK progress, cancel boundary, refreshed target list, and new-slot
-   highlight are wired. Basic NAM A2, PNAM, and IR uploads succeeded on 2.5.3;
-   A1 is covered by validator/simulator tests but still needs a hardware pass.
-   Remaining checks are A1 hardware, cancel-after-ACK, overwriting a used slot,
-   and audio readback.
+   highlight are wired. NAM A1, NAM A2, PNAM, and IR uploads, cancel-after-ACK,
+   and overwriting a used slot passed on 2.5.3. Audio readback remains.
 5. **Settings discovery panel.** Launch/manual discovery and the Settings
    re-scan/manage surface are implemented: real serial-port and mDNS results,
    direct connect, connection summary, and a manual TCP field. Physical USB
@@ -149,12 +150,9 @@ baseline checklist.
 
 ### Hardware validation still open
 
-- Upload NAM/PNAM/IR to a scratch slot and verify the final marker/ACK path.
+- Upload audio readback/verification.
+- Delete a preset, PNAM, and IR entry (NAM delete passed on 2026-11-25).
 - Unplug/replug mid-poll and verify reconnect without stale writes.
 - Change a preset/chain on the pedal while the app is open.
-- Tuner open/close restore.
-- EQ writes and chain move/link writes. Chain add/remove are hardware-tested;
-  move/link share the same wrapped router payload but have not been exercised
-  through the UI.
-- Memory/poll stability over 10 minutes.
+- External change with a local edit pending (conflict bar).
 - Factory reset only with a verified backup.

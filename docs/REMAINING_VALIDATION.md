@@ -22,6 +22,17 @@ Do not re-run these unless a related code path changes:
 - Ten-minute idle polling, read-only.
 - Save As to a new preset and duplicate-name rejection.
 - Read-only snapshot mapping, all block editors, and UI mapping.
+- EQ writes and chain move/link writes (authenticated pass, 2026-11-25).
+- NAM delete/readback, capture rename, and `dread` download (authenticated pass,
+  2026-11-25).
+- VXAMP raw upload to a scratch slot (2026-11-24).
+- Upload cancellation after an ACK, and overwriting a used capture slot
+  (2026-11-26).
+- Device undo/redo of control, master, EQ, bypass, and router edits, including
+  history clearing after reconnect (2026-11-26).
+- Input gain write/readback and input connection state (2026-11-26).
+- Preset Level write, save/reload, and export/import (2026-11-26).
+- Parametric EQ graph writes (2026-11-26).
 
 ## Safety rules
 
@@ -52,6 +63,8 @@ Do not re-run these unless a related code path changes:
 
 ## V1 — Upload cancellation after an ACK
 
+**Status:** validated on 2026-11-26.
+
 **Goal:** cancelling an upload stops further chunks without corrupting the target
 list or leaving the app stuck.
 
@@ -74,6 +87,8 @@ whether any error toast appeared.
 
 ## V2 — Overwrite a used capture slot
 
+**Status:** validated on 2026-11-26.
+
 **Goal:** the upload path replaces a used slot only after confirmation and leaves
 a loadable capture.
 
@@ -91,6 +106,9 @@ the pedal can load it.
 **Record:** old name, new name, slot number, warning text, and readback result.
 
 ## V3 — Single-item deletion
+
+**Status:** NAM delete/readback passed on 2026-11-25. Preset, PNAM, and IR
+deletion remain open.
 
 Run these one at a time. After each delete, refresh and verify the slot is empty
 and later slots did **not** shift.
@@ -129,6 +147,8 @@ and the app stays usable.
 
 ## V4 — EQ writes
 
+**Status:** validated on 2026-11-25 in the authenticated hardware pass.
+
 **Goal:** every EQ edit reaches the pedal and survives a refresh.
 
 1. Open **Global EQ**.
@@ -146,6 +166,8 @@ change.
 **Record:** band, field, before/after values, and refresh result.
 
 ## V5 — Chain move and link writes
+
+**Status:** validated on 2026-11-25 in the authenticated hardware pass.
 
 **Goal:** router edits change the pedal's signal path in the expected order.
 
@@ -203,6 +225,8 @@ post-resolution readback.
 
 ## V8 — Device undo/redo
 
+**Status:** validated on 2026-11-26.
+
 **Goal:** undo/redo replays the correct inverse operation and clears correctly on
 reconnect.
 
@@ -246,6 +270,8 @@ result.
 
 ## V10 — Input gain and connection state (0.6.0)
 
+**Status:** validated on 2026-11-26.
+
 1. Open **Settings → Audio & pedal**.
 2. Note `In 1 connection` / `In 2 connection` and plug/unplug each input.
 3. Refresh and confirm the read-only state follows the pedal.
@@ -260,6 +286,8 @@ matches the jacks; gain alone does not force a preset save.
 
 ## V11 — Preset Level (0.6.0)
 
+**Status:** validated on 2026-11-26.
+
 1. Confirm the lower-bar stepper is enabled and shows one decimal.
 2. Use the buttons to move by 0.5 dB and the arrow keys to move by 0.1 dB.
 3. Set a scratch preset to +6.0 dB and save.
@@ -271,6 +299,9 @@ matches the jacks; gain alone does not force a preset save.
 survives export/import.
 
 ## V12 — Library downloads (0.6.0)
+
+**Status:** authenticated `dread` download of a NAM passed on 2026-11-25. The
+full UI pass for NAM/PNAM/IR and the IR WAV wrapper remains open.
 
 Repeat for a NAM, PNAM, and IR entry:
 
@@ -288,6 +319,9 @@ Repeat for a NAM, PNAM, and IR entry:
 cancellation leaves no partial destination file.
 
 ## V13 — Preset export and import (0.6.0)
+
+**Status:** import commit, duplicate rejection, and dependency reuse passed.
+`used` refresh and cancelled-dependency semantics remain open.
 
 The import path uses a name → data → name commit, rejects duplicate preset
 names, and reserves enough distinct free slots in every capture list before
@@ -313,6 +347,9 @@ default, identical dependencies are reused, and failures name partial writes.
 
 ## V14 — Capture rename and reference updates (0.6.0)
 
+**Status:** NAM rename/readback passed on 2026-11-25. The used-capture
+reference-update experiment remains open.
+
 Use scratch presets only.
 
 1. Rename an unused NAM capture; refresh and confirm the name/readback.
@@ -331,6 +368,8 @@ Use scratch presets only.
 matches the implemented policy.
 
 ## V15 — Parametric EQ graph writes (0.6.0)
+
+**Status:** validated on 2026-11-26.
 
 1. Add the in-chain Parametric EQ block to a scratch preset.
 2. Drag each band, use arrow keys, and change type/frequency/gain/Q in the

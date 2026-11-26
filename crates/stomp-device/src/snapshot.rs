@@ -10,8 +10,8 @@ use stomp_protocol::preset::preset_references;
 use stomp_protocol::router::{ChainBlock, ChainSlot};
 use stomp_protocol::NodeStore;
 use stomp_protocol::{
-    path_name, GLOBAL_EQ_PATH, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH, PNAM_PATH,
-    VXAMP_PATH, VXAMP_SLOT_SIZE,
+    path_name, path_parent, GLOBAL_EQ_PATH, IR_PATH, NAM_DRIVE_PATH, NAM_PATH, PNAM_DRIVE_PATH,
+    PNAM_PATH, VXAMP_PATH, VXAMP_SLOT_SIZE,
 };
 
 pub const INPUT_GAIN_1_PATH: &str = r"root\settings\input\gain1";
@@ -136,7 +136,9 @@ pub struct LibraryList {
 pub struct LibrarySlot {
     pub index: usize,
     pub name: String,
+    /// True when the slot holds a capture (non-empty name); unrelated to preset use.
     pub used: bool,
+    /// True when a selector in the live signal chain points at this capture.
     pub active: bool,
     /// Preset slots whose `root\presets.used` entry points at this capture.
     #[serde(default)]
@@ -390,7 +392,8 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
                     .collect()
             })
             .unwrap_or_default();
-        let active_slot = find_active_slot(store, &path, &kind);
+        let active_slots = find_active_slots(store, &path, &kind);
+        let active_slot = active_slots.first().copied();
         let slots = names
             .into_iter()
             .enumerate()
@@ -407,7 +410,7 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
                 LibrarySlot {
                     index,
                     used: !name.is_empty(),
-                    active: active_slot == Some(index),
+                    active: active_slots.contains(&index),
                     name,
                     used_by,
                 }
@@ -434,16 +437,20 @@ pub fn library_lists(store: &NodeStore) -> Vec<LibraryList> {
     out
 }
 
-fn find_active_slot(store: &NodeStore, list_path: &str, list_kind: &str) -> Option<usize> {
+fn find_active_slots(store: &NodeStore, list_path: &str, list_kind: &str) -> Vec<usize> {
     let names = store
         .get(list_path)
         .and_then(|list| list.value())
         .and_then(|value| value.as_array());
-    let names = names?;
+    let Some(names) = names else {
+        return Vec::new();
+    };
 
-    // Prefer the primary lane over a dual-lane selector (`nam2`/`ir2`) when
-    // both reference the same list.
-    let mut secondary_active = None;
+    // Primary lane selectors come first, then dual-lane (`nam2`/`ir2`) ones,
+    // so the headline `active_slot` stays stable while every live selector is
+    // marked. A dual amp/IR chain can use two entries from the same list.
+    let mut primary = Vec::new();
+    let mut secondary = Vec::new();
     for (plist_path, node) in store.iter() {
         if node.node_type() != "plist" || node.reference() != Some(list_path) {
             continue;
@@ -469,14 +476,27 @@ fn find_active_slot(store: &NodeStore, list_path: &str, list_kind: &str) -> Opti
             continue;
         };
         if plist_path.contains("\\nam2\\") || plist_path.contains("\\ir2\\") {
-            if secondary_active.is_none() {
-                secondary_active = Some(index);
+            // A disabled second lane keeps its last model name; it is not part
+            // of the live chain, so it must not read as ACTIVE.
+            let lane_enabled = store
+                .get(&format!("{}\\on_off", path_parent(plist_path)))
+                .and_then(|node| node.value_bool())
+                .unwrap_or(true);
+            if lane_enabled {
+                secondary.push(index);
             }
         } else {
-            return Some(index);
+            primary.push(index);
         }
     }
-    secondary_active
+
+    let mut active = Vec::new();
+    for index in primary.into_iter().chain(secondary) {
+        if !active.contains(&index) {
+            active.push(index);
+        }
+    }
+    active
 }
 
 fn list_label(path: &str, desc: &str) -> String {
@@ -681,6 +701,68 @@ mod tests {
         store.set_value(r"root\app\amp\pmodel", json!("PNAM A"));
         assert_eq!(active_slot(&store, NAM_PATH), None);
         assert_eq!(active_slot(&store, PNAM_PATH), Some(1));
+    }
+
+    #[test]
+    fn library_lists_marks_every_live_selector_active() {
+        let mut store = model_store();
+        store.set_value(r"root\app\amp\model", json!("Amp B"));
+        put(
+            &mut store,
+            r"root\app\amp\nam2",
+            json!({"type":"item","item_type":"block","desc":"Amp 2"}),
+        );
+        put(
+            &mut store,
+            r"root\app\amp\nam2\model",
+            json!({"type":"plist","value":"Amp A","ref":"root\\nam_amp"}),
+        );
+
+        let lists = library_lists(&store);
+        let nam = lists
+            .iter()
+            .find(|list| list.path == NAM_PATH)
+            .expect("NAM list");
+        assert_eq!(
+            nam.active_slot,
+            Some(2),
+            "the primary lane stays the headline active slot"
+        );
+        assert!(nam.slots[2].active, "primary lane model is live");
+        assert!(nam.slots[1].active, "second lane model is also live");
+        assert!(!nam.slots[0].active);
+    }
+
+    #[test]
+    fn library_lists_ignores_a_disabled_second_lane() {
+        let mut store = model_store();
+        store.set_value(r"root\app\amp\model", json!("Amp B"));
+        put(
+            &mut store,
+            r"root\app\amp\nam2",
+            json!({"type":"item","item_type":"block","desc":"Amp 2"}),
+        );
+        put(
+            &mut store,
+            r"root\app\amp\nam2\on_off",
+            json!({"type":"bool","value":false}),
+        );
+        put(
+            &mut store,
+            r"root\app\amp\nam2\model",
+            json!({"type":"plist","value":"Amp A","ref":"root\\nam_amp"}),
+        );
+
+        let lists = library_lists(&store);
+        let nam = lists
+            .iter()
+            .find(|list| list.path == NAM_PATH)
+            .expect("NAM list");
+        assert_eq!(nam.active_slot, Some(2));
+        assert!(
+            !nam.slots[1].active,
+            "a disabled second lane is not in the live chain"
+        );
     }
 
     #[test]

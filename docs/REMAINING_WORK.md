@@ -1,6 +1,6 @@
 # Remaining work — recommended delivery order
 
-Last updated: 2026-11-22
+Last updated: 2026-11-26
 
 Sources: [`DEVELOPMENT.md`](DEVELOPMENT.md#project-status) status,
 [`BACKLOG.md`](BACKLOG.md), [`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md),
@@ -29,12 +29,15 @@ DNS error, so the release job was skipped and `v0.2.0` was never created.
 Test on a scratch/backed-up state. No factory reset without a fresh backup.
 
 - [x] NAM A1 upload to a free amp slot (user-confirmed on 2.5.3).
-- [ ] Upload cancel after the second ACK; verify the slot list is unchanged.
-- [ ] Overwrite a used capture slot.
-- [ ] Delete one preset, NAM, PNAM, and IR entry; verify the slot empties,
-      indices do not shift, and deleting an active/current item is safe.
+- [x] Upload cancel after the second ACK; verify the slot list is unchanged
+      (validated 2026-11-26).
+- [x] Overwrite a used capture slot (validated 2026-11-26).
+- [ ] Delete one preset, PNAM, and IR entry (NAM delete/readback passed on
+      2026-11-25); verify the slot empties, indices do not shift, and deleting
+      an active/current item is safe.
 - [x] Clear Chain; fixed blocks and connectors remain (user-confirmed).
-- [ ] EQ writes and chain move/link writes.
+- [x] EQ writes and chain move/link writes (user-confirmed, authenticated pass
+      2026-11-25).
 - [x] Ten-minute idle polling (v0.4.0 read-only pass: 1,179 reads, 0 errors,
       post-run snapshot unchanged).
 - [x] Tuner open/close (v0.4.2, 2.5.3: X, T, and Esc all write OFF, including
@@ -42,8 +45,8 @@ Test on a scratch/backed-up state. No factory reset without a fresh backup.
 - [ ] USB unplug/replug and external preset/chain change.
 
 Why first: these writes are already exposed in the app. Their real firmware
-semantics (especially delete and Clear Chain) must be confirmed before adding
-multi-select or more destructive actions.
+semantics (especially delete) must be confirmed before adding multi-select or
+more destructive actions.
 
 ### 0.3 Release version consistency
 
@@ -157,7 +160,7 @@ operation log (control, model, bypass, master, EQ, router move/add/remove/
 replace/link/clear); undo/redo replays the inverse through the actor, blocks
 while conflicts are unresolved, flushes pending coalesced writes first, and
 clears history on reconnect or a preset/chain reload. Undo of router and EQ
-operations still needs a hardware pass.
+operations were validated on 2026-11-26.
 
 ## P3 — UI, accessibility, and polish
 
@@ -232,11 +235,11 @@ bytes of raw `f32` samples (not WAV); the app now wraps it in the official
 8248-byte float-WAV container. A live `Brave` export matched the official
 `Brave.zip` `.pst` and all four dependency hashes byte-for-byte.
 
-The remaining 0.6.0 gate is hardware validation: input gain readback, Preset
-Level save/reload, import `used`/cancelled-dependency semantics, the
-used-capture rename policy, and Parametric EQ writes. The import commit and
-duplicate-name behavior were validated on 2.5.3. See
-[`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md) V10–V15.
+The remaining 0.6.0 gate is hardware validation: import
+`used`/cancelled-dependency semantics, the used-capture rename policy, and the
+full Library download UI pass. Input gain, Preset Level, Parametric EQ writes,
+the import commit, and duplicate-name behavior are validated on 2.5.3. See
+[`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md) V12–V14.
 
 ## P5 — Android, beta, and 1.0
 
@@ -273,10 +276,9 @@ duplicate-name behavior were validated on 2.5.3. See
 
 ## Suggested next three
 
-1. Finish the remaining backed-up hardware validation: cancel-after-ACK,
-   overwrite, single-item delete, EQ writes, chain move/link, USB unplug/replug,
-   external changes with a pending edit, device undo/redo, and audio readback.
-   Follow [`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md).
+1. Finish the remaining backed-up hardware validation: preset/PNAM/IR delete
+   (NAM passed), USB unplug/replug, external changes with a pending edit, and
+   audio readback. Follow [`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md).
 2. Continue P4: upload-memory budget, distro/clean-machine checks, signing,
    updater, and crash-report/diagnostic review.
 3. Then Android/beta work in P5.
