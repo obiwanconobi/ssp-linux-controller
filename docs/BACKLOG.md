@@ -4,7 +4,7 @@ See [`V0.6.0_PLAN.md`](V0.6.0_PLAN.md) for the next release scope: input
 settings, Preset Level, Add-block scrolling, the Parametric EQ graph, preset
 export/import, Library file downloads, and Library file renaming.
 
-Last updated: 2026-11-26
+Last updated: 2026-11-28
 
 ## UI feedback — this pass
 
@@ -40,7 +40,7 @@ Last updated: 2026-11-26
 
 ## This pass — live updates
 
-- Interim Tauri poller implemented: 500 ms `read root`, 2 s full browse on TCP,
+- Single-owner device actor polling: 500 ms `read root`, 2 s full browse on TCP,
   `device://snapshot` events, `device://error` on sustained failure, and a
   polling pause while an upload holds the transport.
 - UI event listener applies live master, meters, EQ, preset, list, and block
@@ -86,6 +86,10 @@ Last updated: 2026-11-26
   physical/API 37 device, and optional USB-OTG serial. The AAB/upload-key path,
   tablet/landscape layout, reconnect-on-resume, and the runtime local-network
   permission request are implemented.
+- Mobile amp-block styling is deferred: phone widths render `MobileBoard`
+  cards, not `PedalShell`, so the full-cabinet amp skins do not appear there.
+  Revisit with any future Amp room mobile work; the likely approach is a
+  compact cabinet chip on `MobileBlockCard`.
 - Details: [`docs/ANDROID.md`](ANDROID.md) and
   [`docs/ANDROID_UI_TESTING.md`](ANDROID_UI_TESTING.md).
 
@@ -151,7 +155,8 @@ baseline checklist.
 ### Hardware validation still open
 
 - Upload audio readback/verification.
-- Delete a preset, PNAM, and IR entry (NAM delete passed on 2026-11-25).
+- Delete a preset, PNAM, and IR entry (NAM delete passed on 2026-11-25;
+  multi-item batch deletion is user-confirmed).
 - Unplug/replug mid-poll and verify reconnect without stale writes.
 - Change a preset/chain on the pedal while the app is open.
 - External change with a local edit pending (conflict bar).

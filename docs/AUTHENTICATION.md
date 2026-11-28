@@ -31,7 +31,7 @@ transports:
 - Snapshot/connection data carries `auth.required` and `auth.authenticated` so
   the UI stays in sync after polls and reconnects.
 - Regression tests: `cargo test --workspace`, `cargo clippy`, `scripts/smoke.sh`,
-  `scripts/auth-smoke.sh`, 99 UI tests, startup/UI/a11y/visual smoke.
+  `scripts/auth-smoke.sh`, 105 UI tests, startup/UI/a11y/visual smoke.
 
 ## Hardware validation — 2026-11-25
 

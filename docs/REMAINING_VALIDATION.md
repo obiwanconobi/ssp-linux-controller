@@ -1,7 +1,9 @@
 # Remaining hardware validation
 
-This checklist covers the device-writing tests that are still open after the
+This checklist keeps the device-writing procedures that were open after the
 read-only pass, tuner validation, Save As, NAM A1 upload, and Clear Chain.
+Validated entries stay as regression procedures; the remaining open items are
+marked in each section.
 Run it against a **backed-up or scratch device state** and keep
 [`DEVICE_SAFETY.md`](DEVICE_SAFETY.md) open while testing.
 
@@ -413,7 +415,6 @@ Stop writing, disconnect, and follow the recovery procedure in
 
 These remain deliberately deferred:
 
-- multi-item list deletion (P1.2);
 - factory reset (P1.3);
 - Android physical-device, mDNS, USB-OTG, and Play Store validation;
 - Android physical-device UI/native-shell validation (the emulator harness is

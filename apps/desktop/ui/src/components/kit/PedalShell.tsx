@@ -1,5 +1,6 @@
 import { GripVertical, LockKeyhole } from 'lucide-react';
 import type { HTMLAttributes } from 'react';
+import { ampSkinFor } from '../../lib/ampSkins';
 import { blockControl as blockControlLookup, getBlockKnobIds } from './knobMap';
 import type { Block, Control } from '../../types';
 import { Knob } from './Knob';
@@ -126,12 +127,30 @@ export const PedalShell = ({
     .map((id) => blockControlLookup(block, id))
     .filter((control): control is Control => Boolean(control))
     .slice(0, maxKnobs);
+  const modelName = block.model?.trim() ? block.model : block.label;
+  const ampSkin = block.family === 'amp' ? ampSkinFor(modelName) : null;
+  const knobRow = (
+    <div className="pedal__knobs">
+      {controls.map((control) => (
+        <Knob
+          key={control.id}
+          control={control}
+          size="sm"
+          pending={pending.has(control.id)}
+          onChange={(value) => onControlChange(control.id, value)}
+          label={SHELL_LABELS[control.name] ?? control.label.toUpperCase()}
+          format={(value) => shortValue(control, value)}
+        />
+      ))}
+    </div>
+  );
   const { onKeyDown: dragKeyDown, ...dragProps } = dragHandleProps ?? {};
 
   return (
     <div
       {...(block.fixed ? {} : dragProps)}
-      className={`pedal ${variant}${compact ? ' pedal--compact' : ''}${selected ? ' pedal--selected' : ''}${block.on ? '' : ' pedal--off'}${block.fixed ? ' pedal--fixed' : ''}${stage ? ' pedal--stage' : ''}`}
+      className={`pedal ${variant}${ampSkin ? ' pedal--amp-cabinet' : ''}${compact ? ' pedal--compact' : ''}${selected ? ' pedal--selected' : ''}${block.on ? '' : ' pedal--off'}${block.fixed ? ' pedal--fixed' : ''}${stage ? ' pedal--stage' : ''}`}
+      data-amp-skin={ampSkin?.id}
       style={
         {
           '--pedal-accent': familyColor(block.family),
@@ -175,24 +194,31 @@ export const PedalShell = ({
         {block.footswitch}
       </span>
 
-      <div className="pedal__plate">{block.shortName}</div>
-
-      <div className="pedal__model" title={block.model ?? block.label}>
-        {block.model ?? block.label}
-      </div>
-      <div className="pedal__knobs">
-        {controls.map((control) => (
-          <Knob
-            key={control.id}
-            control={control}
-            size="sm"
-            pending={pending.has(control.id)}
-            onChange={(value) => onControlChange(control.id, value)}
-            label={SHELL_LABELS[control.name] ?? control.label.toUpperCase()}
-            format={(value) => shortValue(control, value)}
-          />
-        ))}
-      </div>
+      {ampSkin ? (
+        <>
+          <span className="pedal__handle" aria-hidden="true" />
+          <div className="pedal__face">
+            <div className="pedal__plate">
+              <span className="pedal__brand">{ampSkin.brand}</span>
+              <span className="pedal__plate-meta">AMP / NAM</span>
+              <span className="pedal__jewel" aria-hidden="true" />
+            </div>
+            <div className="pedal__model" title={modelName}>
+              {modelName}
+            </div>
+            {knobRow}
+          </div>
+          <div className="pedal__grille" aria-hidden="true" />
+        </>
+      ) : (
+        <>
+          <div className="pedal__plate">{block.shortName}</div>
+          <div className="pedal__model" title={modelName}>
+            {modelName}
+          </div>
+          {knobRow}
+        </>
+      )}
 
       <div className="pedal__foot">
         <span className="pedal__state">

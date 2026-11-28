@@ -156,6 +156,18 @@ type DeleteTarget =
       active: boolean;
     };
 
+type BulkDeleteTarget =
+  | { kind: 'preset'; indices: number[]; names: string[]; current: boolean }
+  | {
+      kind: 'capture';
+      listId: string;
+      listLabel: string;
+      indices: number[];
+      names: string[];
+      active: boolean;
+      usedBy: number;
+    };
+
 interface RenameTarget {
   listId: string;
   listLabel: string;
@@ -271,6 +283,9 @@ const LibraryTable = ({
   query,
   recentUpload,
   presetNames,
+  selectMode,
+  selected,
+  onToggleSelect,
   onDelete,
   onRename,
   onDownload,
@@ -279,6 +294,9 @@ const LibraryTable = ({
   query: string;
   recentUpload: { target: string; slot: number; name: string } | null;
   presetNames: string[];
+  selectMode: boolean;
+  selected: Set<number>;
+  onToggleSelect: (index: number) => void;
   onDelete: (slot: LibrarySlot) => void;
   onRename: (slot: LibrarySlot) => void;
   onDownload: (slot: LibrarySlot) => void;
@@ -327,20 +345,37 @@ const LibraryTable = ({
                 ? `Cannot rename — this capture is in use by ${users}`
                 : 'Rename capture';
               const status = SLOT_STATUS[librarySlotStatus(slot)];
+              const isSelected = selected.has(slot.index);
               return (
               <tr
                 key={`${list.id}-${slot.index}`}
                 className={[
                   slot.active ? 'library-row--active' : '',
+                  isSelected ? 'library-row--selected' : '',
+                  selectMode && slot.used ? 'library-row--selectable' : '',
                   recentUpload?.target === list.id && recentUpload.slot === slot.index
                     ? 'library-row--recent'
                     : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
+                onClick={
+                  selectMode && slot.used ? () => onToggleSelect(slot.index) : undefined
+                }
               >
                 <td>
                   <span className="library-name">
+                    {selectMode && (
+                      <input
+                        type="checkbox"
+                        className="selection-check"
+                        checked={isSelected}
+                        disabled={!slot.used}
+                        aria-label={`Select ${slot.name || `slot ${slot.index + 1}`}`}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={() => onToggleSelect(slot.index)}
+                      />
+                    )}
                     <span className={`library-type-dot library-type-dot--${list.kind}`} aria-hidden="true" />
                     {slot.name || <span className="muted">Empty slot</span>}
                   </span>
@@ -361,7 +396,7 @@ const LibraryTable = ({
                   <span className={`chip ${status.chip}`.trim()}>{status.label}</span>
                 </td>
                 <td className="library-table__actions">
-                  {slot.used && (
+                  {!selectMode && slot.used && (
                     <>
                       <button
                         type="button"
@@ -428,7 +463,9 @@ export const LibraryView = () => {
   const preset = useAppStore((state) => state.preset);
   const addUpload = useAppStore((state) => state.addUpload);
   const deletePreset = useAppStore((state) => state.deletePreset);
+  const deletePresets = useAppStore((state) => state.deletePresets);
   const deleteCapture = useAppStore((state) => state.deleteCapture);
+  const deleteCaptures = useAppStore((state) => state.deleteCaptures);
   const renameCapture = useAppStore((state) => state.renameCapture);
   const exportPreset = useAppStore((state) => state.exportPreset);
   const importPreset = useAppStore((state) => state.importPreset);
@@ -454,6 +491,11 @@ export const LibraryView = () => {
   const [exportingPreset, setExportingPreset] = useState<number | null>(null);
   const [importState, setImportState] = useState<ImportDialogState | null>(null);
   const [importing, setImporting] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedCaptures, setSelectedCaptures] = useState<Set<number>>(new Set());
+  const [selectedPresets, setSelectedPresets] = useState<Set<number>>(new Set());
+  const [bulkDelete, setBulkDelete] = useState<BulkDeleteTarget | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
   const [localScrollElement, setLocalScrollElement] = useState<HTMLDivElement | null>(null);
@@ -486,6 +528,50 @@ export const LibraryView = () => {
     setPending(null);
     setQuery('');
   };
+
+  useEffect(() => {
+    setSelectMode(false);
+    setSelectedCaptures(new Set());
+    setSelectedPresets(new Set());
+  }, [tab, category, sub]);
+
+  const toggleCapture = (index: number) => {
+    setSelectedCaptures((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const togglePreset = (index: number) => {
+    setSelectedPresets((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedCaptures(new Set());
+    setSelectedPresets(new Set());
+  };
+
+  const selectedCaptureSlots =
+    activeList?.slots.filter((slot) => slot.used && selectedCaptures.has(slot.index)) ?? [];
+  const visibleCaptureSlots =
+    activeList?.slots.filter(
+      (slot) =>
+        slot.used &&
+        (!query || slot.name.toLowerCase().includes(query.toLowerCase())),
+    ) ?? [];
+  const selectedPresetRows = preset.names
+    .map((name, index) => ({ name: name.trim(), index }))
+    .filter((row) => row.name && selectedPresets.has(row.index));
+  const visiblePresetRows = preset.names
+    .map((name, index) => ({ name: name.trim(), index }))
+    .filter((row) => row.name);
 
   const focusTarget = (targetId: string) => {
     const target = targetDef(targetId);
@@ -1180,12 +1266,77 @@ export const LibraryView = () => {
                   ? `${activeList.slots.filter((slot) => slot.used).length}/${activeList.slots.length} loaded`
                   : 'list unavailable'}
               </span>
+              <button
+                type="button"
+                className={`btn btn--sm${selectMode ? ' btn--primary' : ''}`}
+                disabled={!activeList}
+                onClick={() => {
+                  if (selectMode) {
+                    setSelectMode(false);
+                    clearSelection();
+                  } else {
+                    setSelectMode(true);
+                    clearSelection();
+                  }
+                }}
+              >
+                {selectMode ? 'Done' : 'Select'}
+              </button>
             </div>
+            {selectMode && activeList && (
+              <div className="library-selection-bar" role="region" aria-label="Capture selection">
+                <span className="mono">{selectedCaptureSlots.length} selected</span>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  disabled={visibleCaptureSlots.length === 0}
+                  onClick={() =>
+                    setSelectedCaptures(new Set(visibleCaptureSlots.map((slot) => slot.index)))
+                  }
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  disabled={selectedCaptureSlots.length === 0}
+                  onClick={clearSelection}
+                >
+                  Clear
+                </button>
+                <span className="library-selection-bar__spacer" />
+                <button
+                  type="button"
+                  className="btn btn--sm btn--danger"
+                  disabled={selectedCaptureSlots.length === 0}
+                  onClick={() => {
+                    if (!activeList) return;
+                    setBulkDelete({
+                      kind: 'capture',
+                      listId: activeList.id,
+                      listLabel: activeList.label,
+                      indices: selectedCaptureSlots.map((slot) => slot.index),
+                      names: selectedCaptureSlots.map((slot) => slot.name),
+                      active: selectedCaptureSlots.some((slot) => slot.active),
+                      usedBy: selectedCaptureSlots.filter(
+                        (slot) => (slot.usedBy?.length ?? 0) > 0,
+                      ).length,
+                    });
+                  }}
+                >
+                  Delete selected
+                </button>
+              </div>
+            )}
             <LibraryTable
+              key={activeList?.id ?? 'library-list'}
               list={activeList}
               query={query}
               recentUpload={recentUpload}
               presetNames={preset.names}
+              selectMode={selectMode}
+              selected={selectedCaptures}
+              onToggleSelect={toggleCapture}
               onDelete={(slot) => {
                 if (!activeList) return;
                 setDeleteTarget({
@@ -1607,15 +1758,92 @@ export const LibraryView = () => {
               <span className="chip chip--good">
                 {preset.names.filter(Boolean).length} patches
               </span>
+              <button
+                type="button"
+                className={`btn btn--sm${selectMode ? ' btn--primary' : ''}`}
+                onClick={() => {
+                  if (selectMode) {
+                    setSelectMode(false);
+                    clearSelection();
+                  } else {
+                    setSelectMode(true);
+                    clearSelection();
+                  }
+                }}
+              >
+                {selectMode ? 'Done' : 'Select'}
+              </button>
             </div>
           </header>
+          {selectMode && (
+            <div className="library-selection-bar" role="region" aria-label="Preset selection">
+              <span className="mono">{selectedPresetRows.length} selected</span>
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={visiblePresetRows.length === 0}
+                onClick={() =>
+                  setSelectedPresets(new Set(visiblePresetRows.map((row) => row.index)))
+                }
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={selectedPresetRows.length === 0}
+                onClick={clearSelection}
+              >
+                Clear
+              </button>
+              <span className="library-selection-bar__spacer" />
+              <button
+                type="button"
+                className="btn btn--sm btn--danger"
+                disabled={selectedPresetRows.length === 0}
+                onClick={() =>
+                  setBulkDelete({
+                    kind: 'preset',
+                    indices: selectedPresetRows.map((row) => row.index),
+                    names: selectedPresetRows.map((row) => row.name),
+                    current: selectedPresetRows.some((row) => row.name === preset.current),
+                  })
+                }
+              >
+                Delete selected
+              </button>
+            </div>
+          )}
           <ul className="preset-slot-list">
-            {preset.names.map((name, index) => (
-              <li key={`${name}-${index}`} className={name === preset.current ? 'preset-slot--active' : ''}>
+            {preset.names.map((name, index) => {
+              const selected = selectedPresets.has(index);
+              return (
+              <li
+                key={`${name}-${index}`}
+                className={[
+                  name === preset.current ? 'preset-slot--active' : '',
+                  selected ? 'preset-slot--selected' : '',
+                  selectMode && name ? 'preset-slot--selectable' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={selectMode && name ? () => togglePreset(index) : undefined}
+              >
+                {selectMode && (
+                  <input
+                    type="checkbox"
+                    className="selection-check"
+                    checked={selected}
+                    disabled={!name}
+                    aria-label={`Select ${name || `slot ${index + 1}`}`}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={() => togglePreset(index)}
+                  />
+                )}
                 <span className="mono">{String(index + 1).padStart(2, '0')}</span>
                 <span>{name || 'Empty slot'}</span>
                 {name === preset.current && <span className="chip chip--good">Current</span>}
-                {name && (
+                {!selectMode && name && (
                   <button
                     type="button"
                     className="icon-btn"
@@ -1627,7 +1855,7 @@ export const LibraryView = () => {
                     <Download size={13} />
                   </button>
                 )}
-                {name && (
+                {!selectMode && name && (
                   <button
                     type="button"
                     className="icon-btn icon-btn--danger"
@@ -1646,7 +1874,8 @@ export const LibraryView = () => {
                   </button>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </section>
       )}
@@ -1755,6 +1984,110 @@ export const LibraryView = () => {
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root
+        open={Boolean(bulkDelete)}
+        onOpenChange={(open) => {
+          if (!open && !bulkDeleting) setBulkDelete(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content" aria-describedby={undefined}>
+            <div className="dialog-head">
+              <div>
+                <Dialog.Title className="dialog-title">
+                  {bulkDelete
+                    ? `Delete ${bulkDelete.indices.length} ${
+                        bulkDelete.kind === 'preset' ? 'presets' : 'captures'
+                      }?`
+                    : 'Delete items?'}
+                </Dialog.Title>
+                <Dialog.Description className="hint">
+                  {bulkDelete
+                    ? `Delete the selected items from slots ${bulkDelete.indices
+                        .map((index) => index + 1)
+                        .join(', ')}? The slots will become empty. This cannot be undone.`
+                    : ''}
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild>
+                <button type="button" className="icon-btn" aria-label="Close delete dialog">
+                  <X size={16} />
+                </button>
+              </Dialog.Close>
+            </div>
+            {bulkDelete && (
+              <div className="dialog-body">
+                <ul className="consequence-list">
+                  {bulkDelete.names.slice(0, 6).map((name) => (
+                    <li key={name}>{name}</li>
+                  ))}
+                  {bulkDelete.names.length > 6 && (
+                    <li>…and {bulkDelete.names.length - 6} more</li>
+                  )}
+                </ul>
+                {bulkDelete.kind === 'preset' && bulkDelete.current && (
+                  <p className="preflight__warning">
+                    <AlertTriangle size={12} aria-hidden="true" /> This includes the current
+                    preset. The device will have no selected preset until you load another.
+                  </p>
+                )}
+                {bulkDelete.kind === 'capture' && bulkDelete.active && (
+                  <p className="preflight__warning">
+                    <AlertTriangle size={12} aria-hidden="true" /> This includes the active
+                    capture. The block may keep the old model until you select another.
+                  </p>
+                )}
+                {bulkDelete.kind === 'capture' && bulkDelete.usedBy > 0 && (
+                  <p className="preflight__warning">
+                    <AlertTriangle size={12} aria-hidden="true" /> {bulkDelete.usedBy} selected
+                    {bulkDelete.usedBy === 1 ? ' capture is' : ' captures are'} referenced by
+                    presets. Those presets will lose the capture.
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="dialog-foot">
+              <Dialog.Close asChild>
+                <button type="button" className="btn" disabled={bulkDeleting}>
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                className="btn btn--danger"
+                disabled={bulkDeleting}
+                onClick={() => {
+                  if (!bulkDelete) return;
+                  const target = bulkDelete;
+                  setBulkDeleting(true);
+                  void (async () => {
+                    try {
+                      if (target.kind === 'preset') {
+                        await deletePresets(target.indices);
+                      } else {
+                        await deleteCaptures(target.listId, target.indices);
+                      }
+                      setBulkDelete(null);
+                      setSelectMode(false);
+                      clearSelection();
+                    } finally {
+                      setBulkDeleting(false);
+                    }
+                  })();
+                }}
+              >
+                {bulkDeleting
+                  ? 'Deleting…'
+                  : bulkDelete
+                    ? `Delete ${bulkDelete.indices.length}`
+                    : 'Delete'}
               </button>
             </div>
           </Dialog.Content>

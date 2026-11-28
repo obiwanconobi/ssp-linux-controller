@@ -6,7 +6,8 @@ export const StatusBar = () => {
   const save = useAppStore((state) => state.save);
   const setActivityOpen = useAppStore((state) => state.setActivityOpen);
   const setConnectionOpen = useAppStore((state) => state.setConnectionOpen);
-  const notify = useAppStore((state) => state.notify);
+  const copyDiagnostics = useAppStore((state) => state.copyDiagnostics);
+  const refreshSnapshot = useAppStore((state) => state.refreshSnapshot);
   const activity = useAppStore((state) => state.activity);
 
   return (
@@ -42,7 +43,7 @@ export const StatusBar = () => {
         <button
           type="button"
           className="status-link"
-          onClick={() => notify('Diagnostic report copied (demo)', 'good')}
+          onClick={() => copyDiagnostics()}
         >
           <Copy size={11} />
           Copy report
@@ -50,7 +51,7 @@ export const StatusBar = () => {
         <button
           type="button"
           className="status-link"
-          onClick={() => notify('Snapshot refreshed from the simulator', 'neutral')}
+          onClick={() => refreshSnapshot()}
         >
           <RotateCw size={11} />
           Refresh

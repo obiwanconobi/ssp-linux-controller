@@ -58,6 +58,7 @@ try {
   await waitForServer();
   browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const errors = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
@@ -67,6 +68,29 @@ try {
   await page.goto(`${base}/#board`, { waitUntil: 'networkidle' });
   await page.waitForSelector('.pedal');
   assert((await page.locator('.pedal').count()) === 9, 'expected nine pedal shells');
+
+  // The compact activity card must contain every row and its footer. Without
+  // this the card keeps its minimum height while its content overflows.
+  await page.locator('.utility-rail').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const activityCard = page.locator('.utility-card--activity');
+  const activityCardBox = await activityCard.boundingBox();
+  const lastActivityBox = await activityCard.locator('.activity-item').last().boundingBox();
+  const activityActionBox = await activityCard.locator('.utility-card__action').boundingBox();
+  assert(
+    Boolean(activityCardBox && lastActivityBox && activityActionBox),
+    'activity card did not render',
+  );
+  const activityBottom = activityCardBox.y + activityCardBox.height;
+  assert(
+    lastActivityBox.y + lastActivityBox.height <= activityBottom,
+    'activity text overflows the activity card',
+  );
+  assert(
+    activityActionBox.y + activityActionBox.height <= activityBottom,
+    'activity footer overflows the activity card',
+  );
 
   const presetList = page.locator('.preset-rail__list');
   const presetBox = await presetList.boundingBox();
@@ -310,6 +334,35 @@ try {
     (await blockedRename.getAttribute('title'))?.includes('in use') === true,
     'blocked rename tooltip should explain that the capture is in use',
   );
+
+  // Changing capture sections should start at the top of the new list.
+  await page.setViewportSize({ width: 1440, height: 420 });
+  await page.waitForTimeout(100);
+  const libraryScroll = page.locator('.library-table-wrap');
+  const scrollMetrics = await libraryScroll.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    return {
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+    };
+  });
+  assert(
+    scrollMetrics.scrollTop > 0,
+    `library list should be scrollable at a short viewport (${JSON.stringify(scrollMetrics)})`,
+  );
+  await page.locator('.library-scope__sub', { hasText: 'VXAMP' }).click();
+  await page.waitForTimeout(100);
+  const resetScrollTop = await page
+    .locator('.library-table-wrap')
+    .evaluate((element) => element.scrollTop);
+  assert(
+    resetScrollTop === 0,
+    `switching library sections should reset the list to the top (got ${resetScrollTop})`,
+  );
+  await page.getByRole('button', { name: /^NAM / }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(100);
 
   const libraryUpload = page.locator('.drop-zone input[type=file]');
   await page.locator('.library-scope__sub', { hasText: 'VXAMP' }).click();
@@ -565,6 +618,82 @@ try {
     'deleting a capture did not clear its slot',
   );
 
+  await page.locator('.segmented button', { hasText: 'Presets' }).click();
+  await page.locator('.library-tab-panel__head button', { hasText: 'Select' }).click();
+  await page
+    .locator('.library-selection-bar[aria-label="Preset selection"]')
+    .waitFor({ state: 'visible' });
+  const presetSelectionRows = page.locator('.preset-slot-list li');
+  const presetSelectionIndices = await presetSelectionRows.evaluateAll((rows) =>
+    rows
+      .map((row, index) => ({ index, text: row.textContent ?? '' }))
+      .filter((row) => !row.text.includes('Empty slot'))
+      .slice(0, 2)
+      .map((row) => row.index),
+  );
+  assert(presetSelectionIndices.length === 2, 'not enough preset rows for multi-select');
+  for (const index of presetSelectionIndices) {
+    await presetSelectionRows.nth(index).click();
+  }
+  assert(
+    (await page.locator('.library-selection-bar[aria-label="Preset selection"]').innerText()).includes(
+      '2 selected',
+    ),
+    'preset multi-select did not track two rows',
+  );
+  await page.locator('.library-selection-bar button', { hasText: 'Delete selected' }).click();
+  await page.waitForSelector('.dialog-content');
+  await page.locator('.dialog-foot .btn--danger').click();
+  await page.waitForTimeout(200);
+  for (const index of presetSelectionIndices) {
+    assert(
+      (await presetSelectionRows.nth(index).innerText()).includes('Empty slot'),
+      'multi-select preset delete did not clear a slot',
+    );
+  }
+  assert(
+    (await page.locator('.library-selection-bar[aria-label="Preset selection"]').count()) === 0,
+    'preset selection mode did not exit after deleting',
+  );
+
+  await page.locator('.segmented button', { hasText: 'Models & IRs' }).click();
+  await page.locator('.library-toolbar button', { hasText: 'Select' }).click();
+  await page
+    .locator('.library-selection-bar[aria-label="Capture selection"]')
+    .waitFor({ state: 'visible' });
+  const captureSelectionRows = page.locator('.library-table tbody tr');
+  const captureSelectionIndices = await captureSelectionRows.evaluateAll((rows) =>
+    rows
+      .map((row, index) => ({ index, text: row.textContent ?? '' }))
+      .filter((row) => !row.text.includes('Empty slot'))
+      .slice(0, 2)
+      .map((row) => row.index),
+  );
+  assert(captureSelectionIndices.length === 2, 'not enough capture rows for multi-select');
+  for (const index of captureSelectionIndices) {
+    await captureSelectionRows.nth(index).click();
+  }
+  assert(
+    (await page.locator('.library-selection-bar[aria-label="Capture selection"]').innerText()).includes(
+      '2 selected',
+    ),
+    'capture multi-select did not track two rows',
+  );
+  await page.locator('.library-selection-bar button', { hasText: 'Delete selected' }).click();
+  await page.waitForSelector('.dialog-content');
+  await page.locator('.dialog-foot .btn--danger').click();
+  await page.waitForTimeout(200);
+  for (const index of captureSelectionIndices) {
+    assert(
+      (await captureSelectionRows.nth(index).innerText()).includes('Empty slot'),
+      'multi-select capture delete did not clear a slot',
+    );
+  }
+  assert(
+    (await page.locator('.library-selection-bar[aria-label="Capture selection"]').count()) === 0,
+    'capture selection mode did not exit after deleting',
+  );
+
   await page.locator('.nav-tab', { hasText: 'Board' }).click();
   await page.waitForSelector('.pedal');
   await page.setViewportSize({ width: 800, height: 900 });
@@ -673,6 +802,28 @@ try {
   assert(
     (await page.locator('.signal-chain .pedal').count()) === pedalsBeforeAdd + 1,
     `selecting the last Add-block item (${lastBlockName}) did not add a block`,
+  );
+
+  // The status bar Copy report action must use the real diagnostic/clipboard
+  // path, not a demo-only toast.
+  await page.locator('.status-bar .status-link', { hasText: 'Copy report' }).click();
+  await page.waitForFunction(
+    () => document.querySelector('.toast')?.textContent?.includes('Diagnostic report copied'),
+    undefined,
+    { timeout: 10_000 },
+  );
+  const copiedReport = await page.evaluate(() => navigator.clipboard.readText());
+  assert(
+    copiedReport.includes('StompStation PRO diagnostic report'),
+    'Copy report did not write the diagnostic report to the clipboard',
+  );
+
+  // Refresh must go through the store action instead of showing a demo toast.
+  await page.locator('.status-bar .status-link', { hasText: 'Refresh' }).click();
+  await page.waitForFunction(
+    () => document.querySelector('.toast')?.textContent?.includes('demo board is already in sync'),
+    undefined,
+    { timeout: 10_000 },
   );
 
   assert(errors.length === 0, `UI console errors:\n${errors.join('\n')}`);

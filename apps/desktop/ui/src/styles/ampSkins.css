@@ -1,0 +1,654 @@
+/* ===========================================================================
+   Amp cabinet skins for board blocks
+
+   The board only receives the capture name, so the skin is inferred from that
+   name in `lib/ampSkins.ts`. This file turns each maker into a compact
+   full-cabinet treatment at the normal amp-block size.
+   =========================================================================== */
+
+.pedal--amp-cabinet {
+  --amp-tolex:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.018) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.3) 0 2px, transparent 2px 4px),
+    linear-gradient(180deg, #1d1a17, #0b0908);
+  --amp-brandbar: #241f1a;
+  --amp-brand-ink: #f3e4d7;
+  --amp-brand-meta-ink: var(--amp-brand-ink);
+  --amp-panel: #2a241e;
+  --amp-panel-ink: #f3e4d7;
+  --amp-panel-line: #5a4636;
+  --amp-piping: #8a6b4c;
+  --amp-grille:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, #2c241e, #14100d);
+  --amp-jewel: #e3ae55;
+  --amp-knob-cap: #241c17;
+  --amp-knob-cap-2: #5a4b40;
+  --amp-knob-line: #0d0a08;
+  --amp-knob-pointer: #f3e4d7;
+  --amp-foot-ink: rgba(245, 236, 221, 0.55);
+  --amp-brand-font: var(--font-ui);
+  --amp-brand-style: normal;
+  --amp-brand-weight: 800;
+  --amp-brand-spacing: 0.08em;
+  --amp-brand-transform: none;
+  --amp-brand-size: 8px;
+
+  padding: 8px 7px 7px;
+  gap: 3px;
+  border-radius: 6px;
+  border-color: #050505;
+  background: var(--amp-tolex);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.8),
+    0 5px 12px rgba(0, 0, 0, 0.4);
+}
+
+.pedal--amp-cabinet::before {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.pedal--amp-cabinet .pedal__handle {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  z-index: 5;
+  width: 54px;
+  height: 9px;
+  transform: translateX(-50%);
+  border-radius: 5px 5px 3px 3px;
+  border: 1px solid #050505;
+  background: linear-gradient(180deg, #2a2420, #0b0908);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.pedal--amp-cabinet .pedal__face {
+  --accent: var(--amp-knob-pointer);
+  --canvas: var(--amp-knob-cap);
+  --raised: var(--amp-knob-cap-2);
+  --raised-2: var(--amp-knob-cap-2);
+  --hairline: var(--amp-knob-line);
+  --text: var(--amp-panel-ink);
+  --text-2: var(--amp-knob-pointer);
+  --muted: color-mix(in srgb, var(--amp-panel-ink) 62%, transparent);
+
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--amp-panel-line);
+  border-radius: 3px;
+  background: var(--amp-panel);
+  color: var(--amp-panel-ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.pedal--amp-cabinet .pedal__plate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  min-height: 14px;
+  padding: 0 4px;
+  border: 0;
+  border-bottom: 1px solid var(--amp-panel-line);
+  border-radius: 0;
+  background: var(--amp-brandbar);
+  color: var(--amp-brand-ink);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.pedal--amp-cabinet .pedal__brand {
+  flex: 0 1 auto;
+  max-width: 68%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--amp-brand-ink);
+  font-family: var(--amp-brand-font);
+  font-size: var(--amp-brand-size);
+  font-style: var(--amp-brand-style);
+  font-weight: var(--amp-brand-weight);
+  letter-spacing: var(--amp-brand-spacing);
+  line-height: 1;
+  text-align: left;
+  text-overflow: ellipsis;
+  text-transform: var(--amp-brand-transform);
+  white-space: nowrap;
+}
+
+.pedal--amp-cabinet .pedal__plate-meta {
+  flex: 0 0 auto;
+  color: var(--amp-brand-meta-ink);
+  font-family: var(--font-mono);
+  font-size: 5.5px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  opacity: 0.82;
+}
+
+.pedal--amp-cabinet .pedal__jewel {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  background: radial-gradient(
+    circle at 35% 30%,
+    color-mix(in srgb, var(--amp-jewel) 45%, white),
+    var(--amp-jewel) 55%,
+    color-mix(in srgb, var(--amp-jewel) 55%, black)
+  );
+  box-shadow: 0 0 3px color-mix(in srgb, var(--amp-jewel) 45%, transparent);
+}
+
+.pedal--amp-cabinet .pedal__model {
+  display: block;
+  flex: 0 0 auto;
+  height: 13px;
+  padding: 1px 4px 0;
+  overflow: hidden;
+  color: var(--amp-panel-ink);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pedal--amp-cabinet .pedal__knobs {
+  flex: 0 0 auto;
+  justify-content: space-evenly;
+  gap: 2px;
+  padding: 2px 2px 4px;
+}
+
+.pedal--amp-cabinet .knob {
+  gap: 1px;
+}
+
+.pedal--amp-cabinet .knob--sm {
+  --knob-diameter: 24px;
+}
+
+.pedal--amp-cabinet .knob__label {
+  max-width: 42px;
+  overflow: hidden;
+  color: var(--amp-panel-ink);
+  font-size: 6px;
+  letter-spacing: 0;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.pedal--amp-cabinet .knob__readout {
+  max-width: 42px;
+  overflow: hidden;
+  color: var(--amp-panel-ink);
+  font-size: 6.5px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.95;
+}
+
+.pedal--amp-cabinet .knob__readout-input {
+  width: 34px;
+  padding: 0 2px;
+  border-color: var(--amp-panel-line);
+  background: var(--amp-panel);
+  color: var(--amp-panel-ink);
+  font-size: 6px;
+}
+
+.pedal--amp-cabinet .knob__ticks {
+  opacity: 0.55;
+}
+
+.pedal--amp-cabinet .pedal__grille {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 34px;
+  margin-top: 1px;
+  overflow: hidden;
+  border-top: 2px solid var(--amp-piping);
+  border-bottom: 2px solid var(--amp-piping);
+  border-radius: 2px;
+  background: var(--amp-grille);
+  box-shadow:
+    inset 0 0 14px rgba(0, 0, 0, 0.6),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.pedal--amp-cabinet .pedal__grille::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045);
+  pointer-events: none;
+}
+
+.pedal--amp-cabinet .pedal__foot {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 1px 2px 0;
+  color: var(--amp-foot-ink);
+}
+
+.pedal--amp-cabinet .pedal__state {
+  color: var(--amp-foot-ink);
+  font-size: 7px;
+}
+
+.pedal--amp-cabinet .pedal__state .led {
+  width: 6px;
+  height: 6px;
+}
+
+.pedal--amp-cabinet .footswitch {
+  width: 20px;
+  height: 20px;
+  border-color: color-mix(in srgb, var(--amp-foot-ink) 35%, black);
+  background:
+    radial-gradient(circle at 38% 30%, rgba(255, 255, 255, 0.22), transparent 35%),
+    radial-gradient(circle, #4a4640 0 52%, #2a2724 54% 70%, #0d0b0a 72%);
+}
+
+.pedal--amp-cabinet .pedal__lock {
+  color: var(--amp-foot-ink);
+}
+
+/* Compact chain mode keeps the cabinet shape but drops the knob row, as the
+   standard compact amp block does today. */
+.pedal--compact.pedal--amp-cabinet {
+  padding: 7px 6px 6px;
+  gap: 2px;
+}
+
+.pedal--compact.pedal--amp-cabinet .pedal__handle {
+  width: 44px;
+}
+
+.pedal--compact.pedal--amp-cabinet .pedal__plate-meta {
+  display: none;
+}
+
+.pedal--compact.pedal--amp-cabinet .pedal__brand {
+  font-size: 7px;
+}
+
+.pedal--compact.pedal--amp-cabinet .pedal__model {
+  display: -webkit-box;
+  height: auto;
+  max-height: 22px;
+  padding: 2px 4px 1px;
+  font-size: 8px;
+  line-height: 1.2;
+  text-overflow: clip;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pedal--compact.pedal--amp-cabinet .pedal__knobs {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Maker palettes
+   ------------------------------------------------------------------------- */
+
+[data-amp-skin='5150'] {
+  --amp-brandbar: #0b0a09;
+  --amp-brand-ink: #f4f0e6;
+  --amp-panel: #c9ced3;
+  --amp-panel-ink: #1b2228;
+  --amp-panel-line: #8e969d;
+  --amp-piping: #0b0a09;
+  --amp-grille:
+    radial-gradient(circle at 1px 1px, rgba(236, 236, 232, 0.34) 0 0.7px, transparent 1px) 0 0 / 4px 4px,
+    linear-gradient(180deg, #1a1817, #0b0a09);
+  --amp-jewel: #c04a3f;
+  --amp-knob-cap: #171513;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #f4f0e6;
+}
+
+[data-amp-skin='5150'] .pedal__brand {
+  font-size: 8.5px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+[data-amp-skin='ampeg'] {
+  --amp-brandbar: #0b0a09;
+  --amp-brand-ink: #f4f0e6;
+  --amp-panel: #c9ced3;
+  --amp-panel-ink: #1b2228;
+  --amp-panel-line: #8e969d;
+  --amp-piping: #c9ced3;
+  --amp-grille:
+    repeating-linear-gradient(0deg, rgba(230, 238, 245, 0.32) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(40, 80, 120, 0.22) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, #6f7f8d, #2e3a46);
+  --amp-jewel: #2f6f9f;
+  --amp-knob-cap: #171513;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #f4f0e6;
+}
+
+[data-amp-skin='ampeg'] .pedal__brand {
+  padding: 0 4px;
+  border-radius: 1px;
+  background: #0b0a09;
+  color: #f4f0e6;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 8px;
+  font-style: italic;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+[data-amp-skin='diezel'] {
+  --amp-brandbar: #0b0a09;
+  --amp-brand-ink: #f4f0e6;
+  --amp-panel: #d9d7d2;
+  --amp-panel-ink: #171513;
+  --amp-panel-line: #8c8a85;
+  --amp-piping: #0b0a09;
+  --amp-grille:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, #1b1918, #0a0909);
+  --amp-jewel: #c04a3f;
+  --amp-knob-cap: #0d0c0b;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #f4f0e6;
+}
+
+[data-amp-skin='diezel'] .pedal__brand {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 8.5px;
+  font-style: italic;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+[data-amp-skin='dumble'] {
+  --amp-tolex:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.11) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.06) 0 2px, transparent 2px 5px),
+    linear-gradient(180deg, #d8c7a8, #b9a483);
+  --amp-brandbar: #c9c4b8;
+  --amp-brand-ink: #17130d;
+  --amp-panel: #d9d3c4;
+  --amp-panel-ink: #1c1812;
+  --amp-panel-line: #8e826e;
+  --amp-piping: #e0d3b8;
+  --amp-grille:
+    repeating-linear-gradient(45deg, rgba(224, 211, 184, 0.34) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-45deg, rgba(224, 211, 184, 0.34) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, #1a1714, #0c0a09);
+  --amp-jewel: #2f7d5c;
+  --amp-knob-cap: #17130d;
+  --amp-knob-cap-2: #4c4030;
+  --amp-knob-pointer: #f0ead8;
+  --amp-foot-ink: rgba(30, 24, 18, 0.65);
+}
+
+[data-amp-skin='dumble'] .pedal__brand {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #0b0a09;
+  color: #f0ead8;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 6.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+[data-amp-skin='fender'] {
+  --amp-brandbar: #c9ced3;
+  --amp-brand-ink: #1b2228;
+  --amp-panel: #c9ced3;
+  --amp-panel-ink: #1b2228;
+  --amp-panel-line: #8e969d;
+  --amp-piping: #c9ced3;
+  --amp-grille:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, rgba(30, 60, 90, 0.22) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #aab5be, #6f7f8d);
+  --amp-jewel: #c04a3f;
+  --amp-knob-cap: #171513;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #f4f0e6;
+}
+
+[data-amp-skin='fender'] .pedal__brand {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 8.5px;
+  font-style: italic;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+[data-amp-skin='friedman'] {
+  --amp-brandbar: #0b0a09;
+  --amp-brand-ink: #d8b76a;
+  --amp-panel: #c9a24a;
+  --amp-panel-ink: #17130d;
+  --amp-panel-line: #8a6a2f;
+  --amp-piping: #0b0a09;
+  --amp-grille:
+    radial-gradient(circle at 1px 1px, rgba(231, 230, 224, 0.32) 0 0.7px, transparent 1px) 0 0 / 4px 4px,
+    linear-gradient(180deg, #191613, #0c0a09);
+  --amp-jewel: #c04a3f;
+  --amp-knob-cap: #0d0c0b;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #d8b76a;
+}
+
+[data-amp-skin='friedman'] .pedal__brand {
+  padding: 0 3px;
+  border: 1px solid #c9a24a;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+[data-amp-skin='marshall'] {
+  --amp-brandbar: #0b0a09;
+  --amp-brand-ink: #f1ead9;
+  --amp-panel: #c9a24a;
+  --amp-panel-ink: #17130d;
+  --amp-panel-line: #8a6a2f;
+  --amp-piping: #f1ead9;
+  --amp-grille:
+    radial-gradient(circle at 1px 1px, rgba(201, 162, 74, 0.34) 0 0.7px, transparent 1px) 0 0 / 4px 4px,
+    linear-gradient(180deg, #191613, #0c0a09);
+  --amp-jewel: #c04a3f;
+  --amp-knob-cap: #0d0c0b;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #d8b76a;
+}
+
+[data-amp-skin='marshall'] .pedal__brand {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 9px;
+  font-style: italic;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+[data-amp-skin='matchless'] {
+  --amp-brandbar: #e6d3ad;
+  --amp-brand-ink: #f7f1e4;
+  --amp-brand-meta-ink: #3a2a1b;
+  --amp-panel: #141210;
+  --amp-panel-ink: #e8ddc9;
+  --amp-panel-line: #5c4c35;
+  --amp-piping: #e6d3ad;
+  --amp-grille:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #8a6a45, #5a3f28);
+  --amp-jewel: #e3ae55;
+  --amp-knob-cap: #e8ddc9;
+  --amp-knob-cap-2: #b9a483;
+  --amp-knob-line: #5c4c35;
+  --amp-knob-pointer: #141210;
+}
+
+[data-amp-skin='matchless'] .pedal__brand {
+  padding: 1px 5px;
+  border-radius: 1px;
+  background: #0b0a09;
+  color: #f7f1e4;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+[data-amp-skin='mesa'] {
+  --amp-brandbar: #0b0a09;
+  --amp-brand-ink: #d7d9db;
+  --amp-panel: #161414;
+  --amp-panel-ink: #e6ddd0;
+  --amp-panel-line: #3a3433;
+  --amp-piping: #8c8f91;
+  --amp-grille:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #2b2726, #141212);
+  --amp-jewel: #c04a3f;
+  --amp-knob-cap: #0d0c0b;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #e6ddd0;
+}
+
+[data-amp-skin='mesa'] .pedal__brand {
+  padding: 0 3px;
+  border: 1px solid #8c8f91;
+  font-size: 7.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+[data-amp-skin='orange'] {
+  --amp-tolex:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.055) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.12) 0 2px, transparent 2px 4px),
+    linear-gradient(180deg, #e07a2a, #b95316);
+  --amp-brandbar: #f4f0e6;
+  --amp-brand-ink: #1a1714;
+  --amp-panel: #171513;
+  --amp-panel-ink: #f4f0e6;
+  --amp-panel-line: #d96a1f;
+  --amp-piping: #f4f0e6;
+  --amp-grille:
+    repeating-linear-gradient(45deg, rgba(217, 106, 31, 0.35) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, rgba(217, 106, 31, 0.35) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, #1a1714, #0b0908);
+  --amp-jewel: #e07a2a;
+  --amp-knob-cap: #d96a1f;
+  --amp-knob-cap-2: #f08a3a;
+  --amp-knob-line: #6b2a0c;
+  --amp-knob-pointer: #1a1714;
+  --amp-foot-ink: rgba(26, 23, 20, 0.7);
+}
+
+[data-amp-skin='orange'] .pedal__brand {
+  font-size: 8.5px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+[data-amp-skin='soldano'] {
+  --amp-tolex:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.26) 0 2px, transparent 2px 4px),
+    linear-gradient(180deg, #4a4460, #262238);
+  --amp-brandbar: #0b0a09;
+  --amp-brand-ink: #f0ede6;
+  --amp-panel: #d9d7d2;
+  --amp-panel-ink: #171513;
+  --amp-panel-line: #8c8a85;
+  --amp-piping: #b9b5ad;
+  --amp-grille:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.25) 0 0.7px, transparent 1px) 0 0 / 3px 3px,
+    linear-gradient(180deg, #1a1717, #0a0909);
+  --amp-jewel: #2f6f9f;
+  --amp-knob-cap: #0d0c0b;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #f4f0e6;
+}
+
+[data-amp-skin='soldano'] .pedal__brand {
+  font-family: var(--font-ui);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+}
+
+[data-amp-skin='vox'] {
+  --amp-brandbar: #0b0a09;
+  --amp-brand-ink: #d8b76a;
+  --amp-panel: #0b0a09;
+  --amp-panel-ink: #e8ddc9;
+  --amp-panel-line: #6b5530;
+  --amp-piping: #e6d6b0;
+  --amp-grille:
+    repeating-linear-gradient(45deg, rgba(239, 227, 198, 0.35) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-45deg, rgba(239, 227, 198, 0.35) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(45deg, rgba(180, 80, 60, 0.12) 0 2px, transparent 2px 10px),
+    linear-gradient(180deg, #6b4f33, #3a2a1b);
+  --amp-jewel: #2f7d5c;
+  --amp-knob-cap: #0d0c0b;
+  --amp-knob-cap-2: #3a3430;
+  --amp-knob-pointer: #d8b76a;
+}
+
+[data-amp-skin='vox'] .pedal__brand {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+[data-amp-skin='generic'] {
+  --amp-tolex:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.018) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.3) 0 2px, transparent 2px 4px),
+    linear-gradient(180deg, #3b2b25, #1c1410);
+  --amp-brandbar: #241f1a;
+  --amp-brand-ink: #f3e4d7;
+  --amp-panel: #2a241e;
+  --amp-panel-ink: #f3e4d7;
+  --amp-panel-line: #5a4636;
+  --amp-piping: #8a6b4c;
+  --amp-grille:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, #2c241e, #14100d);
+  --amp-jewel: #e3ae55;
+}
+
+[data-amp-skin='generic'] .pedal__brand {
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}

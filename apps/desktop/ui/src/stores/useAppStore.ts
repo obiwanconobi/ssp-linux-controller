@@ -86,6 +86,7 @@ import type {
   EqBand,
   InputState,
   LibraryList,
+  LibrarySlot,
   MasterField,
   MasterState,
   MeterState,
@@ -168,7 +169,9 @@ interface AppStore {
   ) => Promise<RustImportReport | null>;
   renameCapture: (listId: string, index: number, newName: string) => void;
   deletePreset: (index: number) => void;
+  deletePresets: (indices: number[]) => Promise<void>;
   deleteCapture: (listId: string, index: number) => void;
+  deleteCaptures: (listId: string, indices: number[]) => Promise<void>;
   addPreset: () => void;
   toggleFavorite: (name: string) => void;
   toggleBlock: (id: string) => void;
@@ -212,6 +215,7 @@ interface AppStore {
   setDemoAllowed: (allowed: boolean) => void;
   setAppVersion: (version: string) => void;
   refreshDevice: () => Promise<void>;
+  refreshSnapshot: () => void;
   applyDeviceSnapshot: (snapshot: RustSnapshot) => void;
   resumeDevice: () => Promise<void>;
   disconnect: () => void;
@@ -1510,6 +1514,164 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       'warn',
     );
     get().notify(`${slot.name} deleted`, 'good');
+  },
+
+  deletePresets: async (indices) => {
+    const { preset, connection } = get();
+    const targets = [...new Set(indices)]
+      .sort((left, right) => left - right)
+      .map((index) => ({ index, name: (preset.names[index] ?? '').trim() }))
+      .filter((target) => target.name);
+    if (targets.length === 0) {
+      get().notify('No preset slots selected', 'warn');
+      return;
+    }
+    const slots = targets.map((target) => target.index + 1).join(', ');
+    if (connection.mode === 'device') {
+      const listPath = preset.listPath ?? 'root\\presets';
+      let lastSnapshot: RustSnapshot | null = null;
+      const deleted: typeof targets = [];
+      let failure: string | null = null;
+      for (const target of targets) {
+        try {
+          lastSnapshot = await tauriClient.deleteListItem(listPath, target.index);
+          deleted.push(target);
+        } catch (error) {
+          failure = ipcErrorMessage(error);
+          break;
+        }
+      }
+      if (lastSnapshot) get().applyDeviceSnapshot(lastSnapshot);
+      if (failure) {
+        await get().refreshDevice();
+      }
+      const deletedNames = new Set(deleted.map((target) => target.name));
+      set((state) => ({
+        preset: {
+          ...state.preset,
+          favorites: state.preset.favorites.filter((name) => !deletedNames.has(name)),
+          recent: state.preset.recent.filter((name) => !deletedNames.has(name)),
+        },
+      }));
+      if (failure) {
+        get().addActivity(
+          'Preset deletion failed',
+          `${deleted.length} of ${targets.length} deleted · ${failure}`,
+          'bad',
+        );
+        get().notify(
+          `Deleted ${deleted.length} of ${targets.length} presets: ${failure}`,
+          'bad',
+        );
+      } else {
+        get().addActivity(
+          'Presets deleted',
+          `${deleted.length} presets · slots ${slots}`,
+          'warn',
+        );
+        get().notify(`Deleted ${deleted.length} presets`, 'good');
+      }
+      return;
+    }
+
+    const deletedNames = new Set(targets.map((target) => target.name));
+    set((state) => {
+      const wasCurrent = targets.some(
+        (target) => state.preset.names[target.index] === state.preset.current,
+      );
+      return {
+        preset: {
+          ...state.preset,
+          names: state.preset.names.map((name, index) =>
+            targets.some((target) => target.index === index) ? '' : name,
+          ),
+          current: wasCurrent ? '' : state.preset.current,
+          index: wasCurrent ? 0 : state.preset.index,
+          favorites: state.preset.favorites.filter((name) => !deletedNames.has(name)),
+          recent: state.preset.recent.filter((name) => !deletedNames.has(name)),
+        },
+      };
+    });
+    get().addActivity('Presets deleted', `${targets.length} presets · slots ${slots}`, 'warn');
+    get().notify(`Deleted ${targets.length} presets`, 'good');
+  },
+
+  deleteCaptures: async (listId, indices) => {
+    const { lists, connection } = get();
+    const list = lists.find((item) => item.id === listId);
+    const targets = [...new Set(indices)]
+      .sort((left, right) => left - right)
+      .map((index) => list?.slots[index])
+      .filter((slot): slot is LibrarySlot => Boolean(slot?.used));
+    if (!list || targets.length === 0) {
+      get().notify('No capture slots selected', 'warn');
+      return;
+    }
+    const slots = targets.map((slot) => slot.index + 1).join(', ');
+    if (connection.mode === 'device') {
+      let lastSnapshot: RustSnapshot | null = null;
+      const deleted: typeof targets = [];
+      let failure: string | null = null;
+      for (const target of targets) {
+        try {
+          lastSnapshot = await tauriClient.deleteListItem(
+            uploadTargetPath(listId),
+            target.index,
+          );
+          deleted.push(target);
+        } catch (error) {
+          failure = ipcErrorMessage(error);
+          break;
+        }
+      }
+      if (lastSnapshot) get().applyDeviceSnapshot(lastSnapshot);
+      if (failure) {
+        await get().refreshDevice();
+        get().addActivity(
+          'Capture deletion failed',
+          `${deleted.length} of ${targets.length} deleted · ${list.label} · ${failure}`,
+          'bad',
+        );
+        get().notify(
+          `Deleted ${deleted.length} of ${targets.length} captures: ${failure}`,
+          'bad',
+        );
+      } else {
+        get().addActivity(
+          'Captures deleted',
+          `${deleted.length} captures · ${list.label} · slots ${slots}`,
+          'warn',
+        );
+        get().notify(`Deleted ${deleted.length} captures`, 'good');
+      }
+      return;
+    }
+
+    const selected = new Set(targets.map((slot) => slot.index));
+    set((state) => ({
+      lists: state.lists.map((item) =>
+        item.id === listId
+          ? {
+              ...item,
+              activeSlot:
+                item.activeSlot != null && selected.has(item.activeSlot)
+                  ? undefined
+                  : item.activeSlot,
+              slots: item.slots.map((entry) =>
+                selected.has(entry.index)
+                  ? { ...entry, name: '', used: false, active: false, usedBy: [] }
+                  : entry,
+              ),
+            }
+          : item,
+      ),
+    }));
+    get().addActivity(
+      'Captures deleted',
+      `${targets.length} captures · ${list.label} · slots ${slots}`,
+      'warn',
+    );
+    get().notify(`Deleted ${targets.length} captures`, 'good');
   },
 
   addPreset: () => {
@@ -3228,6 +3390,23 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     } catch (error) {
       get().notify(ipcErrorMessage(error), 'bad');
     }
+  },
+
+  refreshSnapshot: () => {
+    const state = get();
+    if (state.connection.mode === 'demo') {
+      state.notify('The demo board is already in sync', 'neutral');
+      return;
+    }
+    if (state.connection.connected) {
+      void state.refreshDevice();
+      return;
+    }
+    if (state.connection.address) {
+      void state.connectReal(state.connection.address);
+      return;
+    }
+    state.setConnectionOpen(true);
   },
 
   applyDeviceSnapshot: (snapshot) => {

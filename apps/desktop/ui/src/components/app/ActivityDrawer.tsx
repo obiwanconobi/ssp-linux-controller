@@ -6,7 +6,7 @@ export const ActivityDrawer = () => {
   const open = useAppStore((state) => state.activityOpen);
   const setOpen = useAppStore((state) => state.setActivityOpen);
   const activity = useAppStore((state) => state.activity);
-  const notify = useAppStore((state) => state.notify);
+  const copyDiagnostics = useAppStore((state) => state.copyDiagnostics);
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -31,7 +31,7 @@ export const ActivityDrawer = () => {
             <button
               type="button"
               className="btn btn--sm"
-              onClick={() => notify('Diagnostic report copied (demo)', 'good')}
+              onClick={() => copyDiagnostics()}
             >
               <Copy size={12} /> Copy report
             </button>
@@ -49,7 +49,7 @@ export const ActivityDrawer = () => {
             ))}
           </ul>
           <footer className="activity-drawer__foot">
-            <span className="hint">Log rotation is capped at 5 MB in the desktop shell.</span>
+            <span className="hint">Session log · newest 80 entries · no payloads</span>
           </footer>
         </Dialog.Content>
       </Dialog.Portal>

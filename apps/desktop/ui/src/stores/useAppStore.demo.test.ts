@@ -79,6 +79,47 @@ describe('demo chain editing', () => {
     expect(slotName).toBeTruthy();
   });
 
+  it('batch-deletes preset and capture slots without shifting indices', async () => {
+    const before = useAppStore.getState();
+    const favoriteName = before.preset.favorites[0];
+    const favoriteIndex = before.preset.names.indexOf(favoriteName);
+    const currentIndex = before.preset.index;
+    const presetIndices = [...new Set([favoriteIndex, currentIndex])].sort((a, b) => a - b);
+    const presetNames = presetIndices.map((index) => before.preset.names[index]);
+    expect(favoriteIndex).toBeGreaterThanOrEqual(0);
+    expect(before.preset.names[currentIndex]).toBeTruthy();
+
+    await useAppStore.getState().deletePresets(presetIndices);
+
+    const afterPresets = useAppStore.getState();
+    for (const index of presetIndices) {
+      expect(afterPresets.preset.names[index]).toBe('');
+    }
+    expect(afterPresets.preset.names).toHaveLength(before.preset.names.length);
+    expect(afterPresets.preset.current).toBe('');
+    expect(afterPresets.preset.favorites).not.toContain(presetNames[0]);
+    expect(afterPresets.preset.recent).not.toContain(presetNames[0]);
+
+    const list = afterPresets.lists.find((item) => item.id === 'nam_amp')!;
+    const usedIndices = list.slots
+      .filter((slot) => slot.used)
+      .map((slot) => slot.index)
+      .slice(0, 2);
+    expect(usedIndices.length).toBeGreaterThan(0);
+
+    await useAppStore.getState().deleteCaptures('nam_amp', usedIndices);
+
+    const final = useAppStore.getState().lists.find((item) => item.id === 'nam_amp')!;
+    for (const index of usedIndices) {
+      expect(final.slots[index].name).toBe('');
+      expect(final.slots[index].used).toBe(false);
+      expect(final.slots[index].active).toBe(false);
+    }
+    expect(final.slots).toHaveLength(list.slots.length);
+    expect(final.slots.map((slot) => slot.index)).toEqual(list.slots.map((slot) => slot.index));
+    expect(final.activeSlot).toBeUndefined();
+  });
+
   it('swaps a block with an available one in place', () => {
     const before = useAppStore.getState();
     const gateIndex = before.blocks.findIndex((block) => block.id === 'gate');

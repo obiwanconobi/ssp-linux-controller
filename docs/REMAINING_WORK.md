@@ -1,6 +1,6 @@
 # Remaining work — recommended delivery order
 
-Last updated: 2026-11-26
+Last updated: 2026-11-27
 
 Sources: [`DEVELOPMENT.md`](DEVELOPMENT.md#project-status) status,
 [`BACKLOG.md`](BACKLOG.md), [`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md),
@@ -77,12 +77,13 @@ Why now: the core already supports it; this is the lowest-risk visible gap.
 
 ### 1.2 Multi-select list deletion
 
-- [ ] Add selection to the preset/Library list inspector.
-- [ ] Confirm once, then send one delete per selected index, awaiting each.
-- [ ] Refresh after the batch and preserve stable indices.
-- [ ] Hardware-check a two- or three-item batch delete.
+- [x] Add selection to the preset/Library list inspector.
+- [x] Confirm once, then send one delete per selected index, awaiting each.
+- [x] Refresh after the batch and preserve stable indices.
+- [x] Hardware-check a two- or three-item batch delete (user-confirmed).
 
-Prerequisite: 0.2 single-item delete verified on hardware.
+Prerequisite: 0.2 single-item delete verified on hardware (NAM passed;
+preset/PNAM/IR single deletes remain open).
 
 ### 1.3 Factory reset flow
 
@@ -276,9 +277,10 @@ the import commit, and duplicate-name behavior are validated on 2.5.3. See
 
 ## Suggested next three
 
-1. Finish the remaining backed-up hardware validation: preset/PNAM/IR delete
-   (NAM passed), USB unplug/replug, external changes with a pending edit, and
-   audio readback. Follow [`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md).
+1. Finish the remaining backed-up hardware validation: preset/PNAM/IR single
+   delete (NAM passed; multi-item batch deletion is user-confirmed), USB
+   unplug/replug, external changes with a pending edit, and audio readback.
+   Follow [`REMAINING_VALIDATION.md`](REMAINING_VALIDATION.md).
 2. Continue P4: upload-memory budget, distro/clean-machine checks, signing,
    updater, and crash-report/diagnostic review.
 3. Then Android/beta work in P5.

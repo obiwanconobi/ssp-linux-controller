@@ -1264,7 +1264,7 @@
 }
 
 .utility-card--activity {
-  flex: 1 1 auto;
+  flex: 1 0 auto;
   min-height: 120px;
 }
 
@@ -2506,6 +2506,39 @@
   flex: 1;
 }
 
+.library-selection-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.library-selection-bar__spacer {
+  flex: 1;
+}
+
+.selection-check {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.library-row--selectable {
+  cursor: pointer;
+}
+
+.library-row--selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.library-row--selected td:first-child {
+  color: var(--text);
+}
+
 .library-table-wrap {
   flex: 1;
   min-height: 0;
@@ -2920,6 +2953,14 @@
 
 .preset-slot--active {
   background: color-mix(in srgb, var(--accent) 9%, transparent) !important;
+}
+
+.preset-slot--selectable {
+  cursor: pointer;
+}
+
+.preset-slot--selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
 }
 
 /* ===========================================================================

@@ -437,6 +437,32 @@ describe('device connection integration', () => {
     );
   });
 
+  it('deletes several capture list items sequentially through the IPC client', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    const list = useAppStore
+      .getState()
+      .lists.find((item) => item.kind === 'nam' && item.slots.some((slot) => slot.used))!;
+    const indices = list.slots
+      .filter((slot) => slot.used)
+      .slice(0, 2)
+      .map((slot) => slot.index);
+    expect(indices).toHaveLength(2);
+    client.deleteListItem.mockClear();
+
+    await useAppStore.getState().deleteCaptures(list.id, indices);
+
+    expect(client.deleteListItem).toHaveBeenNthCalledWith(
+      1,
+      `root\\${list.id}`,
+      indices[0],
+    );
+    expect(client.deleteListItem).toHaveBeenNthCalledWith(
+      2,
+      `root\\${list.id}`,
+      indices[1],
+    );
+  });
+
   it('clears the device chain through the router command', async () => {
     await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
     const readsBefore = client.getSnapshot.mock.calls.length;

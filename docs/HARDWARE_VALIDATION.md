@@ -235,7 +235,7 @@ The hardware-free suite is the release gate:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace          # 99 tests
+cargo test --workspace          # Rust unit tests
 ./scripts/smoke.sh              # simulator, chain edits, save path, preset, upload
 
 cd apps/desktop/ui
@@ -340,8 +340,9 @@ dwrite <listPath>:{"index":N,"chunk":-1,"value":"<128 zero bytes as hex>"}
 The backend permits only preset and capture lists, rejects empty/out-of-range
 slots, sends one command per item, reads the list back, and verifies the name
 was cleared. Indices are not shifted. The simulator and UI tests cover the
-flow. NAM delete/readback passed on 2.5.3; the same zero-fill/ACK path for
-presets, PNAM, and IR still needs validation.
+flow. NAM delete/readback passed on 2.5.3, and multi-item batch deletion is
+user-confirmed. The same zero-fill/ACK path for presets, PNAM, and IR single
+deletes still needs validation.
 
 ## Tuner open/close (validated 0.4.2 / 2.5.3)
 

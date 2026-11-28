@@ -6,6 +6,7 @@ import { App } from './App';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/kit.css';
+import './styles/ampSkins.css';
 import './styles/app.css';
 
 const showFatal = (message: string) => {

@@ -50,10 +50,9 @@ export const CommandPalette = () => {
   const addPreset = useAppStore((state) => state.addPreset);
   const setTheme = useAppStore((state) => state.setTheme);
   const theme = useAppStore((state) => state.theme);
-  const notify = useAppStore((state) => state.notify);
   const copyDiagnostics = useAppStore((state) => state.copyDiagnostics);
   const disconnect = useAppStore((state) => state.disconnect);
-  const addActivity = useAppStore((state) => state.addActivity);
+  const refreshSnapshot = useAppStore((state) => state.refreshSnapshot);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const mobile = isMobileRuntime();
@@ -89,15 +88,14 @@ export const CommandPalette = () => {
       { id: 'theme', title: `Switch theme to ${nextTheme.name}`, detail: 'Theme changes stay local', group: 'Appearance', icon: theme === 'cream' ? Moon : Sun, run: () => setTheme(nextTheme.id) },
       { id: 'copy', title: 'Copy diagnostic report', group: 'Support', icon: Copy, run: () => copyDiagnostics() },
       { id: 'shortcuts', title: 'Open keyboard shortcuts', group: 'Support', icon: Check, shortcut: '?', run: () => setShortcutsOpen(true) },
-      { id: 'refresh', title: 'Refresh snapshot from device', group: 'Device', icon: RefreshCw, run: () => { addActivity('Snapshot refreshed', 'demo simulator', 'neutral'); notify('Snapshot refreshed', 'neutral'); } },
+      { id: 'refresh', title: 'Refresh snapshot from device', group: 'Device', icon: RefreshCw, run: () => refreshSnapshot() },
     ];
   }, [
-    addActivity,
     addPreset,
     copyDiagnostics,
     disconnect,
-    notify,
     redo,
+    refreshSnapshot,
     savePreset,
     setActivityOpen,
     setConnectionOpen,
