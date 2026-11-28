@@ -214,7 +214,7 @@ interface AppStore {
   forgetSavedPassword: () => Promise<void>;
   setDemoAllowed: (allowed: boolean) => void;
   setAppVersion: (version: string) => void;
-  refreshDevice: () => Promise<void>;
+  refreshDevice: (fullRefresh?: boolean) => Promise<void>;
   refreshSnapshot: () => void;
   applyDeviceSnapshot: (snapshot: RustSnapshot) => void;
   resumeDevice: () => Promise<void>;
@@ -573,6 +573,7 @@ const initialView = (): ViewId => {
 async function collectDevice(
   connectAddress?: string,
   password?: string,
+  fullRefresh = false,
 ): Promise<{
   snapshot: Awaited<ReturnType<typeof tauriClient.getSnapshot>>;
   editors: Record<string, RustBlockEditor>;
@@ -581,7 +582,12 @@ async function collectDevice(
   const info = connectAddress
     ? await tauriClient.connect(connectAddress, password)
     : null;
-  const snapshot = await tauriClient.getSnapshot();
+  // A preset change invalidates the chain/router tree, so callers that need
+  // the post-load state must force a fresh browse instead of reading the
+  // actor's cached node tree.
+  const snapshot = fullRefresh
+    ? await tauriClient.refresh()
+    : await tauriClient.getSnapshot();
   const editors: Record<string, RustBlockEditor> = {};
   for (const block of snapshot.chain.blocks) {
     editors[block.path] = await tauriClient.selectBlock(block.path);
@@ -1082,7 +1088,9 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     if (get().connection.mode === 'device') {
       tauriClient
         .setPreset(name)
-        .then(() => window.setTimeout(() => void get().refreshDevice(), 320))
+        // The write only updates the preset node. Force a fresh browse so the
+        // new router/chain tree arrives without waiting for the 2 s poll.
+        .then(() => get().refreshDevice(true))
         .catch((error) => get().notify(ipcErrorMessage(error), 'bad'));
     }
   },
@@ -3313,11 +3321,11 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }
   },
 
-  refreshDevice: async () => {
+  refreshDevice: async (fullRefresh = false) => {
     const current = get();
     if (current.connection.mode !== 'device') return;
     try {
-      const { snapshot, editors } = await collectDevice();
+      const { snapshot, editors } = await collectDevice(undefined, undefined, fullRefresh);
       lastDeviceSnapshot = snapshot;
       const info: ConnectionInfo = {
         address: current.connection.address,

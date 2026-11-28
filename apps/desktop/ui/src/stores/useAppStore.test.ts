@@ -345,6 +345,33 @@ describe('device connection integration', () => {
     await vi.waitFor(() => expect(useAppStore.getState().save.edited).toBe(false));
   });
 
+  it('can force a full device refresh instead of reading the cached tree', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.refresh.mockClear();
+    client.getSnapshot.mockClear();
+
+    await useAppStore.getState().refreshDevice(true);
+
+    expect(client.refresh).toHaveBeenCalled();
+    expect(client.getSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('forces a fresh browse after selecting a preset', async () => {
+    await useAppStore.getState().connectReal('tcp:127.0.0.1:45678');
+    client.setPreset.mockClear();
+    client.refresh.mockClear();
+
+    const preset = useAppStore.getState().preset;
+    const index = preset.names.findIndex((name) => name.trim().length > 0);
+    expect(index).toBeGreaterThanOrEqual(0);
+    useAppStore.getState().setPreset(index);
+
+    await vi.waitFor(() =>
+      expect(client.setPreset).toHaveBeenCalledWith(preset.names[index]),
+    );
+    await vi.waitFor(() => expect(client.refresh).toHaveBeenCalled());
+  });
+
   it('loads a default PNAM model and its parameter controls after a type change', async () => {
     const baseEditors = structuredClone(hardware.editors);
     const driveEmpty = structuredClone(baseEditors['root\\app\\drive']);
